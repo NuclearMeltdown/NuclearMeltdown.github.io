@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Arbeitszeitrechner">
+  <title>Arbeitszeitrechner</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=SF+Pro+Display:400,600&display=swap">
+  <script>
+    let kommenZeit = null;
+    let gehenZeit = null;
+
+    function init() {
+      // Laden des aktuellen Stundenkontos aus localStorage
+      const aktuellesKonto = localStorage.getItem('aktuellesStundenkonto');
+      if (aktuellesKonto !== null) {
+        document.getElementById('aktuelles-konto').value = parseFloat(aktuellesKonto);
+      }
+      // Anzeige aktualisieren
+      updateCalculations();
+    }
+
+    function setKommen() {
+      const now = new Date();
+      kommenZeit = now;
+      document.getElementById("kommen-display").value = formatTime(kommenZeit);
+      updateCalculations();
+    }
+
+    function setGehen() {
+      const now = new Date();
+      gehenZeit = now;
+      document.getElementById("gehen-display").value = formatTime(gehenZeit);
+      updateCalculations();
+    }
+
+    function updateKommenFromInput() {
+      const value = document.getElementById("kommen-display").value;
+      kommenZeit = parseTime(value);
+      updateCalculations();
+    }
+
+    function updateGehenFromInput() {
+      const value = document.getElementById("gehen-display").value;
+      gehenZeit = parseTime(value);
+      updateCalculations();
+    }
+
+    function parseTime(timeStr) {
+      const [hours, minutes] = timeStr.split(":").map(Number);
+      const now = new Date();
+      now.setHours(hours, minutes, 0, 0);
+      return now;
+    }
+
+    function formatTime(date) {
+      return date ? `${pad(date.getHours())}:${pad(date.getMinutes())}` : "--:--";
+    }
+
+    function pad(num) {
+      return num.toString().padStart(2, "0");
+    }
+
+    function getAdjustedKommenZeit() {
+      if (!kommenZeit) return null;
+      const isPcBuchung = document.getElementById('pc-buchung').checked;
+      let adjustedKommenZeit = new Date(kommenZeit.getTime());
+      if (isPcBuchung) {
+        adjustedKommenZeit.setMinutes(adjustedKommenZeit.getMinutes() - 8);
+      }
+      return adjustedKommenZeit;
+    }
+
+    function calculateWorkingTime() {
+      const adjustedKommen = getAdjustedKommenZeit();
+      if (adjustedKommen && gehenZeit) {
+        const diffMs = gehenZeit - adjustedKommen;
+        const hours = Math.floor(diffMs / (1000 * 60 * 60));
+        const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+        return { hours, minutes };
+      }
+      return { hours: 0, minutes: 0 };
+    }
+
+    function parseAdditionalPause() {
+      const value = document.getElementById("zusatzliche-pause").value;
+      if (!value) return 0;
+      const [hours, minutes] = value.split(":").map(Number);
+      return hours + minutes / 60;
+    }
+
+    function calculatePausen(totalHours) {
+      let pausen = 0;
+      if (totalHours > 6) pausen += 0.5; // 30 Minuten
+      if (totalHours > 9) pausen += 0.25; // weitere 15 Minuten
+
+      // Zusätzliche Pausen hinzufügen
+      pausen += parseAdditionalPause();
+
+      return pausen;
+    }
+
+    function calculateArbeitszeit() {
+      const workTime = calculateWorkingTime();
+      const totalHours = workTime.hours + workTime.minutes / 60;
+      const pausen = calculatePausen(totalHours);
+      return totalHours - pausen;
+    }
+
+    function formatDecimalToTime(decimalHours) {
+      const hours = Math.floor(Math.abs(decimalHours));
+      const minutes = Math.round((Math.abs(decimalHours) % 1) * 60);
+      const sign = decimalHours < 0 ? "-" : "";
+      return `${sign}${hours}:${pad(minutes)}`;
+    }
+
+    function calculateEndTime(durationHours) {
+      const adjustedKommen = getAdjustedKommenZeit();
+      if (!adjustedKommen) return "--:--";
+      const endTime = new Date(adjustedKommen.getTime());
+
+      const totalMinutes = durationHours * 60; // Arbeitsdauer in Minuten
+      const pausenInMinuten = calculatePausen(durationHours) * 60; // Pausen in Minuten
+
+      endTime.setMinutes(endTime.getMinutes() + totalMinutes + pausenInMinuten);
+
+      return formatTime(endTime);
+    }
+
+    function updateEndTimes() {
+      const endTimesList = document.getElementById("end-times-list");
+      endTimesList.innerHTML = "";
+
+      if (!kommenZeit) return;
+
+      const durations = [4, 6, 9, 10]; // Stunden
+      durations.forEach(duration => {
+        const listItem = document.createElement("li");
+        listItem.textContent = `${duration}h: ${calculateEndTime(duration)}`;
+        endTimesList.appendChild(listItem);
+      });
+
+      // Berechnung für Sollarbeitszeit
+      const wochenArbeitszeit = parseFloat(document.getElementById("wochenarbeitszeit").value);
+      const sollArbeitszeit = wochenArbeitszeit / 5; // 5 Arbeitstage pro Woche
+
+      const sollEndTime = calculateEndTime(sollArbeitszeit);
+
+      const sollItem = document.createElement("li");
+      sollItem.textContent = `Sollarbeitszeit (${sollArbeitszeit.toFixed(2)}h): ${sollEndTime}`;
+      endTimesList.appendChild(sollItem);
+    }
+
+    function updateCalculations() {
+      const workTime = calculateWorkingTime();
+      const totalHours = workTime.hours + workTime.minutes / 60;
+      const pausen = calculatePausen(totalHours);
+      const arbeitszeit = totalHours - pausen;
+      const wochenArbeitszeit = parseFloat(document.getElementById("wochenarbeitszeit").value);
+      const sollArbeitszeit = wochenArbeitszeit / 5; // 5 Arbeitstage pro Woche
+      const differenz = arbeitszeit - sollArbeitszeit;
+
+      const aktuellesStundenkonto = parseFloat(document.getElementById("aktuelles-konto").value) || 0;
+      const neuesStundenkonto = aktuellesStundenkonto + differenz;
+
+      document.getElementById("anwesend-zeit").textContent = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
+      document.getElementById("pausenzeit").textContent = `${(pausen * 60).toFixed(0)} Min`;
+      document.getElementById("arbeitszeit").textContent = `${formatDecimalToTime(arbeitszeit)} (${arbeitszeit.toFixed(2)}h)`;
+      document.getElementById("sollarbeitszeit").textContent = `${formatDecimalToTime(sollArbeitszeit)} (${sollArbeitszeit.toFixed(2)}h)`;
+      document.getElementById("differenz").value = differenz.toFixed(2);
+      document.getElementById("differenz-time").value = formatDecimalToTime(differenz);
+      document.getElementById("neues-konto").value = neuesStundenkonto.toFixed(2);
+      document.getElementById("neues-konto-time").value = formatDecimalToTime(neuesStundenkonto);
+      document.getElementById("aktuelles-konto-time").value = formatDecimalToTime(aktuellesStundenkonto);
+
+      // Farbe der Felder basierend auf der Differenz
+      const differenzField = document.getElementById("differenz");
+      const neuesKontoField = document.getElementById("neues-konto");
+
+      differenzField.classList.remove("positive-value", "negative-value");
+      neuesKontoField.classList.remove("positive-value", "negative-value");
+
+      if (differenz > 0) {
+        differenzField.classList.add("positive-value");
+        neuesKontoField.classList.add("positive-value");
+      } else if (differenz < 0) {
+        differenzField.classList.add("negative-value");
+        neuesKontoField.classList.add("negative-value");
+      }
+
+      const hinweis = document.getElementById("hinweis");
+      let hinweisText = "";
+
+      // Überprüfung der Arbeitszeitgrenzen
+      if (arbeitszeit < 4 || arbeitszeit > 10) {
+        hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
+      }
+
+      // Überprüfung der Gleitzeitbandbreite für Kommen-Zeit
+      const adjustedKommen = getAdjustedKommenZeit();
+      const kommenField = document.getElementById("kommen-display");
+      kommenField.classList.remove("invalid-time");
+      if (adjustedKommen) {
+        const kommenStunde = adjustedKommen.getHours() + adjustedKommen.getMinutes() / 60;
+        if (kommenStunde < 6 || kommenStunde > 16) {
+          hinweisText += "Achtung: Die Kommen-Zeit liegt außerhalb der Gleitzeitbandbreite (06:00 - 16:00 Uhr)!<br>";
+          kommenField.classList.add("invalid-time");
+        }
+        if (arbeitszeit >= 4 && kommenStunde > 16) {
+          hinweisText += "Achtung: Bei einer Mindestarbeitszeit von 4h darf die Kommen-Zeit nicht nach 16:00 Uhr liegen!<br>";
+          kommenField.classList.add("invalid-time");
+        }
+      }
+
+      // Überprüfung der Gleitzeitbandbreite für Gehen-Zeit
+      const gehenField = document.getElementById("gehen-display");
+      gehenField.classList.remove("invalid-time");
+      if (gehenZeit) {
+        const gehenStunde = gehenZeit.getHours() + gehenZeit.getMinutes() / 60;
+        if (gehenStunde > 20) {
+          hinweisText += "Achtung: Die Gehen-Zeit liegt außerhalb der Gleitzeitbandbreite (bis 20:00 Uhr)!<br>";
+          gehenField.classList.add("invalid-time");
+        }
+      }
+
+      if (hinweisText !== "") {
+        hinweis.innerHTML = hinweisText;
+        hinweis.style.display = "block";
+      } else {
+        hinweis.style.display = "none";
+      }
+
+      updateEndTimes();
+    }
+
+    function saveDay() {
+      const differenz = parseFloat(document.getElementById("differenz").value) || 0;
+      const neuesStundenkonto = parseFloat(document.getElementById("neues-konto").value) || 0;
+
+      // Datum ermitteln
+      const today = new Date();
+      const datum = today.toLocaleDateString();
+
+      // Tagesdaten speichern
+      const dayData = {
+        datum: datum,
+        differenz: differenz.toFixed(2),
+        stundenkonto: neuesStundenkonto.toFixed(2)
+      };
+
+      let history = JSON.parse(localStorage.getItem('history')) || [];
+      history.push(dayData);
+      localStorage.setItem('history', JSON.stringify(history));
+
+      // Neues Stundenkonto als aktuelles Stundenkonto setzen und speichern
+      document.getElementById('aktuelles-konto').value = neuesStundenkonto.toFixed(2);
+      localStorage.setItem('aktuellesStundenkonto', neuesStundenkonto.toFixed(2));
+
+      // Berechnungen aktualisieren
+      updateCalculations();
+
+      alert("Der Tag wurde gespeichert.");
+    }
+
+    function showHistory() {
+      document.getElementById('main-page').style.display = 'none';
+      document.getElementById('history-page').style.display = 'block';
+      loadHistory();
+    }
+
+    function showMainPage() {
+      document.getElementById('history-page').style.display = 'none';
+      document.getElementById('main-page').style.display = 'block';
+    }
+
+    // Neue Variablen für die Paginierung
+    let currentPage = 1;
+    const entriesPerPage = 10; // Anzahl der Einträge pro Seite bleibt bei 10
+
+    function loadHistory() {
+      const historyList = document.getElementById('history-list');
+      historyList.innerHTML = '';
+
+      let history = JSON.parse(localStorage.getItem('history')) || [];
+
+      if (history.length === 0) {
+        historyList.innerHTML = '<p>Keine Einträge vorhanden.</p>';
+        document.getElementById('pagination').style.display = 'none';
+        return;
+      } else {
+        document.getElementById('pagination').style.display = 'flex';
+      }
+
+      // Gesamtzahl der Seiten berechnen
+      const totalPages = Math.ceil(history.length / entriesPerPage);
+
+      // Aktuelle Seite innerhalb der Grenzen halten
+      if (currentPage > totalPages) currentPage = totalPages;
+      if (currentPage < 1) currentPage = 1;
+
+      // Start- und Endindex für die aktuellen Einträge berechnen
+      const startIndex = (currentPage - 1) * entriesPerPage;
+      const endIndex = startIndex + entriesPerPage;
+
+      // Einträge für die aktuelle Seite holen (neueste zuerst)
+      const entries = history.slice().reverse().slice(startIndex, endIndex);
+
+      entries.forEach((entry, index) => {
+        const listItem = document.createElement('li');
+        listItem.innerHTML = `
+          <span><strong>${entry.datum}</strong>: Differenz: ${entry.differenz}h, Stundenkonto: ${entry.stundenkonto}h</span>
+          <button class="delete-button" onclick="deleteEntry(${history.length - 1 - (startIndex + index)})">Löschen</button>
+        `;
+        historyList.appendChild(listItem);
+      });
+
+      // Paginierungssteuerungen aktualisieren
+      updatePaginationControls(totalPages);
+    }
+
+    function updatePaginationControls(totalPages) {
+      const pagination = document.getElementById('pagination');
+      pagination.innerHTML = '';
+
+      // Zur ersten Seite
+      const firstButton = document.createElement('button');
+      firstButton.textContent = '«';
+      firstButton.disabled = currentPage === 1;
+      firstButton.onclick = () => { currentPage = 1; loadHistory(); };
+      pagination.appendChild(firstButton);
+
+      // Vorherige Seite
+      const prevButton = document.createElement('button');
+      prevButton.textContent = '‹';
+      prevButton.disabled = currentPage === 1;
+      prevButton.onclick = () => { currentPage--; loadHistory(); };
+      pagination.appendChild(prevButton);
+
+      // Seitenanzeige
+      const pageInfo = document.createElement('span');
+      pageInfo.textContent = ` Seite ${currentPage} von ${totalPages} `;
+      pagination.appendChild(pageInfo);
+
+      // Nächste Seite
+      const nextButton = document.createElement('button');
+      nextButton.textContent = '›';
+      nextButton.disabled = currentPage === totalPages;
+      nextButton.onclick = () => { currentPage++; loadHistory(); };
+      pagination.appendChild(nextButton);
+
+      // Zur letzten Seite
+      const lastButton = document.createElement('button');
+      lastButton.textContent = '»';
+      lastButton.disabled = currentPage === totalPages;
+      lastButton.onclick = () => { currentPage = totalPages; loadHistory(); };
+      pagination.appendChild(lastButton);
+    }
+
+    function deleteEntry(index) {
+      let history = JSON.parse(localStorage.getItem('history')) || [];
+      if (index >= 0 && index < history.length) {
+        if (confirm('Möchten Sie diesen Eintrag wirklich löschen?')) {
+          history.splice(index, 1);
+          localStorage.setItem('history', JSON.stringify(history));
+          // Wenn der Eintrag auf der letzten Seite gelöscht wurde und die Seite jetzt leer ist, zur vorherigen Seite wechseln
+          const totalPages = Math.ceil(history.length / entriesPerPage);
+          if (currentPage > totalPages) currentPage = totalPages;
+          loadHistory();
+        }
+      }
+    }
+
+    window.onload = init;
+  </script>
+  <style>
+    :root {
+      --background-color: #f2f2f7;
+      --text-color: #000000;
+      --card-background-color: #ffffff;
+      --input-background-color: #ffffff;
+      --input-border-color: #c7c7cc;
+      --button-background-color: #007aff;
+      --button-text-color: #ffffff;
+      --hint-color: #ff3b30;
+      --positive-background-color: #007aff; /* Kräftiges Blau */
+      --negative-background-color: #ff9500; /* Kräftiges Orange */
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background-color: #000000;
+        --text-color: #ffffff;
+        --card-background-color: #1c1c1e;
+        --input-background-color: #2c2c2e;
+        --input-border-color: #3a3a3c;
+        --button-background-color: #0a84ff;
+        --button-text-color: #ffffff;
+        --hint-color: #ff453a;
+        --positive-background-color: #0a84ff; /* Kräftiges Blau */
+        --negative-background-color: #ff9500; /* Kräftiges Orange */
+      }
+    }
+
+    body {
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+        Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: var(--background-color);
+      color: var(--text-color);
+    }
+    .container {
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
+    }
+    h1 {
+      font-weight: 600;
+      font-size: 28px;
+      margin-bottom: 20px;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    .button {
+      display: block;
+      width: 100%;
+      padding: 15px;
+      background-color: var(--button-background-color);
+      color: var(--button-text-color);
+      border: none;
+      border-radius: 12px;
+      font-size: 17px;
+      font-weight: 600;
+      text-align: center;
+      margin-bottom: 10px;
+      cursor: pointer;
+    }
+    .button:active {
+      background-color: rgba(10, 132, 255, 0.8);
+    }
+    input[type="time"],
+    input[type="number"],
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 15px;
+      font-size: 17px;
+      border: 1px solid var(--input-border-color);
+      border-radius: 12px;
+      margin-bottom: 10px;
+      background-color: var(--input-background-color);
+      color: var(--text-color);
+      box-sizing: border-box;
+    }
+    label {
+      font-size: 15px;
+      color: #8e8e93;
+      margin-bottom: 5px;
+      display: block;
+    }
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .checkbox-label input[type="checkbox"] {
+      margin-right: 10px;
+    }
+    #hinweis {
+      color: var(--hint-color);
+      font-weight: 600;
+      font-size: 15px;
+      display: none;
+      margin-top: 10px;
+    }
+    ul {
+      list-style-type: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    li {
+      font-size: 17px; /* Erhöhte Schriftgröße */
+      padding: 10px 0; /* Erhöhtes Padding */
+      border-bottom: 1px solid var(--input-border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    li span {
+      flex: 1;
+      margin-right: 10px;
+    }
+    .delete-button {
+      background-color: var(--hint-color);
+      color: #ffffff;
+      border: none;
+      border-radius: 12px;
+      padding: 10px; /* Erhöhtes Padding */
+      font-size: 15px; /* Erhöhte Schriftgröße */
+      cursor: pointer;
+    }
+    .delete-button:active {
+      background-color: rgba(255, 59, 48, 0.8);
+    }
+    p {
+      font-size: 17px;
+      margin: 5px 0;
+    }
+    .card {
+      background-color: var(--card-background-color);
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .card h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    /* Neue CSS-Klassen für positive und negative Werte */
+    .positive-value {
+      background-color: var(--positive-background-color) !important;
+      color: #ffffff !important;
+    }
+    .negative-value {
+      background-color: var(--negative-background-color) !important;
+      color: #ffffff !important;
+    }
+    /* CSS für ungültige Zeiten */
+    .invalid-time {
+      background-color: var(--hint-color) !important;
+      color: #ffffff !important;
+    }
+    /* Seitenverwaltung */
+    #history-page {
+      display: none;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .nav-button {
+      width: auto;
+      padding: 10px 20px;
+      margin-bottom: 20px;
+    }
+    /* CSS für Zeilen und Spalten */
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .column {
+      flex: 1;
+      margin-right: 10px;
+    }
+    .column:last-child {
+      margin-right: 0;
+    }
+    /* Neue Styles für die Paginierung */
+    #pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 20px; /* Erhöhter Abstand nach oben */
+      margin-bottom: 30px; /* Erhöhter Abstand vom unteren Bildschirmrand */
+    }
+    #pagination button {
+      background-color: var(--button-background-color);
+      color: var(--button-text-color);
+      border: none;
+      border-radius: 5px;
+      padding: 10px;
+      margin: 0 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    #pagination button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    #pagination span {
+      font-size: 16px;
+    }
+    /* Anpassung des Containers auf der Verlaufsseite */
+    #history-page .container {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    #history-page h1,
+    #history-page .nav-button {
+      flex: 0 0 auto;
+    }
+    #history-list {
+      flex: 1 1 auto;
+      overflow: hidden; /* Kein Scrollen innerhalb der Liste */
+    }
+  </style>
+</head>
+<body>
+  <!-- Hauptseite -->
+  <div id="main-page">
+    <div class="container">
+      <h1>Arbeitszeitrechner</h1>
+      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
+      <div class="section">
+        <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
+        <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
+        <label class="checkbox-label">
+          <input type="checkbox" id="pc-buchung" onchange="updateCalculations()">
+          PC-Buchung
+        </label>
+        <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
+        <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
+        <p id="hinweis"></p>
+      </div>
+      <div class="section">
+        <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (hh:mm):</label>
+        <input type="text" id="zusatzliche-pause" placeholder="z.B. 0:15" onchange="updateCalculations()">
+      </div>
+      <div class="section">
+        <label for="wochenarbeitszeit">Wochenarbeitszeit (in Stunden):</label>
+        <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
+      </div>
+      <div class="section">
+        <div class="row">
+          <div class="column">
+            <label for="aktuelles-konto">Aktuelles Stundenkonto:</label>
+            <input type="number" id="aktuelles-konto" value="0" onchange="updateCalculations()">
+          </div>
+          <div class="column">
+            <label>In Zeit:</label>
+            <input type="text" id="aktuelles-konto-time" readonly>
+          </div>
+        </div>
+        <div class="row">
+          <div class="column">
+            <label for="differenz">Differenz:</label>
+            <input type="text" id="differenz" readonly>
+          </div>
+          <div class="column">
+            <label>In Zeit:</label>
+            <input type="text" id="differenz-time" readonly>
+          </div>
+        </div>
+        <div class="row">
+          <div class="column">
+            <label for="neues-konto">Neues Stundenkonto:</label>
+            <input type="text" id="neues-konto" readonly>
+          </div>
+          <div class="column">
+            <label>In Zeit:</label>
+            <input type="text" id="neues-konto-time" readonly>
+          </div>
+        </div>
+        <button class="button" onclick="saveDay()">Tag speichern</button>
+      </div>
+      <div class="section">
+        <div class="card">
+          <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
+          <ul id="end-times-list"></ul>
+        </div>
+      </div>
+      <div class="section">
+        <div class="card">
+          <p><strong>Anwesenheitszeit:</strong> <span id="anwesend-zeit">--</span></p>
+          <p><strong>Pausen:</strong> <span id="pausenzeit">--</span></p>
+          <p><strong>Arbeitszeit:</strong> <span id="arbeitszeit">--</span></p>
+          <p><strong>Sollarbeitszeit:</strong> <span id="sollarbeitszeit">--</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Verlaufsseite -->
+  <div id="history-page">
+    <div class="container">
+      <h1>Verlauf</h1>
+      <button class="button nav-button" onclick="showMainPage()">Zurück</button>
+      <ul id="history-list"></ul>
+      <div id="pagination"></div>
+    </div>
+  </div>
+</body>
+</html>
