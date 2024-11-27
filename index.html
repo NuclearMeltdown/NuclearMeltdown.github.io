@@ -2,19 +2,17 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <!-- Aktualisiertes viewport Meta-Tag mit viewport-fit=cover -->
+  <!-- Viewport mit viewport-fit=cover für sichere Bereiche -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 
-  <!-- Aktualisierte theme-color Meta-Tags für Light- und Dark Mode -->
+  <!-- Theme-Farben für Light- und Dark Mode -->
   <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <!-- Beibehaltung des Statusleisten-Stils als "default" -->
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Arbeitszeitrechner">
   <title>Arbeitszeitrechner</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=SF+Pro+Display:400,600&display=swap">
   <link rel="apple-touch-icon-precomposed" sizes="57x57" href="https://NuclearMeltdown.github.io/apple-touch-icon-57x57.png" />
   <link rel="apple-touch-icon-precomposed" sizes="114x114" href="https://NuclearMeltdown.github.io/apple-touch-icon-114x114.png" />
   <link rel="apple-touch-icon-precomposed" sizes="72x72" href="https://NuclearMeltdown.github.io/apple-touch-icon-72x72.png" />
@@ -35,10 +33,15 @@
   <meta name="msapplication-square150x150logo" content="https://NuclearMeltdown.github.io/mstile-150x150.png" />
   <meta name="msapplication-wide310x150logo" content="https://NuclearMeltdown.github.io/mstile-310x150.png" />
   <meta name="msapplication-square310x310logo" content="https://NuclearMeltdown.github.io/mstile-310x310.png" />
-
+  <!-- Schriftarten -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=SF+Pro+Display:400,600&display=swap">
+  <!-- JavaScript -->
   <script>
     let kommenZeit = null;
     let gehenZeit = null;
+
+    let currentWeekYear = null;
+    let currentWeekNo = null;
 
     function init() {
       // Laden des aktuellen Stundenkontos aus localStorage
@@ -48,6 +51,10 @@
       }
       // Anzeige aktualisieren
       updateCalculations();
+
+      // Aktuelle Kalenderwoche ermitteln
+      const today = new Date();
+      [currentWeekYear, currentWeekNo] = getWeekNumber(today);
     }
 
     function setKommen() {
@@ -158,27 +165,22 @@
     }
 
     function updateEndTimes() {
-      const endTimesList = document.getElementById("end-times-list");
-      endTimesList.innerHTML = "";
-
       if (!kommenZeit) return;
 
       const durations = [4, 6, 9, 10]; // Stunden
+
       durations.forEach(duration => {
-        const listItem = document.createElement("li");
-        listItem.textContent = `${duration}h: ${calculateEndTime(duration)}`;
-        endTimesList.appendChild(listItem);
+        const endTime = calculateEndTime(duration);
+        document.getElementById(`end-time-${duration}h`).value = endTime;
       });
 
       // Berechnung für Sollarbeitszeit
-      const wochenArbeitszeit = parseFloat(document.getElementById("wochenarbeitszeit").value);
-      const sollArbeitszeit = wochenArbeitszeit / 5; // 5 Arbeitstage pro Woche
+      const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value);
+      const sollArbeitszeit = wochenarbeitszeitValue / 5; // 5 Arbeitstage pro Woche
 
       const sollEndTime = calculateEndTime(sollArbeitszeit);
 
-      const sollItem = document.createElement("li");
-      sollItem.textContent = `Sollarbeitszeit (${sollArbeitszeit.toFixed(2)}h): ${sollEndTime}`;
-      endTimesList.appendChild(sollItem);
+      document.getElementById("end-time-soll").value = `(${sollArbeitszeit.toFixed(2)}h): ${sollEndTime}`;
     }
 
     function updateCalculations() {
@@ -186,17 +188,19 @@
       const totalHours = workTime.hours + workTime.minutes / 60;
       const pausen = calculatePausen(totalHours);
       const arbeitszeit = totalHours - pausen;
-      const wochenArbeitszeit = parseFloat(document.getElementById("wochenarbeitszeit").value);
-      const sollArbeitszeit = wochenArbeitszeit / 5; // 5 Arbeitstage pro Woche
+      const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value);
+      const sollArbeitszeit = wochenarbeitszeitValue / 5; // 5 Arbeitstage pro Woche
       const differenz = arbeitszeit - sollArbeitszeit;
 
       const aktuellesStundenkonto = parseFloat(document.getElementById("aktuelles-konto").value) || 0;
       const neuesStundenkonto = aktuellesStundenkonto + differenz;
 
-      document.getElementById("anwesend-zeit").textContent = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
-      document.getElementById("pausenzeit").textContent = `${(pausen * 60).toFixed(0)} Min`;
-      document.getElementById("arbeitszeit").textContent = `${formatDecimalToTime(arbeitszeit)} (${arbeitszeit.toFixed(2)}h)`;
-      document.getElementById("sollarbeitszeit").textContent = `${formatDecimalToTime(sollArbeitszeit)} (${sollArbeitszeit.toFixed(2)}h)`;
+      // Felder aktualisieren
+      document.getElementById("anwesend-zeit").value = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
+      document.getElementById("pausenzeit").value = `${(pausen * 60).toFixed(0)} Min`;
+      document.getElementById("arbeitszeit").value = `${formatDecimalToTime(arbeitszeit)} (${arbeitszeit.toFixed(2)}h)`;
+      document.getElementById("sollarbeitszeit-display").value = `${formatDecimalToTime(sollArbeitszeit)} (${sollArbeitszeit.toFixed(2)}h)`;
+
       document.getElementById("differenz").value = differenz.toFixed(2);
       document.getElementById("differenz-time").value = formatDecimalToTime(differenz);
       document.getElementById("neues-konto").value = neuesStundenkonto.toFixed(2);
@@ -206,16 +210,29 @@
       // Farbe der Felder basierend auf der Differenz
       const differenzField = document.getElementById("differenz");
       const neuesKontoField = document.getElementById("neues-konto");
+      const differenzTimeField = document.getElementById("differenz-time");
+      const neuesKontoTimeField = document.getElementById("neues-konto-time");
 
-      differenzField.classList.remove("positive-value", "negative-value");
-      neuesKontoField.classList.remove("positive-value", "negative-value");
+      differenzField.classList.remove("positive-value", "negative-value", "zero-value");
+      neuesKontoField.classList.remove("positive-value", "negative-value", "zero-value");
+      differenzTimeField.classList.remove("positive-value", "negative-value", "zero-value");
+      neuesKontoTimeField.classList.remove("positive-value", "negative-value", "zero-value");
 
       if (differenz > 0) {
         differenzField.classList.add("positive-value");
         neuesKontoField.classList.add("positive-value");
+        differenzTimeField.classList.add("positive-value");
+        neuesKontoTimeField.classList.add("positive-value");
       } else if (differenz < 0) {
         differenzField.classList.add("negative-value");
         neuesKontoField.classList.add("negative-value");
+        differenzTimeField.classList.add("negative-value");
+        neuesKontoTimeField.classList.add("negative-value");
+      } else if (differenz === 0) {
+        differenzField.classList.add("zero-value");
+        neuesKontoField.classList.add("zero-value");
+        differenzTimeField.classList.add("zero-value");
+        neuesKontoTimeField.classList.add("zero-value");
       }
 
       const hinweis = document.getElementById("hinweis");
@@ -265,6 +282,7 @@
 
     function saveDay() {
       const differenz = parseFloat(document.getElementById("differenz").value) || 0;
+      const differenzTime = document.getElementById("differenz-time").value;
       const neuesStundenkonto = parseFloat(document.getElementById("neues-konto").value) || 0;
 
       // Datum ermitteln
@@ -275,11 +293,25 @@
       const dayData = {
         datum: datum,
         differenz: differenz.toFixed(2),
+        differenzTime: differenzTime,
         stundenkonto: neuesStundenkonto.toFixed(2)
       };
 
       let history = JSON.parse(localStorage.getItem('history')) || [];
-      history.push(dayData);
+
+      // Überprüfen, ob ein Eintrag für das Datum bereits existiert
+      const existingIndex = history.findIndex(entry => entry.datum === datum);
+      if (existingIndex !== -1) {
+        if (confirm(`Für den Tag ${datum} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
+          history[existingIndex] = dayData;
+        } else {
+          alert("Der Eintrag wurde nicht gespeichert.");
+          return;
+        }
+      } else {
+        history.push(dayData);
+      }
+
       localStorage.setItem('history', JSON.stringify(history));
 
       // Neues Stundenkonto als aktuelles Stundenkonto setzen und speichern
@@ -303,9 +335,21 @@
       document.getElementById('main-page').style.display = 'block';
     }
 
-    // Neue Variablen für die Paginierung
-    let currentPage = 1;
-    const entriesPerPage = 10; // Anzahl der Einträge pro Seite bleibt bei 10
+    function getWeekNumber(d) {
+      d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      return [d.getUTCFullYear(), weekNo];
+    }
+
+    function getDateOfISOWeek(w, y) {
+      const simple = new Date(y, 0, 4 + (w - 1) * 7);
+      const dow = simple.getDay();
+      const ISOweekStart = new Date(simple);
+      ISOweekStart.setDate(simple.getDate() - ((dow + 6) % 7));
+      return ISOweekStart;
+    }
 
     function loadHistory() {
       const historyList = document.getElementById('history-list');
@@ -313,88 +357,146 @@
 
       let history = JSON.parse(localStorage.getItem('history')) || [];
 
-      if (history.length === 0) {
-        historyList.innerHTML = '<p>Keine Einträge vorhanden.</p>';
-        document.getElementById('pagination').style.display = 'none';
-        return;
-      } else {
-        document.getElementById('pagination').style.display = 'flex';
-      }
+      // Kalenderwoche und Datumsbereich anzeigen
+      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+      const weekEndDate = new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate() + 4); // Bis Freitag
 
-      // Gesamtzahl der Seiten berechnen
-      const totalPages = Math.ceil(history.length / entriesPerPage);
+      const weekRange = `${weekStartDate.toLocaleDateString()} - ${weekEndDate.toLocaleDateString()}`;
 
-      // Aktuelle Seite innerhalb der Grenzen halten
-      if (currentPage > totalPages) currentPage = totalPages;
-      if (currentPage < 1) currentPage = 1;
+      const weekInfo = document.getElementById('week-info');
+      weekInfo.textContent = `KW ${currentWeekNo} (${weekRange})`;
 
-      // Start- und Endindex für die aktuellen Einträge berechnen
-      const startIndex = (currentPage - 1) * entriesPerPage;
-      const endIndex = startIndex + entriesPerPage;
+      // Wochentage von Montag (1) bis Freitag (5)
+      const weekdays = [1, 2, 3, 4, 5];
+      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
 
-      // Einträge für die aktuelle Seite holen (neueste zuerst)
-      const entries = history.slice().reverse().slice(startIndex, endIndex);
+      const entriesForWeek = {};
 
-      entries.forEach((entry, index) => {
+      history.forEach(entry => {
+        const entryDate = new Date(entry.datum);
+        const [entryYear, entryWeekNo] = getWeekNumber(entryDate);
+        if (entryYear === currentWeekYear && entryWeekNo === currentWeekNo) {
+          const weekday = entryDate.getDay(); // 0 (Sonntag) bis 6 (Samstag)
+          entriesForWeek[weekday] = entry;
+        }
+      });
+
+      weekdays.forEach((weekday, index) => {
         const listItem = document.createElement('li');
-        listItem.innerHTML = `
-          <span><strong>${entry.datum}</strong>: Differenz: ${entry.differenz}h, Stundenkonto: ${entry.stundenkonto}h</span>
-          <button class="delete-button" onclick="deleteEntry(${history.length - 1 - (startIndex + index)})">Löschen</button>
-        `;
+        listItem.classList.add('history-item'); // Für feste Höhe
+        const entry = entriesForWeek[weekday];
+        if (entry) {
+          const differenzValue = parseFloat(entry.differenz);
+          const differenzClass = differenzValue > 0 ? 'positive-value' : (differenzValue < 0 ? 'negative-value' : (differenzValue === 0 ? 'zero-value' : ''));
+          listItem.innerHTML = `
+            <div class="history-entry">
+              <div><strong>${weekdayNames[index]}</strong> (${entry.datum})</div>
+              <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})</span></div>
+              <div>Stundenkonto: ${entry.stundenkonto}h</div>
+            </div>
+            <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
+          `;
+        } else {
+          listItem.innerHTML = `
+            <div class="history-entry">
+              <div><strong>${weekdayNames[index]}</strong></div>
+              <div>Keine Daten vorhanden</div>
+            </div>
+          `;
+        }
         historyList.appendChild(listItem);
       });
 
       // Paginierungssteuerungen aktualisieren
-      updatePaginationControls(totalPages);
+      updateWeekNavigation();
     }
 
-    function updatePaginationControls(totalPages) {
+    function updateWeekNavigation() {
       const pagination = document.getElementById('pagination');
       pagination.innerHTML = '';
 
-      // Zur ersten Seite
-      const firstButton = document.createElement('button');
-      firstButton.textContent = '«';
-      firstButton.disabled = currentPage === 1;
-      firstButton.onclick = () => { currentPage = 1; loadHistory(); };
-      pagination.appendChild(firstButton);
+      // Container für die Navigationselemente
+      const navContainer = document.createElement('div');
+      navContainer.classList.add('nav-container');
 
-      // Vorherige Seite
+      // Jahr zurück
+      const prevYearButton = document.createElement('button');
+      prevYearButton.textContent = '«';
+      prevYearButton.onclick = () => {
+        currentWeekYear--;
+        loadHistory();
+      };
+      navContainer.appendChild(prevYearButton);
+
+      // Vorherige Woche
       const prevButton = document.createElement('button');
       prevButton.textContent = '‹';
-      prevButton.disabled = currentPage === 1;
-      prevButton.onclick = () => { currentPage--; loadHistory(); };
-      pagination.appendChild(prevButton);
+      prevButton.onclick = () => {
+        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+        date.setDate(date.getDate() - 7);
+        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
+        loadHistory();
+      };
+      navContainer.appendChild(prevButton);
 
-      // Seitenanzeige
-      const pageInfo = document.createElement('span');
-      pageInfo.textContent = ` Seite ${currentPage} von ${totalPages} `;
-      pagination.appendChild(pageInfo);
+      // Wochen-Auswahl
+      const weekSelect = document.createElement('select');
+      weekSelect.id = 'week-select';
 
-      // Nächste Seite
+      // Optionen für alle 53 Wochen
+      for (let i = 1; i <= 53; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+
+        // Startdatum der Woche ermitteln
+        const weekStartDate = getDateOfISOWeek(i, currentWeekYear);
+
+        option.textContent = `KW ${i} (${weekStartDate.toLocaleDateString()})`;
+
+        if (i === currentWeekNo) {
+          option.selected = true;
+        }
+        weekSelect.appendChild(option);
+      }
+
+      weekSelect.onchange = () => {
+        currentWeekNo = parseInt(weekSelect.value);
+        loadHistory();
+      };
+
+      navContainer.appendChild(weekSelect);
+
+      // Nächste Woche
       const nextButton = document.createElement('button');
       nextButton.textContent = '›';
-      nextButton.disabled = currentPage === totalPages;
-      nextButton.onclick = () => { currentPage++; loadHistory(); };
-      pagination.appendChild(nextButton);
+      nextButton.onclick = () => {
+        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+        date.setDate(date.getDate() + 7);
+        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
+        loadHistory();
+      };
+      navContainer.appendChild(nextButton);
 
-      // Zur letzten Seite
-      const lastButton = document.createElement('button');
-      lastButton.textContent = '»';
-      lastButton.disabled = currentPage === totalPages;
-      lastButton.onclick = () => { currentPage = totalPages; loadHistory(); };
-      pagination.appendChild(lastButton);
+      // Jahr vor
+      const nextYearButton = document.createElement('button');
+      nextYearButton.textContent = '»';
+      nextYearButton.onclick = () => {
+        currentWeekYear++;
+        loadHistory();
+      };
+      navContainer.appendChild(nextYearButton);
+
+      pagination.appendChild(navContainer);
     }
 
-    function deleteEntry(index) {
+    function deleteEntryByDate(dateStr) {
       let history = JSON.parse(localStorage.getItem('history')) || [];
-      if (index >= 0 && index < history.length) {
-        if (confirm('Möchten Sie diesen Eintrag wirklich löschen?')) {
+      const index = history.findIndex(entry => entry.datum === dateStr);
+      if (index !== -1) {
+        if (confirm(`Möchten Sie den Eintrag für ${dateStr} wirklich löschen?`)) {
           history.splice(index, 1);
           localStorage.setItem('history', JSON.stringify(history));
-          // Wenn der Eintrag auf der letzten Seite gelöscht wurde und die Seite jetzt leer ist, zur vorherigen Seite wechseln
-          const totalPages = Math.ceil(history.length / entriesPerPage);
-          if (currentPage > totalPages) currentPage = totalPages;
           loadHistory();
         }
       }
@@ -402,8 +504,8 @@
 
     window.onload = init;
   </script>
+  <!-- Styles -->
   <style>
-    /* Aktualisiertes CSS, um den Hintergrund in den sicheren Bereich zu erweitern */
     :root {
       --background-color: #f2f2f7;
       --text-color: #000000;
@@ -415,6 +517,7 @@
       --hint-color: #ff3b30;
       --positive-background-color: #007aff; /* Kräftiges Blau */
       --negative-background-color: #ff9500; /* Kräftiges Orange */
+      --zero-background-color: #34c759; /* Grün für 0 */
     }
 
     @media (prefers-color-scheme: dark) {
@@ -429,6 +532,7 @@
         --hint-color: #ff453a;
         --positive-background-color: #0a84ff; /* Kräftiges Blau */
         --negative-background-color: #ff9500; /* Kräftiges Orange */
+        --zero-background-color: #30d158; /* Grün für 0 im Dark Mode */
       }
     }
 
@@ -439,7 +543,7 @@
       padding: 0;
     }
 
-    /* Erweiterung des Hintergrunds in die sicheren Bereiche der Statusleiste und des Home-Indikators */
+    /* Erweiterung des Hintergrunds in die sicheren Bereiche */
     body::before {
       content: "";
       position: fixed;
@@ -477,12 +581,17 @@
       margin-bottom: 20px;
     }
 
+    h2 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
     .section {
       margin-bottom: 30px;
     }
 
     .button {
-      display: block;
       width: 100%;
       padding: 15px;
       background-color: var(--button-background-color);
@@ -523,16 +632,6 @@
       display: block;
     }
 
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-
-    .checkbox-label input[type="checkbox"] {
-      margin-right: 10px;
-    }
-
     #hinweis {
       color: var(--hint-color);
       font-weight: 600;
@@ -548,15 +647,19 @@
     }
 
     li {
-      font-size: 17px; /* Erhöhte Schriftgröße */
-      padding: 10px 0; /* Erhöhtes Padding */
+      font-size: 17px;
+      padding: 10px 0;
       border-bottom: 1px solid var(--input-border-color);
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
     }
 
-    li span {
+    .history-item {
+      min-height: 100px; /* Feste Mindesthöhe für Konsistenz */
+    }
+
+    .history-entry {
       flex: 1;
       margin-right: 10px;
     }
@@ -566,8 +669,8 @@
       color: #ffffff;
       border: none;
       border-radius: 12px;
-      padding: 10px; /* Erhöhtes Padding */
-      font-size: 15px; /* Erhöhte Schriftgröße */
+      padding: 10px;
+      font-size: 15px;
       cursor: pointer;
     }
 
@@ -580,29 +683,32 @@
       margin: 5px 0;
     }
 
-    .card {
-      background-color: var(--card-background-color);
-      border-radius: 12px;
-      padding: 15px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-
-    .card h3 {
+    h3 {
       font-size: 20px;
       font-weight: 600;
       margin-bottom: 10px;
     }
 
-    /* Neue CSS-Klassen für positive und negative Werte */
+    /* CSS-Klassen für positive, negative und zero Werte */
     .positive-value {
       background-color: var(--positive-background-color) !important;
       color: #ffffff !important;
+      padding: 2px 4px;
+      border-radius: 5px;
     }
 
     .negative-value {
       background-color: var(--negative-background-color) !important;
       color: #ffffff !important;
+      padding: 2px 4px;
+      border-radius: 5px;
+    }
+
+    .zero-value {
+      background-color: var(--zero-background-color) !important;
+      color: #ffffff !important;
+      padding: 2px 4px;
+      border-radius: 5px;
     }
 
     /* CSS für ungültige Zeiten */
@@ -614,8 +720,6 @@
     /* Seitenverwaltung */
     #history-page {
       display: none;
-      height: 100vh;
-      overflow: hidden;
     }
 
     .nav-button {
@@ -637,26 +741,38 @@
       margin-right: 10px;
     }
 
+    .column-full {
+      flex: 1;
+    }
+
     .column:last-child {
       margin-right: 0;
     }
 
-    /* Neue Styles für die Paginierung */
+    /* Styles für die Paginierung */
     #pagination {
       display: flex;
       justify-content: center;
       align-items: center;
-      margin-top: 20px; /* Erhöhter Abstand nach oben */
-      margin-bottom: 70px; /* Erhöhter Abstand vom unteren Bildschirmrand */
+      flex-wrap: wrap;
+      margin-top: 20px;
+      margin-bottom: 20px;
     }
 
-    #pagination button {
+    #pagination .nav-container {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    #pagination button,
+    #pagination select {
       background-color: var(--button-background-color);
       color: var(--button-text-color);
       border: none;
-      border-radius: 5px;
-      padding: 10px;
-      margin: 0 5px;
+      border-radius: 12px;
+      padding: 12px;
+      margin: 5px;
       cursor: pointer;
       font-size: 16px;
     }
@@ -668,23 +784,91 @@
 
     #pagination span {
       font-size: 16px;
+      margin: 0 5px;
+    }
+
+    #pagination select {
+      width: auto;
+      max-width: 200px;
+      flex: 1;
     }
 
     /* Anpassung des Containers auf der Verlaufsseite */
     #history-page .container {
-      height: 100%;
+      display: block;
+      padding-bottom: 20px;
+    }
+
+    /* iOS-ähnliche Buttons */
+    button {
+      font-family: inherit;
+      -webkit-appearance: button;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .button,
+    #pagination button {
+      border-radius: 12px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    }
+
+    /* iOS-ähnlicher Switch */
+    .switch-container {
       display: flex;
-      flex-direction: column;
+      align-items: center;
+      margin-bottom: 10px;
     }
 
-    #history-page h1,
-    #history-page .nav-button {
-      flex: 0 0 auto;
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+      margin-right: 10px;
     }
 
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.4s;
+      border-radius: 14px; /* Halb so hoch wie der Schalter für eine pillenförmige Optik */
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px; /* Verkleinerter Kreis */
+      width: 22px;
+      left: 3px;     /* Zentrierung innerhalb des Reglers */
+      top: 3px;
+      background-color: white;
+      transition: 0.4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--button-background-color);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px); /* Angepasste Verschiebung */
+    }
+
+    /* Anpassung der Zeilenhöhe für die Verlaufsseite */
     #history-list {
-      flex: 1 1 auto;
-      overflow: hidden; /* Kein Scrollen innerhalb der Liste */
+      /* Entfernen der maximalen Höhe und der Scrollbar */
+      overflow-y: visible;
     }
   </style>
 </head>
@@ -695,14 +879,29 @@
       <h1>Arbeitszeitrechner</h1>
       <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
       <div class="section">
-        <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
-        <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
-        <label class="checkbox-label">
-          <input type="checkbox" id="pc-buchung" onchange="updateCalculations()">
-          PC-Buchung
-        </label>
-        <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
-        <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
+        <div class="row">
+          <div class="column">
+            <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
+          </div>
+          <div class="column">
+            <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
+          </div>
+        </div>
+        <div class="switch-container">
+          <label class="switch">
+            <input type="checkbox" id="pc-buchung" onchange="updateCalculations()">
+            <span class="slider"></span>
+          </label>
+          <span>PC-Buchung</span>
+        </div>
+        <div class="row">
+          <div class="column">
+            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
+          </div>
+          <div class="column">
+            <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
+          </div>
+        </div>
         <p id="hinweis"></p>
       </div>
       <div class="section">
@@ -713,6 +912,30 @@
         <label for="wochenarbeitszeit">Wochenarbeitszeit (in Stunden):</label>
         <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
       </div>
+      <!-- Verschobener Abschnitt für Anwesenheitszeit etc. -->
+      <div class="section">
+        <div class="row">
+          <div class="column">
+            <label for="anwesend-zeit">Anwesenheitszeit:</label>
+            <input type="text" id="anwesend-zeit" readonly>
+          </div>
+          <div class="column">
+            <label for="pausenzeit">Pausen:</label>
+            <input type="text" id="pausenzeit" readonly>
+          </div>
+        </div>
+        <div class="row">
+          <div class="column">
+            <label for="arbeitszeit">Arbeitszeit:</label>
+            <input type="text" id="arbeitszeit" readonly>
+          </div>
+          <div class="column">
+            <label for="sollarbeitszeit-display">Sollarbeitszeit:</label>
+            <input type="text" id="sollarbeitszeit-display" readonly>
+          </div>
+        </div>
+      </div>
+      <!-- Aktuelles Stundenkonto -->
       <div class="section">
         <div class="row">
           <div class="column">
@@ -746,18 +969,34 @@
         </div>
         <button class="button" onclick="saveDay()">Tag speichern</button>
       </div>
+      <!-- Angepasster Abschnitt für Berechnete Ausstempelzeiten -->
       <div class="section">
-        <div class="card">
-          <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
-          <ul id="end-times-list"></ul>
+        <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
+        <div class="row">
+          <div class="column-full">
+            <label for="end-time-soll">Sollarbeitszeit:</label>
+            <input type="text" id="end-time-soll" readonly>
+          </div>
         </div>
-      </div>
-      <div class="section">
-        <div class="card">
-          <p><strong>Anwesenheitszeit:</strong> <span id="anwesend-zeit">--</span></p>
-          <p><strong>Pausen:</strong> <span id="pausenzeit">--</span></p>
-          <p><strong>Arbeitszeit:</strong> <span id="arbeitszeit">--</span></p>
-          <p><strong>Sollarbeitszeit:</strong> <span id="sollarbeitszeit">--</span></p>
+        <div class="row">
+          <div class="column">
+            <label for="end-time-4h">4h:</label>
+            <input type="text" id="end-time-4h" readonly>
+          </div>
+          <div class="column">
+            <label for="end-time-6h">6h:</label>
+            <input type="text" id="end-time-6h" readonly>
+          </div>
+        </div>
+        <div class="row">
+          <div class="column">
+            <label for="end-time-9h">9h:</label>
+            <input type="text" id="end-time-9h" readonly>
+          </div>
+          <div class="column">
+            <label for="end-time-10h">10h:</label>
+            <input type="text" id="end-time-10h" readonly>
+          </div>
         </div>
       </div>
     </div>
@@ -768,7 +1007,9 @@
     <div class="container">
       <h1>Verlauf</h1>
       <button class="button nav-button" onclick="showMainPage()">Zurück</button>
+      <h2 id="week-info"></h2>
       <ul id="history-list"></ul>
+      <!-- Paginierung direkt unter der Verlaufsliste -->
       <div id="pagination"></div>
     </div>
   </div>
