@@ -287,7 +287,7 @@
 
       // Datum ermitteln
       const today = new Date();
-      const datum = today.toLocaleDateString();
+      const datum = today.toISOString().split('T')[0]; // 'YYYY-MM-DD'
 
       // Tagesdaten speichern
       const dayData = {
@@ -302,7 +302,7 @@
       // Überprüfen, ob ein Eintrag für das Datum bereits existiert
       const existingIndex = history.findIndex(entry => entry.datum === datum);
       if (existingIndex !== -1) {
-        if (confirm(`Für den Tag ${datum} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
+        if (confirm(`Für den Tag ${new Date(datum).toLocaleDateString('de-DE')} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
           history[existingIndex] = dayData;
         } else {
           alert("Der Eintrag wurde nicht gespeichert.");
@@ -344,7 +344,7 @@
     }
 
     function getDateOfISOWeek(w, y) {
-      const simple = new Date(y, 0, 4 + (w - 1) * 7);
+      const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
       const dow = simple.getDay();
       const ISOweekStart = new Date(simple);
       ISOweekStart.setDate(simple.getDate() - ((dow + 6) % 7));
@@ -362,7 +362,7 @@
       const weekEndDate = new Date(weekStartDate);
       weekEndDate.setDate(weekStartDate.getDate() + 4); // Bis Freitag
 
-      const weekRange = `${weekStartDate.toLocaleDateString()} - ${weekEndDate.toLocaleDateString()}`;
+      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
 
       const weekInfo = document.getElementById('week-info');
       weekInfo.textContent = `KW ${currentWeekNo} (${weekRange})`;
@@ -372,6 +372,8 @@
       const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
 
       const entriesForWeek = {};
+
+      let totalDifferenz = 0;
 
       history.forEach(entry => {
         const entryDate = new Date(entry.datum);
@@ -388,10 +390,12 @@
         const entry = entriesForWeek[weekday];
         if (entry) {
           const differenzValue = parseFloat(entry.differenz);
+          totalDifferenz += differenzValue;
           const differenzClass = differenzValue > 0 ? 'positive-value' : (differenzValue < 0 ? 'negative-value' : (differenzValue === 0 ? 'zero-value' : ''));
+          const displayDate = new Date(entry.datum).toLocaleDateString('de-DE');
           listItem.innerHTML = `
             <div class="history-entry">
-              <div><strong>${weekdayNames[index]}</strong> (${entry.datum})</div>
+              <div><strong>${weekdayNames[index]}</strong> (${displayDate})</div>
               <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})</span></div>
               <div>Stundenkonto: ${entry.stundenkonto}h</div>
             </div>
@@ -407,6 +411,14 @@
         }
         historyList.appendChild(listItem);
       });
+
+      // Nach der Liste die wöchentliche Summe anzeigen
+      const totalDifferenzClass = totalDifferenz > 0 ? 'positive-value' : (totalDifferenz < 0 ? 'negative-value' : 'zero-value');
+      const weeklySummary = document.getElementById('weekly-summary');
+      weeklySummary.innerHTML = `
+        <h3>Wöchentliche Zusammenfassung</h3>
+        <p>Gesamte Differenz: <span class="${totalDifferenzClass}">${totalDifferenz.toFixed(2)}h (${formatDecimalToTime(totalDifferenz)})</span></p>
+      `;
 
       // Paginierungssteuerungen aktualisieren
       updateWeekNavigation();
@@ -452,7 +464,7 @@
         // Startdatum der Woche ermitteln
         const weekStartDate = getDateOfISOWeek(i, currentWeekYear);
 
-        option.textContent = `KW ${i} (${weekStartDate.toLocaleDateString()})`;
+        option.textContent = `KW ${i} (${weekStartDate.toLocaleDateString('de-DE')})`;
 
         if (i === currentWeekNo) {
           option.selected = true;
@@ -494,7 +506,8 @@
       let history = JSON.parse(localStorage.getItem('history')) || [];
       const index = history.findIndex(entry => entry.datum === dateStr);
       if (index !== -1) {
-        if (confirm(`Möchten Sie den Eintrag für ${dateStr} wirklich löschen?`)) {
+        const displayDate = new Date(dateStr).toLocaleDateString('de-DE');
+        if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
           history.splice(index, 1);
           localStorage.setItem('history', JSON.stringify(history));
           loadHistory();
@@ -862,7 +875,7 @@
     }
 
     input:checked + .slider:before {
-      transform: translateX(20px); /* Angepasste Verschiebung */
+      transform: translateX(22px); /* Angepasste Verschiebung */
     }
 
     /* Anpassung der Zeilenhöhe für die Verlaufsseite */
@@ -1020,6 +1033,8 @@
       <button class="button nav-button" onclick="showMainPage()">Zurück</button>
       <h2 id="week-info"></h2>
       <ul id="history-list"></ul>
+      <!-- Wöchentliche Zusammenfassung -->
+      <div id="weekly-summary"></div>
       <!-- Paginierung direkt unter der Verlaufsliste -->
       <div id="pagination"></div>
     </div>
