@@ -648,7 +648,7 @@
 
     li {
       font-size: 17px;
-      padding: 10px 0;
+      padding: 5px 0; /* Reduzierte Padding */
       border-bottom: 1px solid var(--input-border-color);
       display: flex;
       justify-content: space-between;
@@ -656,7 +656,7 @@
     }
 
     .history-item {
-      min-height: 100px; /* Feste Mindesthöhe für Konsistenz */
+      min-height: 70px; /* Reduzierte Mindesthöhe */
     }
 
     .history-entry {
@@ -862,13 +862,24 @@
     }
 
     input:checked + .slider:before {
-      transform: translateX(22px); /* Angepasste Verschiebung */
+      transform: translateX(20px); /* Angepasste Verschiebung */
     }
 
     /* Anpassung der Zeilenhöhe für die Verlaufsseite */
     #history-list {
-      /* Entfernen der maximalen Höhe und der Scrollbar */
       overflow-y: visible;
+    }
+
+    /* Safari-spezifische Anpassungen */
+    @media not all and (min-resolution:.001dpcm) {
+      @supports (-webkit-appearance: none) {
+        input[type="time"],
+        input[type="text"],
+        input[type="number"],
+        select {
+          height: 54px; /* Höhe der Buttons */
+        }
+      }
     }
   </style>
 </head>
@@ -881,10 +892,10 @@
       <div class="section">
         <div class="row">
           <div class="column">
-            <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
+            <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
           </div>
           <div class="column">
-            <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
+            <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
           </div>
         </div>
         <div class="switch-container">
@@ -896,10 +907,10 @@
         </div>
         <div class="row">
           <div class="column">
-            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
+            <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
           </div>
           <div class="column">
-            <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
+            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
           </div>
         </div>
         <p id="hinweis"></p>
