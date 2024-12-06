@@ -37,6 +37,15 @@
     let currentWeekYear = null;
     let currentWeekNo = null;
 
+    function checkViolations(kommenDate, gehenDate, arbeitszeit) {
+      const kommenStunde = kommenDate.getHours() + kommenDate.getMinutes()/60;
+      const gehenStunde = gehenDate.getHours() + gehenDate.getMinutes()/60;
+      if (kommenStunde < 6 || kommenStunde > 16) return true;
+      if (gehenStunde > 20) return true;
+      if (arbeitszeit < 4) return true;
+      return false;
+    }
+
     function init() {
       const aktuellesKonto = localStorage.getItem('aktuellesStundenkonto');
       if (aktuellesKonto !== null) {
@@ -141,9 +150,9 @@
     function calculateEndTime(durationHours) {
       const adjusted = getAdjustedKommenZeit();
       if (!adjusted) return "--:--";
-      const endTime = new Date(adjusted.getTime());
       const totalMinutes = durationHours * 60;
       const pausenInMinuten = calculatePausen(durationHours) * 60;
+      const endTime = new Date(adjusted.getTime());
       endTime.setMinutes(endTime.getMinutes() + totalMinutes + pausenInMinuten);
       return formatTime(endTime);
     }
@@ -214,11 +223,14 @@
       const hinweis = document.getElementById("hinweis");
       let hinweisText = "";
 
+      const adjustedKommen = getAdjustedKommenZeit();
+      const totalHours = calculateWorkingTime().hours + calculateWorkingTime().minutes/60;
+      const arbeitszeit = totalHours - calculatePausen(totalHours);
+
       if (arbeitszeit < 4 || arbeitszeit > 10) {
         hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
       }
 
-      const adjustedKommen = getAdjustedKommenZeit();
       const kommenField = document.getElementById("kommen-display");
       kommenField.classList.remove("invalid-time");
       if (adjustedKommen) {
@@ -254,6 +266,21 @@
     }
 
     function saveDay() {
+      updateCalculations();
+      const adjustedKommen = getAdjustedKommenZeit();
+      if (adjustedKommen && gehenZeit) {
+        const diffMs = gehenZeit - adjustedKommen;
+        const totalHours = Math.floor(diffMs/(1000*60*60)) + (Math.floor((diffMs%(1000*60*60))/(1000*60))/60);
+        const pausen = calculatePausen(totalHours);
+        const arbeitszeit = totalHours - pausen;
+
+        if (checkViolations(adjustedKommen, gehenZeit, arbeitszeit)) {
+          if (!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")) {
+            return;
+          }
+        }
+      }
+
       const differenz = parseFloat(document.getElementById("differenz").value) || 0;
       const differenzTime = document.getElementById("differenz-time").value;
       const neuesStundenkonto = parseFloat(document.getElementById("neues-konto").value) || 0;
@@ -261,7 +288,8 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
-      let kommenStr = kommenZeit ? kommenZeit.toISOString() : null;
+      const adjustedKommen = getAdjustedKommenZeit();
+      let kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       let gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
       const dayData = {
@@ -277,12 +305,10 @@
       const existingIndex = history.findIndex(entry => entry.datum === datum);
       const displayDate = new Date(datum).toLocaleDateString('de-DE');
       if (existingIndex !== -1) {
-        if (confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
-          history[existingIndex] = dayData;
-        } else {
-          alert("Der Eintrag wurde nicht gespeichert.");
+        if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
           return;
         }
+        history[existingIndex] = dayData;
       } else {
         history.push(dayData);
       }
@@ -321,6 +347,30 @@
       return ISOweekStart;
     }
 
+    function calcArbeitszeitFromEntry(entry) {
+      if (!entry.kommen || !entry.gehen) return 0;
+      const kommenDate = new Date(entry.kommen);
+      const gehenDate = new Date(entry.gehen);
+      const diffMs = gehenDate - kommenDate;
+      if (diffMs < 0) return 0;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const totalHours = hours + minutes/60;
+      let pausen = 0;
+      if (totalHours > 6) pausen += 0.5;
+      if (totalHours > 9) pausen += 0.25;
+      const arbeitszeit = totalHours - pausen;
+      return arbeitszeit;
+    }
+
+    function checkEntryViolationsForHistory(entry) {
+      if (!entry.kommen || !entry.gehen) return false;
+      const kommenDate = new Date(entry.kommen);
+      const gehenDate = new Date(entry.gehen);
+      const arbeitszeit = calcArbeitszeitFromEntry(entry);
+      return checkViolations(kommenDate, gehenDate, arbeitszeit);
+    }
+
     function deleteEntryByDate(dateStr) {
       let history = JSON.parse(localStorage.getItem('history')) || [];
       const index = history.findIndex(entry => entry.datum === dateStr);
@@ -351,31 +401,32 @@
       const weekdays = [1, 2, 3, 4, 5];
       const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
 
-      const entriesForWeek = {};
       let totalDifferenz = 0;
 
-      history.forEach(entry => {
-        const entryDate = new Date(entry.datum);
-        const [entryYear, entryWeekNo] = getWeekNumber(entryDate);
-        if (entryYear === currentWeekYear && entryWeekNo === currentWeekNo) {
-          const weekday = entryDate.getDay();
-          entriesForWeek[weekday] = entry;
-        }
-      });
-
       weekdays.forEach((weekday, index) => {
+        const entry = history.find(e => {
+          const entryDate = new Date(e.datum);
+          const [entryYear, entryWeekNo] = getWeekNumber(entryDate);
+          return entryYear === currentWeekYear && entryWeekNo === currentWeekNo && entryDate.getDay() === weekday;
+        });
+
         const listItem = document.createElement('li');
         listItem.classList.add('history-item');
-        const entry = entriesForWeek[weekday];
+
         if (entry) {
           const differenzValue = parseFloat(entry.differenz);
           totalDifferenz += differenzValue;
           const differenzClass = differenzValue > 0 ? 'positive-value' : (differenzValue < 0 ? 'negative-value' : 'zero-value');
           const displayDate = new Date(entry.datum).toLocaleDateString('de-DE');
+
+          let violation = checkEntryViolationsForHistory(entry);
+          const violationStyle = violation ? 'style="background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;"' : '';
+          const violationMarks = violation ? ' !!!' : '';
+
           listItem.innerHTML = `
-            <div class="history-entry" style="flex:1;">
+            <div class="history-entry" style="flex:1;" ${violationStyle}>
               <div><strong>${weekdayNames[index]}</strong> (${displayDate})</div>
-              <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})</span></div>
+              <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks}</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
               <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
@@ -396,8 +447,8 @@
         historyList.appendChild(listItem);
       });
 
-      const totalDifferenzClass = totalDifferenz > 0 ? 'positive-value' : (totalDifferenz < 0 ? 'negative-value' : 'zero-value');
       const weeklySummary = document.getElementById('weekly-summary');
+      const totalDifferenzClass = totalDifferenz > 0 ? 'positive-value' : (totalDifferenz < 0 ? 'negative-value' : 'zero-value');
       weeklySummary.innerHTML = `
         <h3>Wöchentliche Zusammenfassung</h3>
         <p>Gesamte Differenz: <span class="${totalDifferenzClass}">${totalDifferenz.toFixed(2)}h (${formatDecimalToTime(totalDifferenz)})</span></p>
@@ -493,6 +544,7 @@
       document.getElementById('add-day-date').value = "";
       document.getElementById('add-day-kommen').value = "";
       document.getElementById('add-day-gehen').value = "";
+      document.getElementById('pc-buchung-add-day').checked = false;
       document.getElementById('add-day-modal').style.display = 'block';
     }
 
@@ -504,6 +556,7 @@
       const dateVal = document.getElementById('add-day-date').value;
       const kommenVal = document.getElementById('add-day-kommen').value;
       const gehenVal = document.getElementById('add-day-gehen').value;
+      const isPcBuchungAddDay = document.getElementById('pc-buchung-add-day').checked;
 
       if (!dateVal || !kommenVal || !gehenVal) {
         alert("Bitte Datum, Kommen- und Gehen-Zeit angeben.");
@@ -517,9 +570,8 @@
       const kommenDate = parseTime(kommenVal);
       const gehenDate = parseTime(gehenVal);
 
-      const isPcBuchung = document.getElementById('pc-buchung').checked;
       let adjusted = new Date(kommenDate.getTime());
-      if (isPcBuchung) {
+      if (isPcBuchungAddDay) {
         adjusted.setMinutes(adjusted.getMinutes() - 8);
       }
 
@@ -534,12 +586,18 @@
       const neuesStundenkonto = aktuellesKonto + differenz;
       const differenzTime = formatDecimalToTime(differenz);
 
+      if (checkViolations(adjusted, gehenDate, arbeitszeit)) {
+        if (!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")) {
+          return;
+        }
+      }
+
       const dayData = {
         datum: dateVal,
         differenz: differenz.toFixed(2),
         differenzTime: differenzTime,
         stundenkonto: neuesStundenkonto.toFixed(2),
-        kommen: kommenDate.toISOString(),
+        kommen: adjusted.toISOString(),
         gehen: gehenDate.toISOString()
       };
 
@@ -809,7 +867,6 @@
       background-color: var(--button-background-color);
     }
 
-    /* geändert von 25px auf 22px */
     input:checked + .slider:before {
       transform: translateX(22px);
     }
@@ -839,7 +896,6 @@
 <body onload="init()">
   <div id="main-page">
     <div class="container">
-      <!-- Hauptseite unverändert -->
       <h1>Arbeitszeitrechner</h1>
       <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
       
@@ -1012,6 +1068,13 @@
           <label for="add-day-gehen">Gehen:</label>
           <input type="time" id="add-day-gehen">
         </div>
+      </div>
+      <div class="switch-container" style="margin-top:10px;">
+        <label class="switch">
+          <input type="checkbox" id="pc-buchung-add-day">
+          <span class="slider"></span>
+        </label>
+        <span>PC-Buchung</span>
       </div>
       <button class="button" onclick="addManualDay()">Tag speichern</button>
     </div>
