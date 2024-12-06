@@ -170,8 +170,8 @@
       const sollArbeitszeit = wochenarbeitszeitValue / 5;
       const differenz = arbeitszeit - sollArbeitszeit;
 
-      const aktuellesStundenkonto = parseFloat(document.getElementById("aktuelles-konto").value) || 0;
-      const neuesStundenkonto = aktuellesStundenkonto + differenz;
+      const aktuellesKonto = parseFloat(document.getElementById("aktuelles-konto").value) || 0;
+      const neuesStundenkonto = aktuellesKonto + differenz;
 
       document.getElementById("anwesend-zeit").value = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
       document.getElementById("pausenzeit").value = `${(pausen * 60).toFixed(0)} Min`;
@@ -809,8 +809,9 @@
       background-color: var(--button-background-color);
     }
 
+    /* geänderte Übersetzung von 25px auf 22px */
     input:checked + .slider:before {
-      transform: translateX(25px);
+      transform: translateX(22px);
     }
 
     #history-list { overflow-y: visible; }
@@ -841,20 +842,14 @@
       <h1>Arbeitszeitrechner</h1>
       <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
       
-      <!-- Symmetrische Anordnung von Kommen und Gehen -->
+      <!-- Kommen und Gehen: je eine Zeile, symmetrisch angeordnet -->
       <div class="section">
-        <div class="row" style="gap:20px;">
-          <div class="column">
-            <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
+        <div class="row">
+          <div class="column" style="display:flex;flex-direction:column;">
+            <input type="time" id="kommen-display" onchange="updateKommenFromInput()" style="width:100%;">
           </div>
-          <div class="column" style="flex:none;">
+          <div class="column" style="display:flex;flex-direction:column;">
             <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
-          </div>
-          <div class="column">
-            <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
-          </div>
-          <div class="column" style="flex:none;">
-            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
           </div>
         </div>
         <div class="switch-container">
@@ -864,15 +859,29 @@
           </label>
           <span>PC-Buchung</span>
         </div>
+        <div class="row">
+          <div class="column" style="display:flex;flex-direction:column;">
+            <input type="time" id="gehen-display" onchange="updateGehenFromInput()" style="width:100%;">
+          </div>
+          <div class="column" style="display:flex;flex-direction:column;">
+            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
+          </div>
+        </div>
         <p id="hinweis"></p>
       </div>
       
+      <!-- Wochenarbeitszeit und zusätzliche Pause nebeneinander -->
       <div class="section">
-        <input type="text" id="zusatzliche-pause" placeholder="Zusätzliche Pausenzeiten (z.B. 0:15)" onchange="updateCalculations()">
-      </div>
-      
-      <div class="section">
-        <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()" placeholder="Wochenarbeitszeit (Std.)">
+        <div class="row">
+          <div class="column" style="display:flex;flex-direction:column;">
+            <label for="wochenarbeitszeit">Wochenarbeitszeit (Std.):</label>
+            <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
+          </div>
+          <div class="column" style="display:flex;flex-direction:column;">
+            <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (z.B. 0:15):</label>
+            <input type="text" id="zusatzliche-pause" onchange="updateCalculations()">
+          </div>
+        </div>
       </div>
       
       <div class="section">
