@@ -182,7 +182,7 @@
       document.getElementById("differenz-time").value = formatDecimalToTime(differenz);
       document.getElementById("neues-konto").value = neuesStundenkonto.toFixed(2);
       document.getElementById("neues-konto-time").value = formatDecimalToTime(neuesStundenkonto);
-      document.getElementById("aktuelles-konto-time").value = formatDecimalToTime(aktuellesStundenkonto);
+      document.getElementById("aktuelles-konto-time").value = formatDecimalToTime(aktuellesKonto);
 
       const differenzField = document.getElementById("differenz");
       const neuesKontoField = document.getElementById("neues-konto");
@@ -841,14 +841,20 @@
       <h1>Arbeitszeitrechner</h1>
       <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
       
-      <!-- Kommen/Gehen Felder ohne Labels darüber -->
+      <!-- Symmetrische Anordnung von Kommen und Gehen -->
       <div class="section">
-        <div class="row">
+        <div class="row" style="gap:20px;">
           <div class="column">
             <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
           </div>
           <div class="column" style="flex:none;">
             <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
+          </div>
+          <div class="column">
+            <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
+          </div>
+          <div class="column" style="flex:none;">
+            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
           </div>
         </div>
         <div class="switch-container">
@@ -857,14 +863,6 @@
             <span class="slider"></span>
           </label>
           <span>PC-Buchung</span>
-        </div>
-        <div class="row">
-          <div class="column">
-            <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
-          </div>
-          <div class="column" style="flex:none;">
-            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
-          </div>
         </div>
         <p id="hinweis"></p>
       </div>
