@@ -292,6 +292,7 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
+      const adjustedKommen = getAdjustedKommenZeit();
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -705,6 +706,8 @@
       text-align:center;margin-bottom:10px;cursor:pointer;
       box-shadow:0 2px 5px rgba(0,0,0,0.15);
       box-sizing:border-box;
+      height:56px;
+      line-height:1.2em;
     }
 
     .button:active { background-color:rgba(10,132,255,0.8); }
@@ -715,6 +718,7 @@
       border-radius:12px;box-shadow:0 2px 5px rgba(0,0,0,0.15);
       border:none;padding:10px 15px;
       box-sizing:border-box;
+      line-height:1.2em;
     }
 
     .inline-button {
@@ -744,16 +748,13 @@
       color:var(--text-color);
       box-sizing:border-box;
       -webkit-appearance:none;appearance:none;
-      line-height:normal;
+      line-height:1.2em;
+      height:56px; /* Einheitliche Höhe für alle Input-Felder */
     }
 
-    /* Verhindert das Anzeige-Icon für input[type=time] */
     input[type=time]::-webkit-calendar-picker-indicator {
       display:none;
     }
-
-    /* Da wir keine Labels über den Zeitfeldern wollen, entfernen wir diese einfach.
-       Keine label-Elemente für Kommen und Gehen mehr. */
 
     #hinweis {
       color:var(--hint-color);font-weight:600;font-size:15px;
@@ -816,6 +817,8 @@
       border:none;border-radius:12px;padding:12px;margin:5px;
       cursor:pointer;font-size:16px;
       box-sizing:border-box;
+      line-height:1.2em;
+      height:auto;
     }
 
     #pagination button:disabled {
@@ -882,7 +885,6 @@
       <div class="section">
         <div class="row">
           <div class="column">
-            <!-- Kein Label für Kommen -->
             <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
           </div>
           <div class="column">
@@ -898,7 +900,6 @@
         </div>
         <div class="row">
           <div class="column">
-            <!-- Kein Label für Gehen -->
             <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
           </div>
           <div class="column">
