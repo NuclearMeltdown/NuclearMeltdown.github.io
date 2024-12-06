@@ -2,13 +2,9 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <!-- Viewport mit viewport-fit=cover für sichere Bereiche -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-
-  <!-- Theme-Farben für Light- und Dark Mode -->
   <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Arbeitszeitrechner">
@@ -33,26 +29,19 @@
   <meta name="msapplication-square150x150logo" content="https://NuclearMeltdown.github.io/mstile-150x150.png" />
   <meta name="msapplication-wide310x150logo" content="https://NuclearMeltdown.github.io/mstile-310x150.png" />
   <meta name="msapplication-square310x310logo" content="https://NuclearMeltdown.github.io/mstile-310x310.png" />
-  <!-- Schriftarten -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=SF+Pro+Display:400,600&display=swap">
-  <!-- JavaScript -->
   <script>
     let kommenZeit = null;
     let gehenZeit = null;
-
     let currentWeekYear = null;
     let currentWeekNo = null;
 
     function init() {
-      // Laden des aktuellen Stundenkontos aus localStorage
       const aktuellesKonto = localStorage.getItem('aktuellesStundenkonto');
       if (aktuellesKonto !== null) {
         document.getElementById('aktuelles-konto').value = parseFloat(aktuellesKonto);
       }
-      // Anzeige aktualisieren
       updateCalculations();
-
-      // Aktuelle Kalenderwoche ermitteln
       const today = new Date();
       [currentWeekYear, currentWeekNo] = getWeekNumber(today);
     }
@@ -101,11 +90,11 @@
     function getAdjustedKommenZeit() {
       if (!kommenZeit) return null;
       const isPcBuchung = document.getElementById('pc-buchung').checked;
-      let adjustedKommenZeit = new Date(kommenZeit.getTime());
+      let adjusted = new Date(kommenZeit.getTime());
       if (isPcBuchung) {
-        adjustedKommenZeit.setMinutes(adjustedKommenZeit.getMinutes() - 8);
+        adjusted.setMinutes(adjusted.getMinutes() - 8);
       }
-      return adjustedKommenZeit;
+      return adjusted;
     }
 
     function calculateWorkingTime() {
@@ -128,12 +117,9 @@
 
     function calculatePausen(totalHours) {
       let pausen = 0;
-      if (totalHours > 6) pausen += 0.5; // 30 Minuten
-      if (totalHours > 9) pausen += 0.25; // weitere 15 Minuten
-
-      // Zusätzliche Pausen hinzufügen
+      if (totalHours > 6) pausen += 0.5;
+      if (totalHours > 9) pausen += 0.25;
       pausen += parseAdditionalPause();
-
       return pausen;
     }
 
@@ -152,34 +138,25 @@
     }
 
     function calculateEndTime(durationHours) {
-      const adjustedKommen = getAdjustedKommenZeit();
-      if (!adjustedKommen) return "--:--";
-      const endTime = new Date(adjustedKommen.getTime());
-
-      const totalMinutes = durationHours * 60; // Arbeitsdauer in Minuten
-      const pausenInMinuten = calculatePausen(durationHours) * 60; // Pausen in Minuten
-
+      const adjusted = getAdjustedKommenZeit();
+      if (!adjusted) return "--:--";
+      const endTime = new Date(adjusted.getTime());
+      const totalMinutes = durationHours * 60;
+      const pausenInMinuten = calculatePausen(durationHours) * 60;
       endTime.setMinutes(endTime.getMinutes() + totalMinutes + pausenInMinuten);
-
       return formatTime(endTime);
     }
 
     function updateEndTimes() {
       if (!kommenZeit) return;
-
-      const durations = [4, 6, 9, 10]; // Stunden
-
+      const durations = [4, 6, 9, 10];
       durations.forEach(duration => {
         const endTime = calculateEndTime(duration);
         document.getElementById(`end-time-${duration}h`).value = endTime;
       });
-
-      // Berechnung für Sollarbeitszeit
       const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value);
-      const sollArbeitszeit = wochenarbeitszeitValue / 5; // 5 Arbeitstage pro Woche
-
+      const sollArbeitszeit = wochenarbeitszeitValue / 5;
       const sollEndTime = calculateEndTime(sollArbeitszeit);
-
       document.getElementById("end-time-soll").value = `(${sollArbeitszeit.toFixed(2)}h): ${sollEndTime}`;
     }
 
@@ -189,13 +166,12 @@
       const pausen = calculatePausen(totalHours);
       const arbeitszeit = totalHours - pausen;
       const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value);
-      const sollArbeitszeit = wochenarbeitszeitValue / 5; // 5 Arbeitstage pro Woche
+      const sollArbeitszeit = wochenarbeitszeitValue / 5;
       const differenz = arbeitszeit - sollArbeitszeit;
 
       const aktuellesStundenkonto = parseFloat(document.getElementById("aktuelles-konto").value) || 0;
       const neuesStundenkonto = aktuellesStundenkonto + differenz;
 
-      // Felder aktualisieren
       document.getElementById("anwesend-zeit").value = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
       document.getElementById("pausenzeit").value = `${(pausen * 60).toFixed(0)} Min`;
       document.getElementById("arbeitszeit").value = `${formatDecimalToTime(arbeitszeit)} (${arbeitszeit.toFixed(2)}h)`;
@@ -207,7 +183,6 @@
       document.getElementById("neues-konto-time").value = formatDecimalToTime(neuesStundenkonto);
       document.getElementById("aktuelles-konto-time").value = formatDecimalToTime(aktuellesStundenkonto);
 
-      // Farbe der Felder basierend auf der Differenz
       const differenzField = document.getElementById("differenz");
       const neuesKontoField = document.getElementById("neues-konto");
       const differenzTimeField = document.getElementById("differenz-time");
@@ -238,12 +213,10 @@
       const hinweis = document.getElementById("hinweis");
       let hinweisText = "";
 
-      // Überprüfung der Arbeitszeitgrenzen
       if (arbeitszeit < 4 || arbeitszeit > 10) {
         hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
       }
 
-      // Überprüfung der Gleitzeitbandbreite für Kommen-Zeit
       const adjustedKommen = getAdjustedKommenZeit();
       const kommenField = document.getElementById("kommen-display");
       kommenField.classList.remove("invalid-time");
@@ -259,7 +232,6 @@
         }
       }
 
-      // Überprüfung der Gleitzeitbandbreite für Gehen-Zeit
       const gehenField = document.getElementById("gehen-display");
       gehenField.classList.remove("invalid-time");
       if (gehenZeit) {
@@ -285,24 +257,26 @@
       const differenzTime = document.getElementById("differenz-time").value;
       const neuesStundenkonto = parseFloat(document.getElementById("neues-konto").value) || 0;
 
-      // Datum ermitteln
       const today = new Date();
-      const datum = today.toISOString().split('T')[0]; // 'YYYY-MM-DD'
+      const datum = today.toISOString().split('T')[0];
 
-      // Tagesdaten speichern
+      let kommenStr = kommenZeit ? kommenZeit.toISOString() : null;
+      let gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
+
       const dayData = {
         datum: datum,
         differenz: differenz.toFixed(2),
         differenzTime: differenzTime,
-        stundenkonto: neuesStundenkonto.toFixed(2)
+        stundenkonto: neuesStundenkonto.toFixed(2),
+        kommen: kommenStr,
+        gehen: gehenStr
       };
 
       let history = JSON.parse(localStorage.getItem('history')) || [];
-
-      // Überprüfen, ob ein Eintrag für das Datum bereits existiert
       const existingIndex = history.findIndex(entry => entry.datum === datum);
+      const displayDate = new Date(datum).toLocaleDateString('de-DE');
       if (existingIndex !== -1) {
-        if (confirm(`Für den Tag ${new Date(datum).toLocaleDateString('de-DE')} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
+        if (confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
           history[existingIndex] = dayData;
         } else {
           alert("Der Eintrag wurde nicht gespeichert.");
@@ -314,13 +288,10 @@
 
       localStorage.setItem('history', JSON.stringify(history));
 
-      // Neues Stundenkonto als aktuelles Stundenkonto setzen und speichern
       document.getElementById('aktuelles-konto').value = neuesStundenkonto.toFixed(2);
       localStorage.setItem('aktuellesStundenkonto', neuesStundenkonto.toFixed(2));
 
-      // Berechnungen aktualisieren
       updateCalculations();
-
       alert("Der Tag wurde gespeichert.");
     }
 
@@ -351,157 +322,6 @@
       return ISOweekStart;
     }
 
-    function loadHistory() {
-      const historyList = document.getElementById('history-list');
-      historyList.innerHTML = '';
-
-      let history = JSON.parse(localStorage.getItem('history')) || [];
-
-      // Kalenderwoche und Datumsbereich anzeigen
-      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-      const weekEndDate = new Date(weekStartDate);
-      weekEndDate.setDate(weekStartDate.getDate() + 4); // Bis Freitag
-
-      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
-
-      const weekInfo = document.getElementById('week-info');
-      weekInfo.textContent = `KW ${currentWeekNo} (${weekRange})`;
-
-      // Wochentage von Montag (1) bis Freitag (5)
-      const weekdays = [1, 2, 3, 4, 5];
-      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
-
-      const entriesForWeek = {};
-
-      let totalDifferenz = 0;
-
-      history.forEach(entry => {
-        const entryDate = new Date(entry.datum);
-        const [entryYear, entryWeekNo] = getWeekNumber(entryDate);
-        if (entryYear === currentWeekYear && entryWeekNo === currentWeekNo) {
-          const weekday = entryDate.getDay(); // 0 (Sonntag) bis 6 (Samstag)
-          entriesForWeek[weekday] = entry;
-        }
-      });
-
-      weekdays.forEach((weekday, index) => {
-        const listItem = document.createElement('li');
-        listItem.classList.add('history-item'); // Für feste Höhe
-        const entry = entriesForWeek[weekday];
-        if (entry) {
-          const differenzValue = parseFloat(entry.differenz);
-          totalDifferenz += differenzValue;
-          const differenzClass = differenzValue > 0 ? 'positive-value' : (differenzValue < 0 ? 'negative-value' : (differenzValue === 0 ? 'zero-value' : ''));
-          const displayDate = new Date(entry.datum).toLocaleDateString('de-DE');
-          listItem.innerHTML = `
-            <div class="history-entry">
-              <div><strong>${weekdayNames[index]}</strong> (${displayDate})</div>
-              <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})</span></div>
-              <div>Stundenkonto: ${entry.stundenkonto}h</div>
-            </div>
-            <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
-          `;
-        } else {
-          listItem.innerHTML = `
-            <div class="history-entry">
-              <div><strong>${weekdayNames[index]}</strong></div>
-              <div>Keine Daten vorhanden</div>
-            </div>
-          `;
-        }
-        historyList.appendChild(listItem);
-      });
-
-      // Nach der Liste die wöchentliche Summe anzeigen
-      const totalDifferenzClass = totalDifferenz > 0 ? 'positive-value' : (totalDifferenz < 0 ? 'negative-value' : 'zero-value');
-      const weeklySummary = document.getElementById('weekly-summary');
-      weeklySummary.innerHTML = `
-        <h3>Wöchentliche Zusammenfassung</h3>
-        <p>Gesamte Differenz: <span class="${totalDifferenzClass}">${totalDifferenz.toFixed(2)}h (${formatDecimalToTime(totalDifferenz)})</span></p>
-      `;
-
-      // Paginierungssteuerungen aktualisieren
-      updateWeekNavigation();
-    }
-
-    function updateWeekNavigation() {
-      const pagination = document.getElementById('pagination');
-      pagination.innerHTML = '';
-
-      // Container für die Navigationselemente
-      const navContainer = document.createElement('div');
-      navContainer.classList.add('nav-container');
-
-      // Jahr zurück
-      const prevYearButton = document.createElement('button');
-      prevYearButton.textContent = '«';
-      prevYearButton.onclick = () => {
-        currentWeekYear--;
-        loadHistory();
-      };
-      navContainer.appendChild(prevYearButton);
-
-      // Vorherige Woche
-      const prevButton = document.createElement('button');
-      prevButton.textContent = '‹';
-      prevButton.onclick = () => {
-        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        date.setDate(date.getDate() - 7);
-        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
-        loadHistory();
-      };
-      navContainer.appendChild(prevButton);
-
-      // Wochen-Auswahl
-      const weekSelect = document.createElement('select');
-      weekSelect.id = 'week-select';
-
-      // Optionen für alle 53 Wochen
-      for (let i = 1; i <= 53; i++) {
-        const option = document.createElement('option');
-        option.value = i;
-
-        // Startdatum der Woche ermitteln
-        const weekStartDate = getDateOfISOWeek(i, currentWeekYear);
-
-        option.textContent = `KW ${i} (${weekStartDate.toLocaleDateString('de-DE')})`;
-
-        if (i === currentWeekNo) {
-          option.selected = true;
-        }
-        weekSelect.appendChild(option);
-      }
-
-      weekSelect.onchange = () => {
-        currentWeekNo = parseInt(weekSelect.value);
-        loadHistory();
-      };
-
-      navContainer.appendChild(weekSelect);
-
-      // Nächste Woche
-      const nextButton = document.createElement('button');
-      nextButton.textContent = '›';
-      nextButton.onclick = () => {
-        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        date.setDate(date.getDate() + 7);
-        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
-        loadHistory();
-      };
-      navContainer.appendChild(nextButton);
-
-      // Jahr vor
-      const nextYearButton = document.createElement('button');
-      nextYearButton.textContent = '»';
-      nextYearButton.onclick = () => {
-        currentWeekYear++;
-        loadHistory();
-      };
-      navContainer.appendChild(nextYearButton);
-
-      pagination.appendChild(navContainer);
-    }
-
     function deleteEntryByDate(dateStr) {
       let history = JSON.parse(localStorage.getItem('history')) || [];
       const index = history.findIndex(entry => entry.datum === dateStr);
@@ -515,9 +335,237 @@
       }
     }
 
-    window.onload = init;
+    function loadHistory() {
+      const historyList = document.getElementById('history-list');
+      historyList.innerHTML = '';
+
+      let history = JSON.parse(localStorage.getItem('history')) || [];
+
+      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+      const weekEndDate = new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate() + 4);
+      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
+
+      const weekInfo = document.getElementById('week-info');
+      weekInfo.textContent = `KW ${currentWeekNo} (${weekRange})`;
+
+      const weekdays = [1, 2, 3, 4, 5];
+      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+
+      const entriesForWeek = {};
+      let totalDifferenz = 0;
+
+      history.forEach(entry => {
+        const entryDate = new Date(entry.datum);
+        const [entryYear, entryWeekNo] = getWeekNumber(entryDate);
+        if (entryYear === currentWeekYear && entryWeekNo === currentWeekNo) {
+          const weekday = entryDate.getDay();
+          entriesForWeek[weekday] = entry;
+        }
+      });
+
+      weekdays.forEach((weekday, index) => {
+        const listItem = document.createElement('li');
+        listItem.classList.add('history-item');
+        const entry = entriesForWeek[weekday];
+        if (entry) {
+          const differenzValue = parseFloat(entry.differenz);
+          totalDifferenz += differenzValue;
+          const differenzClass = differenzValue > 0 ? 'positive-value' : (differenzValue < 0 ? 'negative-value' : 'zero-value');
+          const displayDate = new Date(entry.datum).toLocaleDateString('de-DE');
+          listItem.innerHTML = `
+            <div class="history-entry" style="flex:1;">
+              <div><strong>${weekdayNames[index]}</strong> (${displayDate})</div>
+              <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})</span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+              <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
+              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
+            </div>
+          `;
+        } else {
+          listItem.innerHTML = `
+            <div class="history-entry" style="flex:1;">
+              <div><strong>${weekdayNames[index]}</strong></div>
+              <div>Keine Daten vorhanden</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+              <button class="inline-button" onclick="showAddDayModal('${weekday}','${index}')">Tag nachtragen</button>
+            </div>
+          `;
+        }
+        historyList.appendChild(listItem);
+      });
+
+      const totalDifferenzClass = totalDifferenz > 0 ? 'positive-value' : (totalDifferenz < 0 ? 'negative-value' : 'zero-value');
+      const weeklySummary = document.getElementById('weekly-summary');
+      weeklySummary.innerHTML = `
+        <h3>Wöchentliche Zusammenfassung</h3>
+        <p>Gesamte Differenz: <span class="${totalDifferenzClass}">${totalDifferenz.toFixed(2)}h (${formatDecimalToTime(totalDifferenz)})</span></p>
+      `;
+
+      updateWeekNavigation();
+    }
+
+    function updateWeekNavigation() {
+      const pagination = document.getElementById('pagination');
+      pagination.innerHTML = '';
+
+      const navContainer = document.createElement('div');
+      navContainer.classList.add('nav-container');
+
+      const prevYearButton = document.createElement('button');
+      prevYearButton.textContent = '«';
+      prevYearButton.onclick = () => { currentWeekYear--; loadHistory(); };
+      navContainer.appendChild(prevYearButton);
+
+      const prevButton = document.createElement('button');
+      prevButton.textContent = '‹';
+      prevButton.onclick = () => {
+        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+        date.setDate(date.getDate() - 7);
+        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
+        loadHistory();
+      };
+      navContainer.appendChild(prevButton);
+
+      const weekSelect = document.createElement('select');
+      weekSelect.id = 'week-select';
+      for (let i = 1; i <= 53; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        const weekStartDate = getDateOfISOWeek(i, currentWeekYear);
+        option.textContent = `KW ${i} (${weekStartDate.toLocaleDateString('de-DE')})`;
+        if (i === currentWeekNo) {
+          option.selected = true;
+        }
+        weekSelect.appendChild(option);
+      }
+
+      weekSelect.onchange = () => {
+        currentWeekNo = parseInt(weekSelect.value);
+        loadHistory();
+      };
+      navContainer.appendChild(weekSelect);
+
+      const nextButton = document.createElement('button');
+      nextButton.textContent = '›';
+      nextButton.onclick = () => {
+        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+        date.setDate(date.getDate() + 7);
+        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
+        loadHistory();
+      };
+      navContainer.appendChild(nextButton);
+
+      const nextYearButton = document.createElement('button');
+      nextYearButton.textContent = '»';
+      nextYearButton.onclick = () => {
+        currentWeekYear++;
+        loadHistory();
+      };
+      navContainer.appendChild(nextYearButton);
+
+      pagination.appendChild(navContainer);
+    }
+
+    function showDayDetails(dateStr) {
+      const history = JSON.parse(localStorage.getItem('history')) || [];
+      const entry = history.find(e => e.datum === dateStr);
+      if (!entry) return;
+      const displayDate = new Date(dateStr).toLocaleDateString('de-DE');
+
+      const kommen = entry.kommen ? new Date(entry.kommen) : null;
+      const gehen = entry.gehen ? new Date(entry.gehen) : null;
+
+      document.getElementById('detail-date').textContent = displayDate;
+      document.getElementById('detail-kommen').textContent = kommen ? formatTime(kommen) : "--:--";
+      document.getElementById('detail-gehen').textContent = gehen ? formatTime(gehen) : "--:--";
+      document.getElementById('detail-differenz').textContent = `${entry.differenz}h (${entry.differenzTime})`;
+
+      document.getElementById('detail-modal').style.display = 'block';
+    }
+
+    function closeDetailModal() {
+      document.getElementById('detail-modal').style.display = 'none';
+    }
+
+    function showAddDayModal(weekday, index) {
+      document.getElementById('add-day-date').value = "";
+      document.getElementById('add-day-kommen').value = "";
+      document.getElementById('add-day-gehen').value = "";
+      document.getElementById('add-day-modal').style.display = 'block';
+    }
+
+    function closeAddDayModal() {
+      document.getElementById('add-day-modal').style.display = 'none';
+    }
+
+    function addManualDay() {
+      const dateVal = document.getElementById('add-day-date').value;
+      const kommenVal = document.getElementById('add-day-kommen').value;
+      const gehenVal = document.getElementById('add-day-gehen').value;
+
+      if (!dateVal || !kommenVal || !gehenVal) {
+        alert("Bitte Datum, Kommen- und Gehen-Zeit angeben.");
+        return;
+      }
+
+      const wochenarbeitszeit = parseFloat(document.getElementById("wochenarbeitszeit").value);
+      const sollArbeitszeit = wochenarbeitszeit / 5;
+      const aktuellesKonto = parseFloat(document.getElementById('aktuelles-konto').value) || 0;
+
+      const kommenDate = parseTime(kommenVal);
+      const gehenDate = parseTime(gehenVal);
+
+      const isPcBuchung = document.getElementById('pc-buchung').checked;
+      let adjusted = new Date(kommenDate.getTime());
+      if (isPcBuchung) {
+        adjusted.setMinutes(adjusted.getMinutes() - 8);
+      }
+
+      const diffMs = gehenDate - adjusted;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      const totalHours = hours + minutes / 60;
+
+      const pausen = calculatePausen(totalHours);
+      const arbeitszeit = totalHours - pausen;
+      const differenz = arbeitszeit - sollArbeitszeit;
+      const neuesStundenkonto = aktuellesKonto + differenz;
+      const differenzTime = formatDecimalToTime(differenz);
+
+      const dayData = {
+        datum: dateVal,
+        differenz: differenz.toFixed(2),
+        differenzTime: differenzTime,
+        stundenkonto: neuesStundenkonto.toFixed(2),
+        kommen: kommenDate.toISOString(),
+        gehen: gehenDate.toISOString()
+      };
+
+      let history = JSON.parse(localStorage.getItem('history')) || [];
+      const existingIndex = history.findIndex(e => e.datum === dateVal);
+      const displayDate = new Date(dateVal).toLocaleDateString('de-DE');
+      if (existingIndex !== -1) {
+        if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
+          return;
+        }
+        history[existingIndex] = dayData;
+      } else {
+        history.push(dayData);
+      }
+
+      localStorage.setItem('history', JSON.stringify(history));
+
+      document.getElementById('aktuelles-konto').value = neuesStundenkonto.toFixed(2);
+      localStorage.setItem('aktuellesStundenkonto', neuesStundenkonto.toFixed(2));
+      updateCalculations();
+      closeAddDayModal();
+      loadHistory();
+      alert("Der Tag wurde nachgetragen.");
+    }
   </script>
-  <!-- Styles -->
   <style>
     :root {
       --background-color: #f2f2f7;
@@ -528,9 +576,9 @@
       --button-background-color: #007aff;
       --button-text-color: #ffffff;
       --hint-color: #ff3b30;
-      --positive-background-color: #007aff; /* Kräftiges Blau */
-      --negative-background-color: #ff9500; /* Kräftiges Orange */
-      --zero-background-color: #34c759; /* Grün für 0 */
+      --positive-background-color: #007aff;
+      --negative-background-color: #ff9500;
+      --zero-background-color: #34c759;
     }
 
     @media (prefers-color-scheme: dark) {
@@ -543,36 +591,28 @@
         --button-background-color: #0a84ff;
         --button-text-color: #ffffff;
         --hint-color: #ff453a;
-        --positive-background-color: #0a84ff; /* Kräftiges Blau */
-        --negative-background-color: #ff9500; /* Kräftiges Orange */
-        --zero-background-color: #30d158; /* Grün für 0 im Dark Mode */
+        --positive-background-color: #0a84ff;
+        --negative-background-color: #ff9500;
+        --zero-background-color: #30d158;
       }
     }
 
     html, body {
       background-color: var(--background-color);
       color: var(--text-color);
-      margin: 0;
-      padding: 0;
+      margin: 0; padding: 0;
     }
 
-    /* Erweiterung des Hintergrunds in die sicheren Bereiche */
     body::before {
       content: "";
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
+      position: fixed; top: 0; left: 0; right: 0;
       height: env(safe-area-inset-top);
       background-color: var(--background-color);
     }
 
     body::after {
       content: "";
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
+      position: fixed; bottom: 0; left: 0; right: 0;
       height: env(safe-area-inset-bottom);
       background-color: var(--background-color);
     }
@@ -583,98 +623,48 @@
     }
 
     .container {
-      max-width: 600px;
-      margin: auto;
-      padding: 20px;
+      max-width: 600px; margin: auto; padding: 20px;
     }
 
     h1 {
-      font-weight: 600;
-      font-size: 28px;
-      margin-bottom: 20px;
+      font-weight: 600; font-size: 28px; margin-bottom: 20px;
     }
 
     h2 {
-      font-size: 24px;
-      font-weight: 600;
-      margin-bottom: 20px;
+      font-size: 24px; font-weight: 600; margin-bottom: 20px;
     }
 
-    .section {
-      margin-bottom: 30px;
+    h3 {
+      font-size: 20px; font-weight: 600; margin-bottom: 10px;
     }
+
+    .section { margin-bottom: 30px; }
 
     .button {
-      width: 100%;
-      padding: 15px;
+      width: 100%; padding: 15px;
+      background-color: var(--button-background-color); color: var(--button-text-color);
+      border: none; border-radius: 12px; font-size: 17px; font-weight: 600;
+      text-align: center; margin-bottom: 10px; cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+    }
+
+    .button:active { background-color: rgba(10,132,255,0.8); }
+
+    .inline-button {
+      display: inline-block;
+      padding: 10px 15px;
       background-color: var(--button-background-color);
       color: var(--button-text-color);
       border: none;
       border-radius: 12px;
-      font-size: 17px;
+      font-size: 15px;
       font-weight: 600;
-      text-align: center;
-      margin-bottom: 10px;
       cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
     }
 
-    .button:active {
-      background-color: rgba(10, 132, 255, 0.8);
-    }
-
-    input[type="time"],
-    input[type="number"],
-    input[type="text"],
-    input[type="password"],
-    select {
-      width: 100%;
-      padding: 15px;
-      font-size: 17px;
-      border: 1px solid var(--input-border-color);
-      border-radius: 12px;
-      margin-bottom: 10px;
-      background-color: var(--input-background-color);
-      color: var(--text-color);
-      box-sizing: border-box;
-    }
-
-    label {
-      font-size: 15px;
-      color: #8e8e93;
-      margin-bottom: 5px;
-      display: block;
-    }
-
-    #hinweis {
-      color: var(--hint-color);
-      font-weight: 600;
-      font-size: 15px;
-      display: none;
-      margin-top: 10px;
-    }
-
-    ul {
-      list-style-type: none;
-      padding-left: 0;
-      margin: 0;
-    }
-
-    li {
-      font-size: 17px;
-      padding: 5px 0; /* Reduzierte Padding */
-      border-bottom: 1px solid var(--input-border-color);
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-    }
-
-    .history-item {
-      min-height: 70px; /* Reduzierte Mindesthöhe */
-    }
-
-    .history-entry {
-      flex: 1;
-      margin-right: 10px;
+    .inline-button:active {
+      background-color: rgba(10,132,255,0.8);
     }
 
     .delete-button {
@@ -682,141 +672,111 @@
       color: #ffffff;
       border: none;
       border-radius: 12px;
-      padding: 10px;
+      padding: 10px 15px;
       font-size: 15px;
+      font-weight:600;
       cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
     }
 
     .delete-button:active {
-      background-color: rgba(255, 59, 48, 0.8);
+      background-color: rgba(255,59,48,0.8);
     }
 
-    p {
-      font-size: 17px;
-      margin: 5px 0;
+    input[type="time"],
+    input[type="number"],
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%; padding: 15px; font-size: 17px;
+      border: 1px solid var(--input-border-color); border-radius: 12px;
+      margin-bottom: 10px; background-color: var(--input-background-color);
+      color: var(--text-color); box-sizing: border-box;
     }
 
-    h3 {
-      font-size: 20px;
-      font-weight: 600;
-      margin-bottom: 10px;
+    label {
+      font-size: 15px; color: #8e8e93; margin-bottom: 5px; display: block;
     }
 
-    /* CSS-Klassen für positive, negative und zero Werte */
-    .positive-value {
-      background-color: var(--positive-background-color) !important;
-      color: #ffffff !important;
-      padding: 2px 4px;
-      border-radius: 5px;
+    #hinweis {
+      color: var(--hint-color); font-weight: 600; font-size: 15px;
+      display: none; margin-top: 10px;
     }
 
-    .negative-value {
-      background-color: var(--negative-background-color) !important;
-      color: #ffffff !important;
-      padding: 2px 4px;
-      border-radius: 5px;
+    ul {
+      list-style-type: none; padding-left: 0; margin: 0;
     }
 
-    .zero-value {
-      background-color: var(--zero-background-color) !important;
-      color: #ffffff !important;
-      padding: 2px 4px;
-      border-radius: 5px;
+    li {
+      font-size: 17px; padding: 5px 0;
+      border-bottom: 1px solid var(--input-border-color);
+      display: flex; justify-content: space-between; align-items: center;
     }
 
-    /* CSS für ungültige Zeiten */
+    .history-item { min-height: 70px; }
+
+    .history-entry { flex: 1; margin-right: 10px; }
+
+    p { font-size: 17px; margin: 5px 0; }
+
+    .positive-value, .negative-value, .zero-value {
+      padding: 2px 4px; border-radius: 5px; color: #ffffff !important;
+    }
+
+    .positive-value { background-color: var(--positive-background-color) !important; }
+    .negative-value { background-color: var(--negative-background-color) !important; }
+    .zero-value { background-color: var(--zero-background-color) !important; }
+
     .invalid-time {
-      background-color: var(--hint-color) !important;
-      color: #ffffff !important;
+      background-color: var(--hint-color) !important; color: #ffffff !important;
     }
 
-    /* Seitenverwaltung */
-    #history-page {
-      display: none;
-    }
+    #history-page { display: none; }
 
-    .nav-button {
-      width: auto;
-      padding: 10px 20px;
-      margin-bottom: 20px;
-    }
+    .nav-button { width: auto; padding: 10px 20px; margin-bottom: 20px; }
 
-    /* CSS für Zeilen und Spalten */
     .row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
     }
 
     .column {
-      flex: 1;
-      margin-right: 10px;
+      flex: 1; margin-right: 10px;
     }
 
-    .column-full {
-      flex: 1;
-    }
+    .column-full { flex: 1; }
 
-    .column:last-child {
-      margin-right: 0;
-    }
+    .column:last-child { margin-right: 0; }
 
-    /* Styles für die Paginierung */
     #pagination {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-top: 20px;
-      margin-bottom: 20px;
+      display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
+      margin-top: 20px; margin-bottom: 20px;
     }
 
     #pagination .nav-container {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
+      display: flex; align-items: center; flex-wrap: wrap;
     }
 
     #pagination button,
     #pagination select {
-      background-color: var(--button-background-color);
-      color: var(--button-text-color);
-      border: none;
-      border-radius: 12px;
-      padding: 12px;
-      margin: 5px;
-      cursor: pointer;
-      font-size: 16px;
+      background-color: var(--button-background-color); color: var(--button-text-color);
+      border: none; border-radius: 12px; padding: 12px; margin: 5px;
+      cursor: pointer; font-size: 16px;
     }
 
     #pagination button:disabled {
-      background-color: #cccccc;
-      cursor: not-allowed;
-    }
-
-    #pagination span {
-      font-size: 16px;
-      margin: 0 5px;
+      background-color: #cccccc; cursor: not-allowed;
     }
 
     #pagination select {
-      width: auto;
-      max-width: 200px;
-      flex: 1;
+      width: auto; max-width: 200px; flex: 1;
     }
 
-    /* Anpassung des Containers auf der Verlaufsseite */
     #history-page .container {
-      display: block;
-      padding-bottom: 20px;
+      display: block; padding-bottom: 20px;
     }
 
-    /* iOS-ähnliche Buttons */
     button {
-      font-family: inherit;
-      -webkit-appearance: button;
-      -webkit-tap-highlight-color: transparent;
+      font-family: inherit; -webkit-appearance: button; -webkit-tap-highlight-color: transparent;
     }
 
     .button,
@@ -825,49 +785,24 @@
       box-shadow: 0 2px 5px rgba(0,0,0,0.15);
     }
 
-    /* iOS-ähnlicher Switch */
     .switch-container {
-      display: flex;
-      align-items: center;
-      margin-bottom: 10px;
+      display: flex; align-items: center; margin-bottom: 10px;
     }
 
     .switch {
-      position: relative;
-      display: inline-block;
-      width: 50px;
-      height: 28px;
-      margin-right: 10px;
+      position: relative; display: inline-block; width: 50px; height: 28px; margin-right: 10px;
     }
 
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
+    .switch input { opacity: 0; width: 0; height: 0; }
 
     .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #ccc;
-      transition: 0.4s;
-      border-radius: 14px; /* Halb so hoch wie der Schalter für eine pillenförmige Optik */
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #ccc; transition: 0.4s; border-radius: 14px;
     }
 
     .slider:before {
-      position: absolute;
-      content: "";
-      height: 22px; /* Verkleinerter Kreis */
-      width: 22px;
-      left: 3px;     /* Zentrierung innerhalb des Reglers */
-      top: 3px;
-      background-color: white;
-      transition: 0.4s;
-      border-radius: 50%;
+      position: absolute; content: ""; height: 22px; width: 22px; left: 3px; top: 3px;
+      background-color: white; transition: 0.4s; border-radius: 50%;
     }
 
     input:checked + .slider {
@@ -875,29 +810,43 @@
     }
 
     input:checked + .slider:before {
-      transform: translateX(22px); /* Angepasste Verschiebung */
+      transform: translateX(25px);
     }
 
-    /* Anpassung der Zeilenhöhe für die Verlaufsseite */
-    #history-list {
-      overflow-y: visible;
-    }
+    #history-list { overflow-y: visible; }
 
-    /* Safari-spezifische Anpassungen */
     @media not all and (min-resolution:.001dpcm) {
       @supports (-webkit-appearance: none) {
         input[type="time"],
         input[type="text"],
         input[type="number"],
         select {
-          height: 54px; /* Höhe der Buttons */
+          height: 54px; 
         }
       }
     }
+
+    .modal {
+      display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%;
+      overflow: auto; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center;
+    }
+
+    .modal-content {
+      background-color: var(--card-background-color);
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 400px;
+      margin: 50px auto;
+      color: var(--text-color);
+    }
+
+    .close-button {
+      background: none; border: none; color: var(--text-color);
+      font-size: 20px; font-weight: bold; float: right; cursor: pointer;
+    }
   </style>
 </head>
-<body>
-  <!-- Hauptseite -->
+<body onload="init()">
   <div id="main-page">
     <div class="container">
       <h1>Arbeitszeitrechner</h1>
@@ -905,6 +854,7 @@
       <div class="section">
         <div class="row">
           <div class="column">
+            <label for="kommen-display">Kommen:</label>
             <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
           </div>
           <div class="column">
@@ -916,10 +866,11 @@
             <input type="checkbox" id="pc-buchung" onchange="updateCalculations()">
             <span class="slider"></span>
           </label>
-          <span>MyPortal-Buchung</span>
+          <span>PC-Buchung</span>
         </div>
         <div class="row">
           <div class="column">
+            <label for="gehen-display">Gehen:</label>
             <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
           </div>
           <div class="column">
@@ -936,7 +887,6 @@
         <label for="wochenarbeitszeit">Wochenarbeitszeit (in Stunden):</label>
         <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
       </div>
-      <!-- Verschobener Abschnitt für Anwesenheitszeit etc. -->
       <div class="section">
         <div class="row">
           <div class="column">
@@ -959,7 +909,6 @@
           </div>
         </div>
       </div>
-      <!-- Aktuelles Stundenkonto -->
       <div class="section">
         <div class="row">
           <div class="column">
@@ -993,7 +942,6 @@
         </div>
         <button class="button" onclick="saveDay()">Tag speichern</button>
       </div>
-      <!-- Angepasster Abschnitt für Berechnete Ausstempelzeiten -->
       <div class="section">
         <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
         <div class="row">
@@ -1026,17 +974,43 @@
     </div>
   </div>
 
-  <!-- Verlaufsseite -->
   <div id="history-page">
     <div class="container">
       <h1>Verlauf</h1>
       <button class="button nav-button" onclick="showMainPage()">Zurück</button>
       <h2 id="week-info"></h2>
       <ul id="history-list"></ul>
-      <!-- Wöchentliche Zusammenfassung -->
       <div id="weekly-summary"></div>
-      <!-- Paginierung direkt unter der Verlaufsliste -->
       <div id="pagination"></div>
+    </div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div id="detail-modal" class="modal">
+    <div class="modal-content">
+      <button class="close-button" onclick="closeDetailModal()">×</button>
+      <h3>Details für <span id="detail-date"></span></h3>
+      <p>Kommen: <span id="detail-kommen"></span></p>
+      <p>Gehen: <span id="detail-gehen"></span></p>
+      <p>Differenz: <span id="detail-differenz"></span></p>
+    </div>
+  </div>
+
+  <!-- Add Day Modal -->
+  <div id="add-day-modal" class="modal">
+    <div class="modal-content">
+      <button class="close-button" onclick="closeAddDayModal()">×</button>
+      <h3>Tag nachtragen</h3>
+      <label for="add-day-date">Datum:</label>
+      <input type="date" id="add-day-date">
+
+      <label for="add-day-kommen">Kommen (HH:MM):</label>
+      <input type="time" id="add-day-kommen">
+
+      <label for="add-day-gehen">Gehen (HH:MM):</label>
+      <input type="time" id="add-day-gehen">
+
+      <button class="button" onclick="addManualDay()">Tag speichern</button>
     </div>
   </div>
 </body>
