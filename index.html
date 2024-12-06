@@ -354,8 +354,9 @@
       const gehenDate=new Date(entry.gehen);
       const diffMs=gehenDate-kommenDate;
       if(diffMs<0)return 0;
-      const hours=Math.floor(diffMs/(1000*60*60));
-      const minutes=Math.floor((diffMs%(1000*60*60))/(1000*60));
+      const hourMs=1000*60*60;
+      const hours=Math.floor(diffMs/hourMs);
+      const minutes=Math.floor((diffMs%hourMs)/(1000*60));
       const totalHours=hours+(minutes/60);
       let pausen=0;
       if(totalHours>6)pausen+=0.5;
@@ -424,10 +425,13 @@
           const violationStyle=violation?'style="background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;"':'';
           const violationMarks=violation?' !!!':'';
 
+          // Wenn ein Verstoß vorliegt, ignorieren wir die differenzClass
+          const differenzSpanClass = violation ? '' : differenzClass;
+
           listItem.innerHTML=`
             <div class="history-entry" style="flex:1;" ${violationStyle}>
               <div><strong>${weekdayNames[idx]}</strong> (${displayDate})</div>
-              <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks}</span></div>
+              <div>Differenz: <span class="${differenzSpanClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks}</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
               <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
@@ -884,7 +888,7 @@
     <div class="container">
       <h1>Arbeitszeitrechner</h1>
       <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
-
+      
       <div class="section">
         <div class="row">
           <div class="column">
@@ -911,7 +915,7 @@
         </div>
         <p id="hinweis"></p>
       </div>
-
+      
       <div class="section">
         <div class="row">
           <div class="column">
@@ -919,12 +923,12 @@
             <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
           </div>
           <div class="column">
-            <label for="zusatzliche-pause">Zus. Pausen (z.B. 00:15):</label>
+            <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (z.B. 0:15):</label>
             <input type="text" id="zusatzliche-pause" onchange="updateCalculations()">
           </div>
         </div>
       </div>
-
+      
       <div class="section">
         <h3>Zeitenübersicht</h3>
         <div class="row">
@@ -948,7 +952,7 @@
           </div>
         </div>
       </div>
-
+      
       <div class="section">
         <h3>Stundenkonto</h3>
         <div class="row">
@@ -983,7 +987,7 @@
         </div>
         <button class="button" onclick="saveDay()">Tag speichern</button>
       </div>
-
+      
       <div class="section">
         <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
         <div class="row">
