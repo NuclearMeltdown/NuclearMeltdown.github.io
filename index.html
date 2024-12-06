@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Arbeitszeitrechner">
-  <title>Arbeitszeitrechner</title>
+
   <link rel="apple-touch-icon-precomposed" sizes="57x57" href="https://NuclearMeltdown.github.io/apple-touch-icon-57x57.png" />
   <link rel="apple-touch-icon-precomposed" sizes="114x114" href="https://NuclearMeltdown.github.io/apple-touch-icon-114x114.png" />
   <link rel="apple-touch-icon-precomposed" sizes="72x72" href="https://NuclearMeltdown.github.io/apple-touch-icon-72x72.png" />
@@ -29,7 +29,8 @@
   <meta name="msapplication-square150x150logo" content="https://NuclearMeltdown.github.io/mstile-150x150.png" />
   <meta name="msapplication-wide310x150logo" content="https://NuclearMeltdown.github.io/mstile-310x150.png" />
   <meta name="msapplication-square310x310logo" content="https://NuclearMeltdown.github.io/mstile-310x310.png" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=SF+Pro+Display:400,600&display=swap">
+
+  <title>Arbeitszeitrechner</title>
   <script>
     let kommenZeit = null;
     let gehenZeit = null;
@@ -287,10 +288,8 @@
       }
 
       localStorage.setItem('history', JSON.stringify(history));
-
       document.getElementById('aktuelles-konto').value = neuesStundenkonto.toFixed(2);
       localStorage.setItem('aktuellesStundenkonto', neuesStundenkonto.toFixed(2));
-
       updateCalculations();
       alert("Der Tag wurde gespeichert.");
     }
@@ -557,7 +556,6 @@
       }
 
       localStorage.setItem('history', JSON.stringify(history));
-
       document.getElementById('aktuelles-konto').value = neuesStundenkonto.toFixed(2);
       localStorage.setItem('aktuellesStundenkonto', neuesStundenkonto.toFixed(2));
       updateCalculations();
@@ -683,6 +681,7 @@
       background-color: rgba(255,59,48,0.8);
     }
 
+    input[type="date"],
     input[type="time"],
     input[type="number"],
     input[type="text"],
@@ -692,6 +691,7 @@
       border: 1px solid var(--input-border-color); border-radius: 12px;
       margin-bottom: 10px; background-color: var(--input-background-color);
       color: var(--text-color); box-sizing: border-box;
+      -webkit-appearance: none; appearance: none;
     }
 
     label {
@@ -815,17 +815,6 @@
 
     #history-list { overflow-y: visible; }
 
-    @media not all and (min-resolution:.001dpcm) {
-      @supports (-webkit-appearance: none) {
-        input[type="time"],
-        input[type="text"],
-        input[type="number"],
-        select {
-          height: 54px; 
-        }
-      }
-    }
-
     .modal {
       display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%;
       overflow: auto; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center;
@@ -851,13 +840,14 @@
     <div class="container">
       <h1>Arbeitszeitrechner</h1>
       <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
+      
+      <!-- Kommen/Gehen Felder ohne Labels darüber -->
       <div class="section">
         <div class="row">
           <div class="column">
-            <label for="kommen-display">Kommen:</label>
             <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
           </div>
-          <div class="column">
+          <div class="column" style="flex:none;">
             <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
           </div>
         </div>
@@ -870,49 +860,52 @@
         </div>
         <div class="row">
           <div class="column">
-            <label for="gehen-display">Gehen:</label>
             <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
           </div>
-          <div class="column">
+          <div class="column" style="flex:none;">
             <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
           </div>
         </div>
         <p id="hinweis"></p>
       </div>
+      
       <div class="section">
-        <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (hh:mm):</label>
-        <input type="text" id="zusatzliche-pause" placeholder="z.B. 0:15" onchange="updateCalculations()">
+        <input type="text" id="zusatzliche-pause" placeholder="Zusätzliche Pausenzeiten (z.B. 0:15)" onchange="updateCalculations()">
       </div>
+      
       <div class="section">
-        <label for="wochenarbeitszeit">Wochenarbeitszeit (in Stunden):</label>
-        <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
+        <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()" placeholder="Wochenarbeitszeit (Std.)">
       </div>
+      
       <div class="section">
+        <h3>Zeitenübersicht</h3>
         <div class="row">
           <div class="column">
-            <label for="anwesend-zeit">Anwesenheitszeit:</label>
+            <label>Anwesenheitszeit:</label>
             <input type="text" id="anwesend-zeit" readonly>
           </div>
           <div class="column">
-            <label for="pausenzeit">Pausen:</label>
+            <label>Pausen:</label>
             <input type="text" id="pausenzeit" readonly>
           </div>
         </div>
         <div class="row">
           <div class="column">
-            <label for="arbeitszeit">Arbeitszeit:</label>
+            <label>Arbeitszeit:</label>
             <input type="text" id="arbeitszeit" readonly>
           </div>
           <div class="column">
-            <label for="sollarbeitszeit-display">Sollarbeitszeit:</label>
+            <label>Sollarbeitszeit:</label>
             <input type="text" id="sollarbeitszeit-display" readonly>
           </div>
         </div>
       </div>
+      
       <div class="section">
+        <h3>Stundenkonto</h3>
         <div class="row">
           <div class="column">
-            <label for="aktuelles-konto">Aktuelles Stundenkonto:</label>
+            <label>Aktuelles Stundenkonto:</label>
             <input type="number" id="aktuelles-konto" value="0" onchange="updateCalculations()">
           </div>
           <div class="column">
@@ -922,7 +915,7 @@
         </div>
         <div class="row">
           <div class="column">
-            <label for="differenz">Differenz:</label>
+            <label>Differenz:</label>
             <input type="text" id="differenz" readonly>
           </div>
           <div class="column">
@@ -932,7 +925,7 @@
         </div>
         <div class="row">
           <div class="column">
-            <label for="neues-konto">Neues Stundenkonto:</label>
+            <label>Neues Stundenkonto:</label>
             <input type="text" id="neues-konto" readonly>
           </div>
           <div class="column">
@@ -942,31 +935,32 @@
         </div>
         <button class="button" onclick="saveDay()">Tag speichern</button>
       </div>
+      
       <div class="section">
         <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
         <div class="row">
           <div class="column-full">
-            <label for="end-time-soll">Sollarbeitszeit:</label>
+            <label>Sollarbeitszeit:</label>
             <input type="text" id="end-time-soll" readonly>
           </div>
         </div>
         <div class="row">
           <div class="column">
-            <label for="end-time-4h">4h:</label>
+            <label>4h:</label>
             <input type="text" id="end-time-4h" readonly>
           </div>
           <div class="column">
-            <label for="end-time-6h">6h:</label>
+            <label>6h:</label>
             <input type="text" id="end-time-6h" readonly>
           </div>
         </div>
         <div class="row">
           <div class="column">
-            <label for="end-time-9h">9h:</label>
+            <label>9h:</label>
             <input type="text" id="end-time-9h" readonly>
           </div>
           <div class="column">
-            <label for="end-time-10h">10h:</label>
+            <label>10h:</label>
             <input type="text" id="end-time-10h" readonly>
           </div>
         </div>
@@ -1001,15 +995,9 @@
     <div class="modal-content">
       <button class="close-button" onclick="closeAddDayModal()">×</button>
       <h3>Tag nachtragen</h3>
-      <label for="add-day-date">Datum:</label>
       <input type="date" id="add-day-date">
-
-      <label for="add-day-kommen">Kommen (HH:MM):</label>
       <input type="time" id="add-day-kommen">
-
-      <label for="add-day-gehen">Gehen (HH:MM):</label>
       <input type="time" id="add-day-gehen">
-
       <button class="button" onclick="addManualDay()">Tag speichern</button>
     </div>
   </div>
