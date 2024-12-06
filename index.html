@@ -270,7 +270,6 @@
     function saveDay() {
       updateCalculations();
 
-      // adjustedKommen nur EINMAL deklarieren
       const adjustedKommen = getAdjustedKommenZeit();
 
       if (adjustedKommen && gehenZeit) {
@@ -293,7 +292,6 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
-      // HIER KEINE NEUERLICHE DEKLARATION VON adjustedKommen!
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -706,6 +704,7 @@
       border:none;border-radius:12px;font-size:17px;font-weight:600;
       text-align:center;margin-bottom:10px;cursor:pointer;
       box-shadow:0 2px 5px rgba(0,0,0,0.15);
+      box-sizing:border-box;
     }
 
     .button:active { background-color:rgba(10,132,255,0.8); }
@@ -715,6 +714,7 @@
       font-size:15px;font-weight:600;cursor:pointer;
       border-radius:12px;box-shadow:0 2px 5px rgba(0,0,0,0.15);
       border:none;padding:10px 15px;
+      box-sizing:border-box;
     }
 
     .inline-button {
@@ -734,11 +734,22 @@
     }
 
     input,select {
-      width:100%;padding:15px;font-size:17px;
-      border:1px solid var(--input-border-color);border-radius:12px;
-      margin-bottom:10px;background-color:var(--input-background-color);
-      color:var(--text-color);box-sizing:border-box;
+      width:100%;
+      padding:15px;
+      font-size:17px;
+      border:none;
+      border-radius:12px;
+      margin-bottom:10px;
+      background-color:var(--input-background-color);
+      color:var(--text-color);
+      box-sizing:border-box;
       -webkit-appearance:none;appearance:none;
+      line-height:normal;
+    }
+
+    /* Verhindert das Anzeige-Icon für input[type=time] */
+    input[type=time]::-webkit-calendar-picker-indicator {
+      display:none;
     }
 
     label {
@@ -785,8 +796,10 @@
       display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
     }
 
-    .column {flex:1;margin-right:10px;}
-    .column-full {flex:1;}
+    .column {
+      flex:1;margin-right:10px;display:flex;flex-direction:column;
+    }
+
     .column:last-child {margin-right:0;}
 
     #pagination {
@@ -803,6 +816,7 @@
       background-color:var(--button-background-color);color:var(--button-text-color);
       border:none;border-radius:12px;padding:12px;margin:5px;
       cursor:pointer;font-size:16px;
+      box-sizing:border-box;
     }
 
     #pagination button:disabled {
@@ -851,6 +865,7 @@
       background-color:var(--card-background-color);
       border-radius:12px;padding:20px;
       max-width:400px;margin:50px auto;color:var(--text-color);
+      box-sizing:border-box;
     }
 
     .close-button {
@@ -867,10 +882,11 @@
       
       <div class="section">
         <div class="row">
-          <div class="column" style="display:flex;flex-direction:column;">
-            <input type="time" id="kommen-display" onchange="updateKommenFromInput()" style="width:100%;">
+          <div class="column">
+            <label for="kommen-display">Kommen:</label>
+            <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
           </div>
-          <div class="column" style="display:flex;flex-direction:column;">
+          <div class="column">
             <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
           </div>
         </div>
@@ -882,10 +898,11 @@
           <span>PC-Buchung</span>
         </div>
         <div class="row">
-          <div class="column" style="display:flex;flex-direction:column;">
-            <input type="time" id="gehen-display" onchange="updateGehenFromInput()" style="width:100%;">
+          <div class="column">
+            <label for="gehen-display">Gehen:</label>
+            <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
           </div>
-          <div class="column" style="display:flex;flex-direction:column;">
+          <div class="column">
             <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
           </div>
         </div>
@@ -894,11 +911,11 @@
       
       <div class="section">
         <div class="row">
-          <div class="column" style="display:flex;flex-direction:column;">
+          <div class="column">
             <label for="wochenarbeitszeit">Wochenarbeitszeit (Std.):</label>
             <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
           </div>
-          <div class="column" style="display:flex;flex-direction:column;">
+          <div class="column">
             <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (z.B. 0:15):</label>
             <input type="text" id="zusatzliche-pause" onchange="updateCalculations()">
           </div>
@@ -967,7 +984,7 @@
       <div class="section">
         <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
         <div class="row">
-          <div class="column-full">
+          <div class="column">
             <label>Sollarbeitszeit:</label>
             <input type="text" id="end-time-soll" readonly>
           </div>
@@ -1026,11 +1043,11 @@
       <label for="add-day-date">Datum:</label>
       <input type="date" id="add-day-date">
       <div class="row">
-        <div class="column" style="display:flex;flex-direction:column;">
+        <div class="column">
           <label for="add-day-kommen">Kommen:</label>
           <input type="time" id="add-day-kommen">
         </div>
-        <div class="column" style="display:flex;flex-direction:column;">
+        <div class="column">
           <label for="add-day-gehen">Gehen:</label>
           <input type="time" id="add-day-gehen">
         </div>
