@@ -38,8 +38,8 @@
     let currentWeekNo = null;
 
     function checkViolations(kommenDate, gehenDate, arbeitszeit) {
-      const kommenStunde = kommenDate.getHours() + kommenDate.getMinutes() / 60;
-      const gehenStunde = gehenDate.getHours() + gehenDate.getMinutes() / 60;
+      const kommenStunde = kommenDate.getHours() + kommenDate.getMinutes()/60;
+      const gehenStunde = gehenDate.getHours() + gehenDate.getMinutes()/60;
       if (kommenStunde < 6 || kommenStunde > 16) return true;
       if (gehenStunde > 20) return true;
       if (arbeitszeit < 4) return true;
@@ -135,7 +135,7 @@
 
     function calculateArbeitszeit() {
       const workTime = calculateWorkingTime();
-      const totalHours = workTime.hours + workTime.minutes / 60;
+      const totalHours = workTime.hours + workTime.minutes/60;
       const pausen = calculatePausen(totalHours);
       return totalHours - pausen;
     }
@@ -150,8 +150,8 @@
     function calculateEndTime(durationHours) {
       const adjusted = getAdjustedKommenZeit();
       if (!adjusted) return "--:--";
+      const pausenInMinuten = calculatePausen(durationHours)*60;
       const totalMinutes = durationHours * 60;
-      const pausenInMinuten = calculatePausen(durationHours) * 60;
       const endTime = new Date(adjusted.getTime());
       endTime.setMinutes(endTime.getMinutes() + totalMinutes + pausenInMinuten);
       return formatTime(endTime);
@@ -183,7 +183,7 @@
       const neuesStundenkonto = aktuellesKonto + differenz;
 
       document.getElementById("anwesend-zeit").value = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
-      document.getElementById("pausenzeit").value = `${(pausen * 60).toFixed(0)} Min`;
+      document.getElementById("pausenzeit").value = `${(calculatePausen(totalHours)*60).toFixed(0)} Min`;
       document.getElementById("arbeitszeit").value = `${formatDecimalToTime(arbeitszeit)} (${arbeitszeit.toFixed(2)}h)`;
       document.getElementById("sollarbeitszeit-display").value = `${formatDecimalToTime(sollArbeitszeit)} (${sollArbeitszeit.toFixed(2)}h)`;
 
@@ -193,6 +193,7 @@
       document.getElementById("neues-konto-time").value = formatDecimalToTime(neuesStundenkonto);
       document.getElementById("aktuelles-konto-time").value = formatDecimalToTime(aktuellesKonto);
 
+      // Differenz Farbmarkierung
       const differenzField = document.getElementById("differenz");
       const neuesKontoField = document.getElementById("neues-konto");
       const differenzTimeField = document.getElementById("differenz-time");
@@ -213,7 +214,7 @@
         neuesKontoField.classList.add("negative-value");
         differenzTimeField.classList.add("negative-value");
         neuesKontoTimeField.classList.add("negative-value");
-      } else if (differenz === 0) {
+      } else {
         differenzField.classList.add("zero-value");
         neuesKontoField.classList.add("zero-value");
         differenzTimeField.classList.add("zero-value");
@@ -224,8 +225,6 @@
       let hinweisText = "";
 
       const adjustedKommen = getAdjustedKommenZeit();
-      const totalHours = calculateWorkingTime().hours + calculateWorkingTime().minutes / 60;
-      const arbeitszeit = totalHours - calculatePausen(totalHours);
 
       if (arbeitszeit < 4 || arbeitszeit > 10) {
         hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
@@ -270,7 +269,7 @@
       const adjustedKommen = getAdjustedKommenZeit();
       if (adjustedKommen && gehenZeit) {
         const diffMs = gehenZeit - adjustedKommen;
-        const totalHours = Math.floor(diffMs / (1000 * 60 * 60)) + ((Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))) / 60);
+        const totalHours = Math.floor(diffMs/(1000*60*60)) + ((Math.floor((diffMs % (1000*60*60)) / (1000*60)))/60);
         const pausen = calculatePausen(totalHours);
         const arbeitszeit = totalHours - pausen;
         if (checkViolations(adjustedKommen, gehenZeit, arbeitszeit)) {
@@ -659,7 +658,7 @@
       color: var(--text-color);
       margin: 0; padding: 0;
       font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-      Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
     }
 
     body::before {
@@ -703,161 +702,147 @@
     }
     .button:active { background-color: rgba(10,132,255,0.8); }
 
-    .inline-button, .delete-button {
-      font-size: 15px; font-weight: 600; cursor: pointer;
-      border-radius: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.15);
-      border: none; padding: 10px 15px;
+    .inline-button,
+    .delete-button {
+      font-size: 15px; font-weight:600; cursor:pointer;
+      border-radius: 12px; box-shadow:0 2px 5px rgba(0,0,0,0.15);
+      border:none; padding:10px 15px;
     }
 
     .inline-button {
-      background-color: var(--button-background-color); color: #ffffff;
+      background-color: var(--button-background-color); color:#ffffff;
     }
-    .inline-button:active {
-      background-color: rgba(10,132,255,0.8);
-    }
+    .inline-button:active { background-color:rgba(10,132,255,0.8); }
 
     .delete-button {
-      background-color: var(--hint-color); color: #ffffff;
+      background-color: var(--hint-color); color:#ffffff;
     }
-    .delete-button:active {
-      background-color: rgba(255,59,48,0.8);
-    }
+    .delete-button:active { background-color:rgba(255,59,48,0.8); }
 
     input, select {
-      width: 100%; padding: 15px; font-size: 17px;
-      border: 1px solid var(--input-border-color); border-radius: 12px;
-      margin-bottom: 10px; background-color: var(--input-background-color);
-      color: var(--text-color); box-sizing: border-box;
-      -webkit-appearance: none; appearance: none;
+      width:100%; padding:15px; font-size:17px;
+      border:1px solid var(--input-border-color); border-radius:12px;
+      margin-bottom:10px; background-color:var(--input-background-color);
+      color:var(--text-color); box-sizing:border-box;
+      -webkit-appearance:none; appearance:none;
     }
 
     label {
-      font-size: 15px; color: #8e8e93; margin-bottom: 5px; display: block;
+      font-size:15px; color:#8e8e93; margin-bottom:5px; display:block;
     }
 
     #hinweis {
-      color: var(--hint-color); font-weight: 600; font-size: 15px;
-      display: none; margin-top: 10px;
+      color:var(--hint-color); font-weight:600; font-size:15px;
+      display:none; margin-top:10px;
     }
 
     ul {
-      list-style-type: none; padding-left: 0; margin: 0;
+      list-style-type:none; padding-left:0; margin:0;
     }
 
     li {
-      font-size: 17px; padding: 5px 0;
-      border-bottom: 1px solid var(--input-border-color);
-      display: flex; justify-content: space-between; align-items: center;
+      font-size:17px; padding:5px 0;
+      border-bottom:1px solid var(--input-border-color);
+      display:flex; justify-content:space-between; align-items:center;
     }
 
-    .history-item { min-height: 70px; }
-    .history-entry { flex: 1; margin-right: 10px; }
+    .history-item { min-height:70px; }
+    .history-entry { flex:1; margin-right:10px; }
 
-    p { font-size: 17px; margin: 5px 0; }
+    p { font-size:17px; margin:5px 0; }
 
     .positive-value, .negative-value, .zero-value {
-      padding: 2px 4px; border-radius: 5px; color: #ffffff !important;
+      padding:2px 4px; border-radius:5px; color:#ffffff !important;
     }
 
-    .positive-value { background-color: var(--positive-background-color) !important; }
-    .negative-value { background-color: var(--negative-background-color) !important; }
-    .zero-value { background-color: var(--zero-background-color) !important; }
+    .positive-value { background-color:var(--positive-background-color) !important; }
+    .negative-value { background-color:var(--negative-background-color) !important; }
+    .zero-value { background-color:var(--zero-background-color) !important; }
 
     .invalid-time {
-      background-color: var(--hint-color) !important; color: #ffffff !important;
+      background-color:var(--hint-color) !important; color:#ffffff !important;
     }
 
-    #history-page { display: none; }
+    #history-page { display:none; }
 
-    .nav-button { width: auto; padding: 10px 20px; margin-bottom: 20px; }
+    .nav-button { width:auto; padding:10px 20px; margin-bottom:20px; }
 
     .row {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+      display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;
     }
 
-    .column {
-      flex: 1; margin-right: 10px;
-    }
-
-    .column-full { flex: 1; }
-
-    .column:last-child { margin-right: 0; }
+    .column { flex:1; margin-right:10px; }
+    .column-full { flex:1; }
+    .column:last-child { margin-right:0; }
 
     #pagination {
-      display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
-      margin-top: 20px; margin-bottom: 20px;
+      display:flex; justify-content:center; align-items:center; flex-wrap:wrap;
+      margin-top:20px; margin-bottom:20px;
     }
 
     #pagination .nav-container {
-      display: flex; align-items: center; flex-wrap: wrap;
+      display:flex; align-items:center; flex-wrap:wrap;
     }
 
     #pagination button,
     #pagination select {
-      background-color: var(--button-background-color); color: var(--button-text-color);
-      border: none; border-radius: 12px; padding: 12px; margin: 5px;
-      cursor: pointer; font-size: 16px;
+      background-color:var(--button-background-color); color:var(--button-text-color);
+      border:none; border-radius:12px; padding:12px; margin:5px;
+      cursor:pointer; font-size:16px;
     }
 
     #pagination button:disabled {
-      background-color: #cccccc; cursor: not-allowed;
+      background-color:#cccccc; cursor:not-allowed;
     }
 
     #pagination select {
-      width: auto; max-width: 200px; flex: 1;
+      width:auto; max-width:200px; flex:1;
     }
 
     #history-page .container {
-      display: block; padding-bottom: 20px;
+      display:block; padding-bottom:20px;
     }
 
     .switch-container {
-      display: flex; align-items: center; margin-bottom: 10px;
+      display:flex; align-items:center; margin-bottom:10px;
     }
 
     .switch {
-      position: relative; display: inline-block; width: 50px; height: 28px; margin-right: 10px;
+      position:relative; display:inline-block; width:50px; height:28px; margin-right:10px;
     }
 
-    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch input { opacity:0; width:0; height:0; }
 
     .slider {
-      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #ccc; transition: 0.4s; border-radius: 14px;
+      position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0;
+      background-color:#ccc; transition:0.4s; border-radius:14px;
     }
 
     .slider:before {
-      position: absolute; content: ""; height: 22px; width: 22px; left: 3px; top: 3px;
-      background-color: white; transition: 0.4s; border-radius: 50%;
+      position:absolute; content:""; height:22px; width:22px; left:3px; top:3px;
+      background-color:white; transition:0.4s; border-radius:50%;
     }
 
-    input:checked + .slider {
-      background-color: var(--button-background-color);
-    }
+    input:checked + .slider { background-color:var(--button-background-color); }
+    input:checked + .slider:before { transform:translateX(22px); }
 
-    input:checked + .slider:before {
-      transform: translateX(22px);
-    }
-
-    #history-list { overflow-y: visible; }
+    #history-list { overflow-y:visible; }
 
     .modal {
-      display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%;
-      overflow: auto; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center;
+      display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%;
+      overflow:auto; background-color:rgba(0,0,0,0.5); justify-content:center; align-items:center;
     }
 
     .modal-content {
-      background-color: var(--card-background-color);
-      border-radius: 12px;
-      padding: 20px;
-      max-width: 400px;
-      margin: 50px auto;
-      color: var(--text-color);
+      background-color:var(--card-background-color);
+      border-radius:12px; padding:20px;
+      max-width:400px; margin:50px auto;
+      color:var(--text-color);
     }
 
     .close-button {
-      background: none; border: none; color: var(--text-color);
-      font-size: 20px; font-weight: bold; float: right; cursor: pointer;
+      background:none; border:none; color:var(--text-color);
+      font-size:20px; font-weight:bold; float:right; cursor:pointer;
     }
   </style>
 </head>
