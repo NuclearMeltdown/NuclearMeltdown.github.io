@@ -752,9 +752,8 @@
       display:none;
     }
 
-    label {
-      font-size:15px;color:#8e8e93;margin-bottom:5px;display:block;
-    }
+    /* Da wir keine Labels über den Zeitfeldern wollen, entfernen wir diese einfach.
+       Keine label-Elemente für Kommen und Gehen mehr. */
 
     #hinweis {
       color:var(--hint-color);font-weight:600;font-size:15px;
@@ -883,7 +882,7 @@
       <div class="section">
         <div class="row">
           <div class="column">
-            <label for="kommen-display">Kommen:</label>
+            <!-- Kein Label für Kommen -->
             <input type="time" id="kommen-display" onchange="updateKommenFromInput()">
           </div>
           <div class="column">
@@ -899,7 +898,7 @@
         </div>
         <div class="row">
           <div class="column">
-            <label for="gehen-display">Gehen:</label>
+            <!-- Kein Label für Gehen -->
             <input type="time" id="gehen-display" onchange="updateGehenFromInput()">
           </div>
           <div class="column">
