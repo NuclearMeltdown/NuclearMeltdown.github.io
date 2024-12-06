@@ -189,7 +189,7 @@
       document.getElementById("anwesend-zeit").value = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
       document.getElementById("pausenzeit").value = `${(calculatePausen(totalHours)*60).toFixed(0)} Min`;
       document.getElementById("arbeitszeit").value = `${formatDecimalToTime(arbeitszeit)} (${arbeitszeit.toFixed(2)}h)`;
-      document.getElementById("sollarbeitszeit-display").value = `${formatDecimalToTime(sollArbeitszeit)} (${sollArbeitszeit.toFixed(2)}h)`;
+      document.getElementById("sollarbeitszeit-display").value = `${formatDecimalToTime(sollArbeitszeit)} (${sollarbeitszeit.toFixed(2)}h)`;
 
       document.getElementById("differenz").value = differenz.toFixed(2);
       document.getElementById("differenz-time").value = formatDecimalToTime(differenz);
@@ -228,8 +228,6 @@
       let hinweisText = "";
 
       const ak = getAdjustedKommenZeit();
-      // Hier KEIN zweites const arbeitszeit!
-      // Wir nutzen arbeitszeit nur aus der ersten Deklaration oben.
       if (arbeitszeit < 4 || arbeitszeit > 10) {
         hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
       }
@@ -750,6 +748,13 @@
       -webkit-appearance:none;appearance:none;
       line-height:1.2em;
       height:56px;
+    }
+
+    input:read-only {
+      border:none;
+      border-radius:12px;
+      background-color:var(--input-background-color);
+      color:var(--text-color);
     }
 
     input[type=time]::-webkit-calendar-picker-indicator {
