@@ -809,7 +809,7 @@
       background-color: var(--button-background-color);
     }
 
-    /* geänderte Übersetzung von 25px auf 22px */
+    /* geändert von 25px auf 22px */
     input:checked + .slider:before {
       transform: translateX(22px);
     }
@@ -839,10 +839,10 @@
 <body onload="init()">
   <div id="main-page">
     <div class="container">
+      <!-- Hauptseite unverändert -->
       <h1>Arbeitszeitrechner</h1>
       <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
       
-      <!-- Kommen und Gehen: je eine Zeile, symmetrisch angeordnet -->
       <div class="section">
         <div class="row">
           <div class="column" style="display:flex;flex-direction:column;">
@@ -870,7 +870,6 @@
         <p id="hinweis"></p>
       </div>
       
-      <!-- Wochenarbeitszeit und zusätzliche Pause nebeneinander -->
       <div class="section">
         <div class="row">
           <div class="column" style="display:flex;flex-direction:column;">
@@ -878,7 +877,7 @@
             <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
           </div>
           <div class="column" style="display:flex;flex-direction:column;">
-            <label for="zusatzliche-pause">Zus. Pausen (z.B. 00:15:)</label>
+            <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (z.B. 0:15):</label>
             <input type="text" id="zusatzliche-pause" onchange="updateCalculations()">
           </div>
         </div>
@@ -1002,9 +1001,18 @@
     <div class="modal-content">
       <button class="close-button" onclick="closeAddDayModal()">×</button>
       <h3>Tag nachtragen</h3>
+      <label for="add-day-date">Datum:</label>
       <input type="date" id="add-day-date">
-      <input type="time" id="add-day-kommen">
-      <input type="time" id="add-day-gehen">
+      <div class="row">
+        <div class="column" style="display:flex;flex-direction:column;">
+          <label for="add-day-kommen">Kommen:</label>
+          <input type="time" id="add-day-kommen">
+        </div>
+        <div class="column" style="display:flex;flex-direction:column;">
+          <label for="add-day-gehen">Gehen:</label>
+          <input type="time" id="add-day-gehen">
+        </div>
+      </div>
       <button class="button" onclick="addManualDay()">Tag speichern</button>
     </div>
   </div>
