@@ -268,7 +268,7 @@
 
     function saveDay() {
       updateCalculations();
-      const adjustedKommen = getAdjustedKommenZeit(); // Nur einmal deklarieren!
+      const adjustedKommen = getAdjustedKommenZeit(); // nur einmal verwendet!
 
       if (adjustedKommen && gehenZeit) {
         const diffMs = gehenZeit - adjustedKommen;
@@ -425,7 +425,7 @@
           const violationStyle=violation?'style="background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;"':'';
           const violationMarks=violation?' !!!':'';
 
-          // Wenn ein Verstoß vorliegt, ignorieren wir die differenzClass
+          // Wenn ein Verstoß vorliegt, ignorieren wir die differenzClass und setzen keinen Klassen-Namen
           const differenzSpanClass = violation ? '' : differenzClass;
 
           listItem.innerHTML=`
@@ -887,8 +887,7 @@
   <div id="main-page">
     <div class="container">
       <h1>Arbeitszeitrechner</h1>
-      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
-      
+      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>      
       <div class="section">
         <div class="row">
           <div class="column">
