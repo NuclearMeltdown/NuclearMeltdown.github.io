@@ -268,7 +268,7 @@
 
     function saveDay() {
       updateCalculations();
-      const adjustedKommen = getAdjustedKommenZeit(); // nur einmal verwendet!
+      const adjustedKommen = getAdjustedKommenZeit();
 
       if (adjustedKommen && gehenZeit) {
         const diffMs = gehenZeit - adjustedKommen;
@@ -422,14 +422,20 @@
           const differenzClass=differenzValue>0?'positive-value':(differenzValue<0?'negative-value':'zero-value');
           const displayDate=new Date(entry.datum).toLocaleDateString('de-DE');
           const violation=checkEntryViolationsForHistory(entry);
-          const violationStyle=violation?'style="background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;"':'';
+
+          // bei Verstoß rote Hinterlegung, sonst normal
+          let violationStyle = "flex:1;";
+          if(violation) {
+            violationStyle += "background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;";
+          }
+
           const violationMarks=violation?' !!!':'';
 
-          // Wenn ein Verstoß vorliegt, ignorieren wir die differenzClass und setzen keinen Klassen-Namen
+          // Bei Verstoß keine differenzClass anwenden
           const differenzSpanClass = violation ? '' : differenzClass;
 
           listItem.innerHTML=`
-            <div class="history-entry" style="flex:1;" ${violationStyle}>
+            <div class="history-entry" style="${violationStyle}">
               <div><strong>${weekdayNames[idx]}</strong> (${displayDate})</div>
               <div>Differenz: <span class="${differenzSpanClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks}</span></div>
             </div>
@@ -887,7 +893,7 @@
   <div id="main-page">
     <div class="container">
       <h1>Arbeitszeitrechner</h1>
-      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>      
+      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>  
       <div class="section">
         <div class="row">
           <div class="column">
