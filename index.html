@@ -228,6 +228,7 @@
       let hinweisText = "";
 
       const ak = getAdjustedKommenZeit();
+      arbeitszeit = differenz + (wochenarbeitszeitValue/5); // da differenz = arbeitszeit - sollArbeitszeit, arbeitszeit = differenz + sollArbeitszeit
       if (arbeitszeit < 4 || arbeitszeit > 10) {
         hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
       }
@@ -268,7 +269,7 @@
 
     function saveDay() {
       updateCalculations();
-      const adjustedKommen = getAdjustedKommenZeit();
+      const adjustedKommen = getAdjustedKommenZeit(); 
 
       if (adjustedKommen && gehenZeit) {
         const diffMs = gehenZeit - adjustedKommen;
@@ -290,6 +291,7 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
+      adjustedKommen = getAdjustedKommenZeit();
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -386,6 +388,147 @@
       }
     }
 
+    function showAddDayModal(weekday,index){
+      // Datum für den gewählten Tag ermitteln
+      const dateVal = new Date(getDateOfISOWeek(currentWeekNo,currentWeekYear));
+      // Montag = 1, also weekday-1 Tage hinzufügen
+      dateVal.setDate(dateVal.getDate()+(weekday-1));
+      const displayDate = dateVal.toLocaleDateString('de-DE');
+
+      // Titel setzen
+      document.getElementById('add-day-modal-title').textContent = `Manuelle Buchung für ${displayDate}`;
+
+      // Eingabefelder zurücksetzen
+      document.getElementById('add-day-kommen').value="";
+      document.getElementById('add-day-gehen').value="";
+      document.getElementById('pc-buchung-add-day').checked=false;
+
+      // Datum in data-Attribut speichern, um es später auszulesen
+      document.getElementById('add-day-modal').setAttribute('data-date', dateVal.toISOString().split('T')[0]);
+      document.getElementById('add-day-modal').style.display='block';
+    }
+
+    function addManualDay(){
+      const dateVal=document.getElementById('add-day-modal').getAttribute('data-date');
+      const kommenVal=document.getElementById('add-day-kommen').value;
+      const gehenVal=document.getElementById('add-day-gehen').value;
+      const isPcBuchungAddDay=document.getElementById('pc-buchung-add-day').checked;
+
+      if(!dateVal||!kommenVal||!gehenVal){
+        alert("Bitte Kommen- und Gehen-Zeit angeben.");
+        return;
+      }
+
+      const wochenarbeitszeit=parseFloat(document.getElementById("wochenarbeitszeit").value)||38;
+      const sollArbeitszeit=wochenarbeitszeit/5;
+      const aktuellesKonto=parseFloat(document.getElementById('aktuelles-konto').value)||0;
+
+      const kommenDate=parseTime(kommenVal);
+      const gehenDate=parseTime(gehenVal);
+
+      let adjusted=new Date(kommenDate.getTime());
+      if(isPcBuchungAddDay){
+        adjusted.setMinutes(adjusted.getMinutes()-8);
+      }
+
+      const diffMs=gehenDate-adjusted;
+      const hourMs=1000*60*60;
+      const totalHours=Math.floor(diffMs/hourMs)+((Math.floor((diffMs%hourMs)/(1000*60)))/60);
+
+      const pausen=calculatePausen(totalHours);
+      const arbeitszeit=totalHours-pausen;
+      const differenz=arbeitszeit-sollArbeitszeit;
+      const differenzTime=formatDecimalToTime(differenz);
+      const neuesStundenkonto=aktuellesKonto+differenz;
+
+      if(checkViolations(adjusted,gehenDate,arbeitszeit)){
+        if(!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")){
+          return;
+        }
+      }
+
+      const dayData={
+        datum:dateVal,
+        differenz:differenz.toFixed(2),
+        differenzTime:differenzTime,
+        stundenkonto:neuesStundenkonto.toFixed(2),
+        kommen:adjusted.toISOString(),
+        gehen:gehenDate.toISOString()
+      };
+
+      let history=JSON.parse(localStorage.getItem('history'))||[];
+      const existingIndex=history.findIndex(e=>e.datum===dateVal);
+      const displayDate=new Date(dateVal).toLocaleDateString('de-DE');
+      if(existingIndex!==-1){
+        if(!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)){
+          return;
+        }
+        history[existingIndex]=dayData;
+      } else {
+        history.push(dayData);
+      }
+
+      localStorage.setItem('history',JSON.stringify(history));
+      document.getElementById('aktuelles-konto').value=neuesStundenkonto.toFixed(2);
+      localStorage.setItem('aktuellesStundenkonto',neuesStundenkonto.toFixed(2));
+      updateCalculations();
+      closeAddDayModal();
+      loadHistory();
+      alert("Der Tag wurde nachgetragen.");
+    }
+
+    function closeAddDayModal(){
+      document.getElementById('add-day-modal').style.display='none';
+    }
+
+    function showDayDetails(dateStr){
+      const history=JSON.parse(localStorage.getItem('history'))||[];
+      const entry=history.find(e=>e.datum===dateStr);
+      if(!entry)return;
+      const displayDate=new Date(dateStr).toLocaleDateString('de-DE');
+
+      const kommen=entry.kommen?new Date(entry.kommen):null;
+      const gehen=entry.gehen?new Date(entry.gehen):null;
+
+      document.getElementById('detail-date').textContent=displayDate;
+      document.getElementById('detail-kommen').textContent=kommen?formatTime(kommen):"--:--";
+      document.getElementById('detail-gehen').textContent=gehen?formatTime(gehen):"--:--";
+      document.getElementById('detail-differenz').textContent=`${entry.differenz}h (${entry.differenzTime})`;
+
+      document.getElementById('detail-modal').style.display='block';
+    }
+
+    function closeDetailModal(){
+      document.getElementById('detail-modal').style.display='none';
+    }
+
+    function showHistory() {
+      document.getElementById('main-page').style.display = 'none';
+      document.getElementById('history-page').style.display = 'block';
+      loadHistory();
+    }
+
+    function showMainPage() {
+      document.getElementById('history-page').style.display = 'none';
+      document.getElementById('main-page').style.display = 'block';
+    }
+
+    function getWeekNumber(d) {
+      d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+      const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
+      const weekNo=Math.ceil((((d-yearStart)/86400000)+1)/7);
+      return [d.getUTCFullYear(),weekNo];
+    }
+
+    function getDateOfISOWeek(w,y){
+      const simple=new Date(Date.UTC(y,0,4+(w-1)*7));
+      const dow=simple.getDay();
+      const ISOweekStart=new Date(simple);
+      ISOweekStart.setDate(simple.getDate()-((dow+6)%7));
+      return ISOweekStart;
+    }
+
     function loadHistory(){
       const historyList=document.getElementById('history-list');
       historyList.innerHTML='';
@@ -423,15 +566,12 @@
           const displayDate=new Date(entry.datum).toLocaleDateString('de-DE');
           const violation=checkEntryViolationsForHistory(entry);
 
-          // bei Verstoß rote Hinterlegung, sonst normal
           let violationStyle = "flex:1;";
           if(violation) {
             violationStyle += "background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;";
           }
 
           const violationMarks=violation?' !!!':'';
-
-          // Bei Verstoß keine differenzClass anwenden
           const differenzSpanClass = violation ? '' : differenzClass;
 
           listItem.innerHTML=`
@@ -451,7 +591,7 @@
               <div>Keine Daten vorhanden</div>
             </div>
             <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-              <button class="inline-button" onclick="showAddDayModal('${weekday}','${idx}')">Tag nachtragen</button>
+              <button class="inline-button" onclick="showAddDayModal('${weekday}','${idx}')">Manuelle Buchung</button>
             </div>
           `;
         }
@@ -552,87 +692,6 @@
 
     function closeDetailModal(){
       document.getElementById('detail-modal').style.display='none';
-    }
-
-    function showAddDayModal(weekday,index){
-      document.getElementById('add-day-date').value="";
-      document.getElementById('add-day-kommen').value="";
-      document.getElementById('add-day-gehen').value="";
-      document.getElementById('pc-buchung-add-day').checked=false;
-      document.getElementById('add-day-modal').style.display='block';
-    }
-
-    function closeAddDayModal(){
-      document.getElementById('add-day-modal').style.display='none';
-    }
-
-    function addManualDay(){
-      const dateVal=document.getElementById('add-day-date').value;
-      const kommenVal=document.getElementById('add-day-kommen').value;
-      const gehenVal=document.getElementById('add-day-gehen').value;
-      const isPcBuchungAddDay=document.getElementById('pc-buchung-add-day').checked;
-
-      if(!dateVal||!kommenVal||!gehenVal){
-        alert("Bitte Datum, Kommen- und Gehen-Zeit angeben.");
-        return;
-      }
-
-      const wochenarbeitszeit=parseFloat(document.getElementById("wochenarbeitszeit").value)||38;
-      const sollArbeitszeit=wochenarbeitszeit/5;
-      const aktuellesKonto=parseFloat(document.getElementById('aktuelles-konto').value)||0;
-
-      const kommenDate=parseTime(kommenVal);
-      const gehenDate=parseTime(gehenVal);
-
-      let adjusted=new Date(kommenDate.getTime());
-      if(isPcBuchungAddDay){
-        adjusted.setMinutes(adjusted.getMinutes()-8);
-      }
-
-      const diffMs=gehenDate-adjusted;
-      const hourMs=1000*60*60;
-      const totalHours=Math.floor(diffMs/hourMs)+((Math.floor((diffMs%hourMs)/(1000*60)))/60);
-
-      const pausen=calculatePausen(totalHours);
-      const arbeitszeit=totalHours-pausen;
-      const differenz=arbeitszeit-sollArbeitszeit;
-      const differenzTime=formatDecimalToTime(differenz);
-      const neuesStundenkonto=aktuellesKonto+differenz;
-
-      if(checkViolations(adjusted,gehenDate,arbeitszeit)){
-        if(!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")){
-          return;
-        }
-      }
-
-      const dayData={
-        datum:dateVal,
-        differenz:differenz.toFixed(2),
-        differenzTime:differenzTime,
-        stundenkonto:neuesStundenkonto.toFixed(2),
-        kommen:adjusted.toISOString(),
-        gehen:gehenDate.toISOString()
-      };
-
-      let history=JSON.parse(localStorage.getItem('history'))||[];
-      const existingIndex=history.findIndex(e=>e.datum===dateVal);
-      const displayDate=new Date(dateVal).toLocaleDateString('de-DE');
-      if(existingIndex!==-1){
-        if(!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)){
-          return;
-        }
-        history[existingIndex]=dayData;
-      } else {
-        history.push(dayData);
-      }
-
-      localStorage.setItem('history',JSON.stringify(history));
-      document.getElementById('aktuelles-konto').value=neuesStundenkonto.toFixed(2);
-      localStorage.setItem('aktuellesStundenkonto',neuesStundenkonto.toFixed(2));
-      updateCalculations();
-      closeAddDayModal();
-      loadHistory();
-      alert("Der Tag wurde nachgetragen.");
     }
   </script>
   <style>
@@ -893,7 +952,8 @@
   <div id="main-page">
     <div class="container">
       <h1>Arbeitszeitrechner</h1>
-      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>  
+      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
+      
       <div class="section">
         <div class="row">
           <div class="column">
@@ -928,7 +988,7 @@
             <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
           </div>
           <div class="column">
-            <label for="zusatzliche-pause">Zus. Pausen (z.B. 00:15):</label>
+            <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (z.B. 0:15):</label>
             <input type="text" id="zusatzliche-pause" onchange="updateCalculations()">
           </div>
         </div>
@@ -1048,12 +1108,10 @@
   </div>
 
   <!-- Add Day Modal -->
-  <div id="add-day-modal" class="modal">
+  <div id="add-day-modal" class="modal" data-date="">
     <div class="modal-content">
       <button class="close-button" onclick="closeAddDayModal()">×</button>
-      <h3>Tag nachtragen</h3>
-      <label for="add-day-date">Datum:</label>
-      <input type="date" id="add-day-date">
+      <h3 id="add-day-modal-title">Manuelle Buchung</h3>
       <div class="row">
         <div class="column">
           <label for="add-day-kommen">Kommen:</label>
@@ -1071,7 +1129,7 @@
         </label>
         <span>PC-Buchung</span>
       </div>
-      <button class="button" onclick="addManualDay()">Tag speichern</button>
+      <button class="button" onclick="addManualDay()">Speichern</button>
     </div>
   </div>
 </body>
