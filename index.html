@@ -110,9 +110,9 @@
     }
 
     function calculateWorkingTime() {
-      const adjustedKommen = getAdjustedKommenZeit();
-      if (adjustedKommen && gehenZeit) {
-        const diffMs = gehenZeit - adjustedKommen;
+      const ak = getAdjustedKommenZeit();
+      if (ak && gehenZeit) {
+        const diffMs = gehenZeit - ak;
         const hours = Math.floor(diffMs / (1000 * 60 * 60));
         const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
         return { hours, minutes };
@@ -151,11 +151,11 @@
     }
 
     function calculateEndTime(durationHours) {
-      const adjusted = getAdjustedKommenZeit();
-      if (!adjusted) return "--:--";
+      const ak = getAdjustedKommenZeit();
+      if (!ak) return "--:--";
       const pausenInMinuten = calculatePausen(durationHours)*60;
       const totalMinutes = durationHours * 60;
-      const endTime = new Date(adjusted.getTime());
+      const endTime = new Date(ak.getTime());
       endTime.setMinutes(endTime.getMinutes() + totalMinutes + pausenInMinuten);
       return formatTime(endTime);
     }
@@ -227,16 +227,17 @@
       const hinweis = document.getElementById("hinweis");
       let hinweisText = "";
 
-      const adjustedKommen = getAdjustedKommenZeit();
-
+      const ak = getAdjustedKommenZeit();
+      // Hier KEIN zweites const arbeitszeit!
+      // Wir nutzen arbeitszeit nur aus der ersten Deklaration oben.
       if (arbeitszeit < 4 || arbeitszeit > 10) {
         hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
       }
 
       const kommenField = document.getElementById("kommen-display");
       kommenField.classList.remove("invalid-time");
-      if (adjustedKommen) {
-        const kommenStunde = adjustedKommen.getHours() + adjustedKommen.getMinutes()/60;
+      if (ak) {
+        const kommenStunde = ak.getHours() + ak.getMinutes()/60;
         if (kommenStunde < 6 || kommenStunde > 16) {
           hinweisText += "Achtung: Die Kommen-Zeit liegt außerhalb der Gleitzeitbandbreite (06:00 - 16:00 Uhr)!<br>";
           kommenField.classList.add("invalid-time");
@@ -269,7 +270,6 @@
 
     function saveDay() {
       updateCalculations();
-
       const adjustedKommen = getAdjustedKommenZeit();
 
       if (adjustedKommen && gehenZeit) {
@@ -292,7 +292,7 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
-      const adjustedKommen = getAdjustedKommenZeit();
+      // Hier KEINE erneute Deklaration von adjustedKommen!
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -749,7 +749,7 @@
       box-sizing:border-box;
       -webkit-appearance:none;appearance:none;
       line-height:1.2em;
-      height:56px; /* Einheitliche Höhe für alle Input-Felder */
+      height:56px;
     }
 
     input[type=time]::-webkit-calendar-picker-indicator {
