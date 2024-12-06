@@ -177,7 +177,7 @@
       const workTime = calculateWorkingTime();
       const totalHours = workTime.hours + (workTime.minutes / 60);
       const pausen = calculatePausen(totalHours);
-      const arbeitszeit = totalHours - pausen;
+      const arbeitszeit = totalHours - pausen; // nur einmal definiert
 
       const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value) || 38;
       const sollArbeitszeit = wochenarbeitszeitValue / 5;
@@ -228,7 +228,8 @@
       let hinweisText = "";
 
       const ak = getAdjustedKommenZeit();
-      arbeitszeit = differenz + (wochenarbeitszeitValue/5); // da differenz = arbeitszeit - sollArbeitszeit, arbeitszeit = differenz + sollArbeitszeit
+      // Keine zweite Deklaration von arbeitszeit!
+      // Wir verwenden die bereits deklarierte Variable arbeitszeit.
       if (arbeitszeit < 4 || arbeitszeit > 10) {
         hinweisText += "Achtung: Die Arbeitszeit liegt außerhalb des zulässigen Bereichs (4-10 Stunden)!<br>";
       }
@@ -269,14 +270,14 @@
 
     function saveDay() {
       updateCalculations();
-      const adjustedKommen = getAdjustedKommenZeit(); 
+      const adjustedKommen = getAdjustedKommenZeit(); // nur einmal im saveDay
 
       if (adjustedKommen && gehenZeit) {
         const diffMs = gehenZeit - adjustedKommen;
         const hourMs = 1000 * 60 * 60;
         const totalHours = Math.floor(diffMs/hourMs) + ((Math.floor((diffMs % hourMs)/(1000*60)))/60);
         const pausen = calculatePausen(totalHours);
-        const arbeitszeit = totalHours - pausen;
+        const arbeitszeit = totalHours - pausen; // nur einmal
         if (checkViolations(adjustedKommen, gehenZeit, arbeitszeit)) {
           if (!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")) {
             return;
@@ -291,7 +292,6 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
-      adjustedKommen = getAdjustedKommenZeit();
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -389,21 +389,15 @@
     }
 
     function showAddDayModal(weekday,index){
-      // Datum für den gewählten Tag ermitteln
       const dateVal = new Date(getDateOfISOWeek(currentWeekNo,currentWeekYear));
-      // Montag = 1, also weekday-1 Tage hinzufügen
       dateVal.setDate(dateVal.getDate()+(weekday-1));
       const displayDate = dateVal.toLocaleDateString('de-DE');
 
-      // Titel setzen
       document.getElementById('add-day-modal-title').textContent = `Manuelle Buchung für ${displayDate}`;
-
-      // Eingabefelder zurücksetzen
       document.getElementById('add-day-kommen').value="";
       document.getElementById('add-day-gehen').value="";
       document.getElementById('pc-buchung-add-day').checked=false;
 
-      // Datum in data-Attribut speichern, um es später auszulesen
       document.getElementById('add-day-modal').setAttribute('data-date', dateVal.toISOString().split('T')[0]);
       document.getElementById('add-day-modal').style.display='block';
     }
@@ -436,7 +430,7 @@
       const totalHours=Math.floor(diffMs/hourMs)+((Math.floor((diffMs%hourMs)/(1000*60)))/60);
 
       const pausen=calculatePausen(totalHours);
-      const arbeitszeit=totalHours-pausen;
+      const arbeitszeit=totalHours-pausen; // nur einmal definiert
       const differenz=arbeitszeit-sollArbeitszeit;
       const differenzTime=formatDecimalToTime(differenz);
       const neuesStundenkonto=aktuellesKonto+differenz;
@@ -500,33 +494,6 @@
 
     function closeDetailModal(){
       document.getElementById('detail-modal').style.display='none';
-    }
-
-    function showHistory() {
-      document.getElementById('main-page').style.display = 'none';
-      document.getElementById('history-page').style.display = 'block';
-      loadHistory();
-    }
-
-    function showMainPage() {
-      document.getElementById('history-page').style.display = 'none';
-      document.getElementById('main-page').style.display = 'block';
-    }
-
-    function getWeekNumber(d) {
-      d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
-      const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
-      const weekNo=Math.ceil((((d-yearStart)/86400000)+1)/7);
-      return [d.getUTCFullYear(),weekNo];
-    }
-
-    function getDateOfISOWeek(w,y){
-      const simple=new Date(Date.UTC(y,0,4+(w-1)*7));
-      const dow=simple.getDay();
-      const ISOweekStart=new Date(simple);
-      ISOweekStart.setDate(simple.getDate()-((dow+6)%7));
-      return ISOweekStart;
     }
 
     function loadHistory(){
