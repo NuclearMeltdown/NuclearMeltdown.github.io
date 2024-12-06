@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -37,9 +37,19 @@
     let currentWeekYear = null;
     let currentWeekNo = null;
 
+    function getAdjustedKommenZeit() {
+      if (!kommenZeit) return null;
+      const isPcBuchung = document.getElementById('pc-buchung').checked;
+      const adjusted = new Date(kommenZeit.getTime());
+      if (isPcBuchung) {
+        adjusted.setMinutes(adjusted.getMinutes() - 8);
+      }
+      return adjusted;
+    }
+
     function checkViolations(kommenDate, gehenDate, arbeitszeit) {
-      const kommenStunde = kommenDate.getHours() + kommenDate.getMinutes()/60;
-      const gehenStunde = gehenDate.getHours() + gehenDate.getMinutes()/60;
+      const kommenStunde = kommenDate.getHours() + (kommenDate.getMinutes() / 60);
+      const gehenStunde = gehenDate.getHours() + (gehenDate.getMinutes() / 60);
       if (kommenStunde < 6 || kommenStunde > 16) return true;
       if (gehenStunde > 20) return true;
       if (arbeitszeit < 4) return true;
@@ -83,6 +93,7 @@
     }
 
     function parseTime(timeStr) {
+      if (!timeStr) return null;
       const [hours, minutes] = timeStr.split(":").map(Number);
       const now = new Date();
       now.setHours(hours, minutes, 0, 0);
@@ -90,21 +101,12 @@
     }
 
     function formatTime(date) {
-      return date ? `${pad(date.getHours())}:${pad(date.getMinutes())}` : "--:--";
+      if (!date) return "--:--";
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
 
     function pad(num) {
       return num.toString().padStart(2, "0");
-    }
-
-    function getAdjustedKommenZeit() {
-      if (!kommenZeit) return null;
-      const isPcBuchung = document.getElementById('pc-buchung').checked;
-      let adjusted = new Date(kommenZeit.getTime());
-      if (isPcBuchung) {
-        adjusted.setMinutes(adjusted.getMinutes() - 8);
-      }
-      return adjusted;
     }
 
     function calculateWorkingTime() {
@@ -122,7 +124,7 @@
       const value = document.getElementById("zusatzliche-pause").value;
       if (!value) return 0;
       const [hours, minutes] = value.split(":").map(Number);
-      return hours + minutes / 60;
+      return (hours || 0) + ((minutes || 0) / 60);
     }
 
     function calculatePausen(totalHours) {
@@ -135,14 +137,15 @@
 
     function calculateArbeitszeit() {
       const workTime = calculateWorkingTime();
-      const totalHours = workTime.hours + workTime.minutes/60;
+      const totalHours = workTime.hours + (workTime.minutes / 60);
       const pausen = calculatePausen(totalHours);
       return totalHours - pausen;
     }
 
     function formatDecimalToTime(decimalHours) {
-      const hours = Math.floor(Math.abs(decimalHours));
-      const minutes = Math.round((Math.abs(decimalHours) % 1) * 60);
+      const absVal = Math.abs(decimalHours);
+      const hours = Math.floor(absVal);
+      const minutes = Math.round((absVal % 1) * 60);
       const sign = decimalHours < 0 ? "-" : "";
       return `${sign}${hours}:${pad(minutes)}`;
     }
@@ -164,7 +167,7 @@
         const endTime = calculateEndTime(duration);
         document.getElementById(`end-time-${duration}h`).value = endTime;
       });
-      const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value);
+      const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value) || 38;
       const sollArbeitszeit = wochenarbeitszeitValue / 5;
       const sollEndTime = calculateEndTime(sollArbeitszeit);
       document.getElementById("end-time-soll").value = `(${sollArbeitszeit.toFixed(2)}h): ${sollEndTime}`;
@@ -172,10 +175,11 @@
 
     function updateCalculations() {
       const workTime = calculateWorkingTime();
-      const totalHours = workTime.hours + workTime.minutes / 60;
+      const totalHours = workTime.hours + (workTime.minutes / 60);
       const pausen = calculatePausen(totalHours);
       const arbeitszeit = totalHours - pausen;
-      const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value);
+
+      const wochenarbeitszeitValue = parseFloat(document.getElementById("wochenarbeitszeit").value) || 38;
       const sollArbeitszeit = wochenarbeitszeitValue / 5;
       const differenz = arbeitszeit - sollArbeitszeit;
 
@@ -193,7 +197,6 @@
       document.getElementById("neues-konto-time").value = formatDecimalToTime(neuesStundenkonto);
       document.getElementById("aktuelles-konto-time").value = formatDecimalToTime(aktuellesKonto);
 
-      // Differenz Farbmarkierung
       const differenzField = document.getElementById("differenz");
       const neuesKontoField = document.getElementById("neues-konto");
       const differenzTimeField = document.getElementById("differenz-time");
@@ -233,7 +236,7 @@
       const kommenField = document.getElementById("kommen-display");
       kommenField.classList.remove("invalid-time");
       if (adjustedKommen) {
-        const kommenStunde = adjustedKommen.getHours() + adjustedKommen.getMinutes() / 60;
+        const kommenStunde = adjustedKommen.getHours() + adjustedKommen.getMinutes()/60;
         if (kommenStunde < 6 || kommenStunde > 16) {
           hinweisText += "Achtung: Die Kommen-Zeit liegt außerhalb der Gleitzeitbandbreite (06:00 - 16:00 Uhr)!<br>";
           kommenField.classList.add("invalid-time");
@@ -247,7 +250,7 @@
       const gehenField = document.getElementById("gehen-display");
       gehenField.classList.remove("invalid-time");
       if (gehenZeit) {
-        const gehenStunde = gehenZeit.getHours() + gehenZeit.getMinutes() / 60;
+        const gehenStunde = gehenZeit.getHours() + gehenZeit.getMinutes()/60;
         if (gehenStunde > 20) {
           hinweisText += "Achtung: Die Gehen-Zeit liegt außerhalb der Gleitzeitbandbreite (bis 20:00 Uhr)!<br>";
           gehenField.classList.add("invalid-time");
@@ -266,10 +269,14 @@
 
     function saveDay() {
       updateCalculations();
+
+      // adjustedKommen nur EINMAL deklarieren
       const adjustedKommen = getAdjustedKommenZeit();
+
       if (adjustedKommen && gehenZeit) {
         const diffMs = gehenZeit - adjustedKommen;
-        const totalHours = Math.floor(diffMs/(1000*60*60)) + ((Math.floor((diffMs % (1000*60*60)) / (1000*60)))/60);
+        const hourMs = 1000 * 60 * 60;
+        const totalHours = Math.floor(diffMs/hourMs) + ((Math.floor((diffMs % hourMs)/(1000*60)))/60);
         const pausen = calculatePausen(totalHours);
         const arbeitszeit = totalHours - pausen;
         if (checkViolations(adjustedKommen, gehenZeit, arbeitszeit)) {
@@ -286,7 +293,7 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
-      const adjustedKommen = getAdjustedKommenZeit();
+      // HIER KEINE NEUERLICHE DEKLARATION VON adjustedKommen!
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -331,98 +338,99 @@
 
     function getWeekNumber(d) {
       d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-      const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-      return [d.getUTCFullYear(), weekNo];
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+      const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
+      const weekNo=Math.ceil((((d-yearStart)/86400000)+1)/7);
+      return [d.getUTCFullYear(),weekNo];
     }
 
-    function getDateOfISOWeek(w, y) {
-      const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
-      const dow = simple.getDay();
-      const ISOweekStart = new Date(simple);
-      ISOweekStart.setDate(simple.getDate() - ((dow + 6) % 7));
+    function getDateOfISOWeek(w,y){
+      const simple=new Date(Date.UTC(y,0,4+(w-1)*7));
+      const dow=simple.getDay();
+      const ISOweekStart=new Date(simple);
+      ISOweekStart.setDate(simple.getDate()-((dow+6)%7));
       return ISOweekStart;
     }
 
-    function calcArbeitszeitFromEntry(entry) {
-      if (!entry.kommen || !entry.gehen) return 0;
-      const kommenDate = new Date(entry.kommen);
-      const gehenDate = new Date(entry.gehen);
-      const diffMs = gehenDate - kommenDate;
-      if (diffMs < 0) return 0;
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const totalHours = hours + minutes / 60;
-      let pausen = 0;
-      if (totalHours > 6) pausen += 0.5;
-      if (totalHours > 9) pausen += 0.25;
-      const arbeitszeit = totalHours - pausen;
+    function calcArbeitszeitFromEntry(entry){
+      if(!entry.kommen||!entry.gehen)return 0;
+      const kommenDate=new Date(entry.kommen);
+      const gehenDate=new Date(entry.gehen);
+      const diffMs=gehenDate-kommenDate;
+      if(diffMs<0)return 0;
+      const hours=Math.floor(diffMs/(1000*60*60));
+      const minutes=Math.floor((diffMs%(1000*60*60))/(1000*60));
+      const totalHours=hours+(minutes/60);
+      let pausen=0;
+      if(totalHours>6)pausen+=0.5;
+      if(totalHours>9)pausen+=0.25;
+      const arbeitszeit=totalHours-pausen;
       return arbeitszeit;
     }
 
-    function checkEntryViolationsForHistory(entry) {
-      if (!entry.kommen || !entry.gehen) return false;
-      const kommenDate = new Date(entry.kommen);
-      const gehenDate = new Date(entry.gehen);
-      const arbeitszeit = calcArbeitszeitFromEntry(entry);
-      return checkViolations(kommenDate, gehenDate, arbeitszeit);
+    function checkEntryViolationsForHistory(entry){
+      if(!entry.kommen||!entry.gehen)return false;
+      const kommenDate=new Date(entry.kommen);
+      const gehenDate=new Date(entry.gehen);
+      const arbeitszeit=calcArbeitszeitFromEntry(entry);
+      return checkViolations(kommenDate,gehenDate,arbeitszeit);
     }
 
-    function deleteEntryByDate(dateStr) {
-      let history = JSON.parse(localStorage.getItem('history')) || [];
-      const index = history.findIndex(entry => entry.datum === dateStr);
-      if (index !== -1) {
-        const displayDate = new Date(dateStr).toLocaleDateString('de-DE');
-        if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
-          history.splice(index, 1);
-          localStorage.setItem('history', JSON.stringify(history));
+    function deleteEntryByDate(dateStr){
+      let history=JSON.parse(localStorage.getItem('history'))||[];
+      const index=history.findIndex(e=>e.datum===dateStr);
+      if(index!==-1){
+        const displayDate=new Date(dateStr).toLocaleDateString('de-DE');
+        if(confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)){
+          history.splice(index,1);
+          localStorage.setItem('history',JSON.stringify(history));
           loadHistory();
         }
       }
     }
 
-    function loadHistory() {
-      const historyList = document.getElementById('history-list');
-      historyList.innerHTML = '';
+    function loadHistory(){
+      const historyList=document.getElementById('history-list');
+      historyList.innerHTML='';
 
-      let history = JSON.parse(localStorage.getItem('history')) || [];
+      let history=JSON.parse(localStorage.getItem('history'))||[];
 
-      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-      const weekEndDate = new Date(weekStartDate);
-      weekEndDate.setDate(weekStartDate.getDate() + 4);
-      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
+      const [year,week]=[currentWeekYear,currentWeekNo];
+      const weekStartDate=getDateOfISOWeek(week,year);
+      const weekEndDate=new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate()+4);
+      const weekRange=`${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
 
-      const weekInfo = document.getElementById('week-info');
-      weekInfo.textContent = `KW ${currentWeekNo} (${weekRange})`;
+      const weekInfo=document.getElementById('week-info');
+      weekInfo.textContent=`KW ${week} (${weekRange})`;
 
-      const weekdays = [1, 2, 3, 4, 5];
-      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+      const weekdays=[1,2,3,4,5];
+      const weekdayNames=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag'];
 
-      let totalDifferenz = 0;
+      let totalDifferenz=0;
 
-      weekdays.forEach((weekday, index) => {
-        const entry = history.find(e => {
-          const entryDate = new Date(e.datum);
-          const [entryYear, entryWeekNo] = getWeekNumber(entryDate);
-          return entryYear === currentWeekYear && entryWeekNo === currentWeekNo && entryDate.getDay() === weekday;
+      weekdays.forEach((weekday,idx)=>{
+        const entry=history.find(e=>{
+          const entryDate=new Date(e.datum);
+          const [eYear,eWeekNo]=getWeekNumber(entryDate);
+          return eYear===year&&eWeekNo===week&&entryDate.getDay()===weekday;
         });
 
-        const listItem = document.createElement('li');
+        const listItem=document.createElement('li');
         listItem.classList.add('history-item');
 
-        if (entry) {
-          const differenzValue = parseFloat(entry.differenz);
-          totalDifferenz += differenzValue;
-          const differenzClass = differenzValue > 0 ? 'positive-value' : (differenzValue < 0 ? 'negative-value' : 'zero-value');
-          const displayDate = new Date(entry.datum).toLocaleDateString('de-DE');
-          const violation = checkEntryViolationsForHistory(entry);
-          const violationStyle = violation ? 'style="background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;"' : '';
-          const violationMarks = violation ? ' !!!' : '';
+        if(entry){
+          const differenzValue=parseFloat(entry.differenz);
+          totalDifferenz+=differenzValue;
+          const differenzClass=differenzValue>0?'positive-value':(differenzValue<0?'negative-value':'zero-value');
+          const displayDate=new Date(entry.datum).toLocaleDateString('de-DE');
+          const violation=checkEntryViolationsForHistory(entry);
+          const violationStyle=violation?'style="background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;"':'';
+          const violationMarks=violation?' !!!':'';
 
-          listItem.innerHTML = `
+          listItem.innerHTML=`
             <div class="history-entry" style="flex:1;" ${violationStyle}>
-              <div><strong>${weekdayNames[index]}</strong> (${displayDate})</div>
+              <div><strong>${weekdayNames[idx]}</strong> (${displayDate})</div>
               <div>Differenz: <span class="${differenzClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks}</span></div>
             </div>
             <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
@@ -431,22 +439,22 @@
             </div>
           `;
         } else {
-          listItem.innerHTML = `
+          listItem.innerHTML=`
             <div class="history-entry" style="flex:1;">
-              <div><strong>${weekdayNames[index]}</strong></div>
+              <div><strong>${weekdayNames[idx]}</strong></div>
               <div>Keine Daten vorhanden</div>
             </div>
             <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-              <button class="inline-button" onclick="showAddDayModal('${weekday}','${index}')">Tag nachtragen</button>
+              <button class="inline-button" onclick="showAddDayModal('${weekday}','${idx}')">Tag nachtragen</button>
             </div>
           `;
         }
         historyList.appendChild(listItem);
       });
 
-      const weeklySummary = document.getElementById('weekly-summary');
-      const totalDifferenzClass = totalDifferenz > 0 ? 'positive-value' : (totalDifferenz < 0 ? 'negative-value' : 'zero-value');
-      weeklySummary.innerHTML = `
+      const weeklySummary=document.getElementById('weekly-summary');
+      const totalDifferenzClass=totalDifferenz>0?'positive-value':(totalDifferenz<0?'negative-value':'zero-value');
+      weeklySummary.innerHTML=`
         <h3>Wöchentliche Zusammenfassung</h3>
         <p>Gesamte Differenz: <span class="${totalDifferenzClass}">${totalDifferenz.toFixed(2)}h (${formatDecimalToTime(totalDifferenz)})</span></p>
       `;
@@ -454,63 +462,63 @@
       updateWeekNavigation();
     }
 
-    function updateWeekNavigation() {
-      const pagination = document.getElementById('pagination');
-      pagination.innerHTML = '';
+    function updateWeekNavigation(){
+      const pagination=document.getElementById('pagination');
+      pagination.innerHTML='';
 
-      const navContainer = document.createElement('div');
+      const navContainer=document.createElement('div');
       navContainer.classList.add('nav-container');
 
-      const prevYearButton = document.createElement('button');
-      prevYearButton.textContent = '«';
-      prevYearButton.onclick = () => {
+      const prevYearButton=document.createElement('button');
+      prevYearButton.textContent='«';
+      prevYearButton.onclick=()=>{
         currentWeekYear--;
         loadHistory();
       };
       navContainer.appendChild(prevYearButton);
 
-      const prevButton = document.createElement('button');
-      prevButton.textContent = '‹';
-      prevButton.onclick = () => {
-        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        date.setDate(date.getDate() - 7);
-        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
+      const prevButton=document.createElement('button');
+      prevButton.textContent='‹';
+      prevButton.onclick=()=>{
+        const date=getDateOfISOWeek(currentWeekNo,currentWeekYear);
+        date.setDate(date.getDate()-7);
+        [currentWeekYear,currentWeekNo]=getWeekNumber(date);
         loadHistory();
       };
       navContainer.appendChild(prevButton);
 
-      const weekSelect = document.createElement('select');
-      weekSelect.id = 'week-select';
-      for (let i = 1; i <= 53; i++) {
-        const option = document.createElement('option');
-        option.value = i;
-        const weekStartDate = getDateOfISOWeek(i, currentWeekYear);
-        option.textContent = `KW ${i} (${weekStartDate.toLocaleDateString('de-DE')})`;
-        if (i === currentWeekNo) {
-          option.selected = true;
+      const weekSelect=document.createElement('select');
+      weekSelect.id='week-select';
+      for(let i=1;i<=53;i++){
+        const option=document.createElement('option');
+        option.value=i;
+        const startDate=getDateOfISOWeek(i,currentWeekYear);
+        option.textContent=`KW ${i} (${startDate.toLocaleDateString('de-DE')})`;
+        if(i===currentWeekNo){
+          option.selected=true;
         }
         weekSelect.appendChild(option);
       }
 
-      weekSelect.onchange = () => {
-        currentWeekNo = parseInt(weekSelect.value);
+      weekSelect.onchange=()=>{
+        currentWeekNo=parseInt(weekSelect.value);
         loadHistory();
       };
       navContainer.appendChild(weekSelect);
 
-      const nextButton = document.createElement('button');
-      nextButton.textContent = '›';
-      nextButton.onclick = () => {
-        const date = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        date.setDate(date.getDate() + 7);
-        [currentWeekYear, currentWeekNo] = getWeekNumber(date);
+      const nextButton=document.createElement('button');
+      nextButton.textContent='›';
+      nextButton.onclick=()=>{
+        const date=getDateOfISOWeek(currentWeekNo,currentWeekYear);
+        date.setDate(date.getDate()+7);
+        [currentWeekYear,currentWeekNo]=getWeekNumber(date);
         loadHistory();
       };
       navContainer.appendChild(nextButton);
 
-      const nextYearButton = document.createElement('button');
-      nextYearButton.textContent = '»';
-      nextYearButton.onclick = () => {
+      const nextYearButton=document.createElement('button');
+      nextYearButton.textContent='»';
+      nextYearButton.onclick=()=>{
         currentWeekYear++;
         loadHistory();
       };
@@ -519,103 +527,103 @@
       pagination.appendChild(navContainer);
     }
 
-    function showDayDetails(dateStr) {
-      const history = JSON.parse(localStorage.getItem('history')) || [];
-      const entry = history.find(e => e.datum === dateStr);
-      if (!entry) return;
-      const displayDate = new Date(dateStr).toLocaleDateString('de-DE');
+    function showDayDetails(dateStr){
+      const history=JSON.parse(localStorage.getItem('history'))||[];
+      const entry=history.find(e=>e.datum===dateStr);
+      if(!entry)return;
+      const displayDate=new Date(dateStr).toLocaleDateString('de-DE');
 
-      const kommen = entry.kommen ? new Date(entry.kommen) : null;
-      const gehen = entry.gehen ? new Date(entry.gehen) : null;
+      const kommen=entry.kommen?new Date(entry.kommen):null;
+      const gehen=entry.gehen?new Date(entry.gehen):null;
 
-      document.getElementById('detail-date').textContent = displayDate;
-      document.getElementById('detail-kommen').textContent = kommen ? formatTime(kommen) : "--:--";
-      document.getElementById('detail-gehen').textContent = gehen ? formatTime(gehen) : "--:--";
-      document.getElementById('detail-differenz').textContent = `${entry.differenz}h (${entry.differenzTime})`;
+      document.getElementById('detail-date').textContent=displayDate;
+      document.getElementById('detail-kommen').textContent=kommen?formatTime(kommen):"--:--";
+      document.getElementById('detail-gehen').textContent=gehen?formatTime(gehen):"--:--";
+      document.getElementById('detail-differenz').textContent=`${entry.differenz}h (${entry.differenzTime})`;
 
-      document.getElementById('detail-modal').style.display = 'block';
+      document.getElementById('detail-modal').style.display='block';
     }
 
-    function closeDetailModal() {
-      document.getElementById('detail-modal').style.display = 'none';
+    function closeDetailModal(){
+      document.getElementById('detail-modal').style.display='none';
     }
 
-    function showAddDayModal(weekday, index) {
-      document.getElementById('add-day-date').value = "";
-      document.getElementById('add-day-kommen').value = "";
-      document.getElementById('add-day-gehen').value = "";
-      document.getElementById('pc-buchung-add-day').checked = false;
-      document.getElementById('add-day-modal').style.display = 'block';
+    function showAddDayModal(weekday,index){
+      document.getElementById('add-day-date').value="";
+      document.getElementById('add-day-kommen').value="";
+      document.getElementById('add-day-gehen').value="";
+      document.getElementById('pc-buchung-add-day').checked=false;
+      document.getElementById('add-day-modal').style.display='block';
     }
 
-    function closeAddDayModal() {
-      document.getElementById('add-day-modal').style.display = 'none';
+    function closeAddDayModal(){
+      document.getElementById('add-day-modal').style.display='none';
     }
 
-    function addManualDay() {
-      const dateVal = document.getElementById('add-day-date').value;
-      const kommenVal = document.getElementById('add-day-kommen').value;
-      const gehenVal = document.getElementById('add-day-gehen').value;
-      const isPcBuchungAddDay = document.getElementById('pc-buchung-add-day').checked;
+    function addManualDay(){
+      const dateVal=document.getElementById('add-day-date').value;
+      const kommenVal=document.getElementById('add-day-kommen').value;
+      const gehenVal=document.getElementById('add-day-gehen').value;
+      const isPcBuchungAddDay=document.getElementById('pc-buchung-add-day').checked;
 
-      if (!dateVal || !kommenVal || !gehenVal) {
+      if(!dateVal||!kommenVal||!gehenVal){
         alert("Bitte Datum, Kommen- und Gehen-Zeit angeben.");
         return;
       }
 
-      const wochenarbeitszeit = parseFloat(document.getElementById("wochenarbeitszeit").value);
-      const sollArbeitszeit = wochenarbeitszeit / 5;
-      const aktuellesKonto = parseFloat(document.getElementById('aktuelles-konto').value) || 0;
+      const wochenarbeitszeit=parseFloat(document.getElementById("wochenarbeitszeit").value)||38;
+      const sollArbeitszeit=wochenarbeitszeit/5;
+      const aktuellesKonto=parseFloat(document.getElementById('aktuelles-konto').value)||0;
 
-      const kommenDate = parseTime(kommenVal);
-      const gehenDate = parseTime(gehenVal);
+      const kommenDate=parseTime(kommenVal);
+      const gehenDate=parseTime(gehenVal);
 
-      let adjusted = new Date(kommenDate.getTime());
-      if (isPcBuchungAddDay) {
-        adjusted.setMinutes(adjusted.getMinutes() - 8);
+      let adjusted=new Date(kommenDate.getTime());
+      if(isPcBuchungAddDay){
+        adjusted.setMinutes(adjusted.getMinutes()-8);
       }
 
-      const diffMs = gehenDate - adjusted;
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const totalHours = hours + minutes / 60;
+      const diffMs=gehenDate-adjusted;
+      const hours=Math.floor(diffMs/(1000*60*60));
+      const minutes=Math.floor((diffMs%(1000*60*60))/(1000*60));
+      const totalHours=hours+(minutes/60);
 
-      const pausen = calculatePausen(totalHours);
-      const arbeitszeit = totalHours - pausen;
-      const differenz = arbeitszeit - sollArbeitszeit;
-      const neuesStundenkonto = aktuellesKonto + differenz;
-      const differenzTime = formatDecimalToTime(differenz);
+      const pausen=calculatePausen(totalHours);
+      const arbeitszeit=totalHours-pausen;
+      const differenz=arbeitszeit-sollArbeitszeit;
+      const differenzTime=formatDecimalToTime(differenz);
+      const neuesStundenkonto=aktuellesKonto+differenz;
 
-      if (checkViolations(adjusted, gehenDate, arbeitszeit)) {
-        if (!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")) {
+      if(checkViolations(adjusted,gehenDate,arbeitszeit)){
+        if(!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")){
           return;
         }
       }
 
-      const dayData = {
-        datum: dateVal,
-        differenz: differenz.toFixed(2),
-        differenzTime: differenzTime,
-        stundenkonto: neuesStundenkonto.toFixed(2),
-        kommen: adjusted.toISOString(),
-        gehen: gehenDate.toISOString()
+      const dayData={
+        datum:dateVal,
+        differenz:differenz.toFixed(2),
+        differenzTime:differenzTime,
+        stundenkonto:neuesStundenkonto.toFixed(2),
+        kommen:adjusted.toISOString(),
+        gehen:gehenDate.toISOString()
       };
 
-      let history = JSON.parse(localStorage.getItem('history')) || [];
-      const existingIndex = history.findIndex(e => e.datum === dateVal);
-      const displayDate = new Date(dateVal).toLocaleDateString('de-DE');
-      if (existingIndex !== -1) {
-        if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)) {
+      let history=JSON.parse(localStorage.getItem('history'))||[];
+      const existingIndex=history.findIndex(e=>e.datum===dateVal);
+      const displayDate=new Date(dateVal).toLocaleDateString('de-DE');
+      if(existingIndex!==-1){
+        if(!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)){
           return;
         }
-        history[existingIndex] = dayData;
+        history[existingIndex]=dayData;
       } else {
         history.push(dayData);
       }
 
-      localStorage.setItem('history', JSON.stringify(history));
-      document.getElementById('aktuelles-konto').value = neuesStundenkonto.toFixed(2);
-      localStorage.setItem('aktuellesStundenkonto', neuesStundenkonto.toFixed(2));
+      localStorage.setItem('history',JSON.stringify(history));
+      document.getElementById('aktuelles-konto').value=neuesStundenkonto.toFixed(2);
+      localStorage.setItem('aktuellesStundenkonto',neuesStundenkonto.toFixed(2));
       updateCalculations();
       closeAddDayModal();
       loadHistory();
@@ -656,193 +664,198 @@
     html, body {
       background-color: var(--background-color);
       color: var(--text-color);
-      margin: 0; padding: 0;
-      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-        Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      margin:0; padding:0;
+      font-family:'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
     }
 
     body::before {
-      content: "";
-      position: fixed; top: 0; left: 0; right: 0;
-      height: env(safe-area-inset-top);
-      background-color: var(--background-color);
+      content:"";
+      position:fixed;top:0;left:0;right:0;
+      height:env(safe-area-inset-top);
+      background-color:var(--background-color);
     }
 
     body::after {
-      content: "";
-      position: fixed; bottom: 0; left: 0; right: 0;
-      height: env(safe-area-inset-bottom);
-      background-color: var(--background-color);
+      content:"";
+      position:fixed;bottom:0;left:0;right:0;
+      height:env(safe-area-inset-bottom);
+      background-color:var(--background-color);
     }
 
     .container {
-      max-width: 600px; margin: auto; padding: 20px;
+      max-width:600px;margin:auto;padding:20px;
     }
 
     h1 {
-      font-weight: 600; font-size: 28px; margin-bottom: 20px;
+      font-weight:600;font-size:28px;margin-bottom:20px;
     }
 
     h2 {
-      font-size: 24px; font-weight: 600; margin-bottom: 20px;
+      font-size:24px;font-weight:600;margin-bottom:20px;
     }
 
     h3 {
-      font-size: 20px; font-weight: 600; margin-bottom: 10px;
+      font-size:20px;font-weight:600;margin-bottom:10px;
     }
 
-    .section { margin-bottom: 30px; }
+    .section { margin-bottom:30px; }
 
     .button {
-      width: 100%; padding: 15px;
-      background-color: var(--button-background-color); color: var(--button-text-color);
-      border: none; border-radius: 12px; font-size: 17px; font-weight: 600;
-      text-align: center; margin-bottom: 10px; cursor: pointer;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+      width:100%;padding:15px;
+      background-color:var(--button-background-color);color:var(--button-text-color);
+      border:none;border-radius:12px;font-size:17px;font-weight:600;
+      text-align:center;margin-bottom:10px;cursor:pointer;
+      box-shadow:0 2px 5px rgba(0,0,0,0.15);
     }
-    .button:active { background-color: rgba(10,132,255,0.8); }
+
+    .button:active { background-color:rgba(10,132,255,0.8); }
 
     .inline-button,
     .delete-button {
-      font-size: 15px; font-weight:600; cursor:pointer;
-      border-radius: 12px; box-shadow:0 2px 5px rgba(0,0,0,0.15);
-      border:none; padding:10px 15px;
+      font-size:15px;font-weight:600;cursor:pointer;
+      border-radius:12px;box-shadow:0 2px 5px rgba(0,0,0,0.15);
+      border:none;padding:10px 15px;
     }
 
     .inline-button {
-      background-color: var(--button-background-color); color:#ffffff;
+      background-color:var(--button-background-color);color:#ffffff;
     }
-    .inline-button:active { background-color:rgba(10,132,255,0.8); }
+
+    .inline-button:active {
+      background-color:rgba(10,132,255,0.8);
+    }
 
     .delete-button {
-      background-color: var(--hint-color); color:#ffffff;
+      background-color:var(--hint-color);color:#ffffff;
     }
-    .delete-button:active { background-color:rgba(255,59,48,0.8); }
 
-    input, select {
-      width:100%; padding:15px; font-size:17px;
-      border:1px solid var(--input-border-color); border-radius:12px;
-      margin-bottom:10px; background-color:var(--input-background-color);
-      color:var(--text-color); box-sizing:border-box;
-      -webkit-appearance:none; appearance:none;
+    .delete-button:active {
+      background-color:rgba(255,59,48,0.8);
+    }
+
+    input,select {
+      width:100%;padding:15px;font-size:17px;
+      border:1px solid var(--input-border-color);border-radius:12px;
+      margin-bottom:10px;background-color:var(--input-background-color);
+      color:var(--text-color);box-sizing:border-box;
+      -webkit-appearance:none;appearance:none;
     }
 
     label {
-      font-size:15px; color:#8e8e93; margin-bottom:5px; display:block;
+      font-size:15px;color:#8e8e93;margin-bottom:5px;display:block;
     }
 
     #hinweis {
-      color:var(--hint-color); font-weight:600; font-size:15px;
-      display:none; margin-top:10px;
+      color:var(--hint-color);font-weight:600;font-size:15px;
+      display:none;margin-top:10px;
     }
 
     ul {
-      list-style-type:none; padding-left:0; margin:0;
+      list-style-type:none;padding-left:0;margin:0;
     }
 
     li {
-      font-size:17px; padding:5px 0;
+      font-size:17px;padding:5px 0;
       border-bottom:1px solid var(--input-border-color);
-      display:flex; justify-content:space-between; align-items:center;
+      display:flex;justify-content:space-between;align-items:center;
     }
 
     .history-item { min-height:70px; }
-    .history-entry { flex:1; margin-right:10px; }
+    .history-entry { flex:1;margin-right:10px; }
 
-    p { font-size:17px; margin:5px 0; }
+    p {font-size:17px;margin:5px 0;}
 
-    .positive-value, .negative-value, .zero-value {
-      padding:2px 4px; border-radius:5px; color:#ffffff !important;
+    .positive-value,.negative-value,.zero-value {
+      padding:2px 4px;border-radius:5px;color:#ffffff !important;
     }
 
-    .positive-value { background-color:var(--positive-background-color) !important; }
-    .negative-value { background-color:var(--negative-background-color) !important; }
-    .zero-value { background-color:var(--zero-background-color) !important; }
+    .positive-value {background-color:var(--positive-background-color)!important;}
+    .negative-value {background-color:var(--negative-background-color)!important;}
+    .zero-value {background-color:var(--zero-background-color)!important;}
 
     .invalid-time {
-      background-color:var(--hint-color) !important; color:#ffffff !important;
+      background-color:var(--hint-color)!important;color:#ffffff!important;
     }
 
-    #history-page { display:none; }
+    #history-page {display:none;}
 
-    .nav-button { width:auto; padding:10px 20px; margin-bottom:20px; }
+    .nav-button {width:auto;padding:10px 20px;margin-bottom:20px;}
 
     .row {
-      display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;
+      display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
     }
 
-    .column { flex:1; margin-right:10px; }
-    .column-full { flex:1; }
-    .column:last-child { margin-right:0; }
+    .column {flex:1;margin-right:10px;}
+    .column-full {flex:1;}
+    .column:last-child {margin-right:0;}
 
     #pagination {
-      display:flex; justify-content:center; align-items:center; flex-wrap:wrap;
-      margin-top:20px; margin-bottom:20px;
+      display:flex;justify-content:center;align-items:center;flex-wrap:wrap;
+      margin-top:20px;margin-bottom:20px;
     }
 
     #pagination .nav-container {
-      display:flex; align-items:center; flex-wrap:wrap;
+      display:flex;align-items:center;flex-wrap:wrap;
     }
 
     #pagination button,
     #pagination select {
-      background-color:var(--button-background-color); color:var(--button-text-color);
-      border:none; border-radius:12px; padding:12px; margin:5px;
-      cursor:pointer; font-size:16px;
+      background-color:var(--button-background-color);color:var(--button-text-color);
+      border:none;border-radius:12px;padding:12px;margin:5px;
+      cursor:pointer;font-size:16px;
     }
 
     #pagination button:disabled {
-      background-color:#cccccc; cursor:not-allowed;
+      background-color:#cccccc;cursor:not-allowed;
     }
 
     #pagination select {
-      width:auto; max-width:200px; flex:1;
+      width:auto;max-width:200px;flex:1;
     }
 
     #history-page .container {
-      display:block; padding-bottom:20px;
+      display:block;padding-bottom:20px;
     }
 
     .switch-container {
-      display:flex; align-items:center; margin-bottom:10px;
+      display:flex;align-items:center;margin-bottom:10px;
     }
 
     .switch {
-      position:relative; display:inline-block; width:50px; height:28px; margin-right:10px;
+      position:relative;display:inline-block;width:50px;height:28px;margin-right:10px;
     }
 
-    .switch input { opacity:0; width:0; height:0; }
+    .switch input {opacity:0;width:0;height:0;}
 
     .slider {
-      position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0;
-      background-color:#ccc; transition:0.4s; border-radius:14px;
+      position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;
+      background-color:#ccc;transition:0.4s;border-radius:14px;
     }
 
     .slider:before {
-      position:absolute; content:""; height:22px; width:22px; left:3px; top:3px;
-      background-color:white; transition:0.4s; border-radius:50%;
+      position:absolute;content:"";height:22px;width:22px;left:3px;top:3px;
+      background-color:white;transition:0.4s;border-radius:50%;
     }
 
-    input:checked + .slider { background-color:var(--button-background-color); }
-    input:checked + .slider:before { transform:translateX(22px); }
+    input:checked + .slider {background-color:var(--button-background-color);}
+    input:checked + .slider:before {transform:translateX(22px);}
 
-    #history-list { overflow-y:visible; }
+    #history-list {overflow-y:visible;}
 
     .modal {
-      display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%;
-      overflow:auto; background-color:rgba(0,0,0,0.5); justify-content:center; align-items:center;
+      display:none;position:fixed;z-index:9999;left:0;top:0;width:100%;height:100%;
+      overflow:auto;background-color:rgba(0,0,0,0.5);justify-content:center;align-items:center;
     }
 
     .modal-content {
       background-color:var(--card-background-color);
-      border-radius:12px; padding:20px;
-      max-width:400px; margin:50px auto;
-      color:var(--text-color);
+      border-radius:12px;padding:20px;
+      max-width:400px;margin:50px auto;color:var(--text-color);
     }
 
     .close-button {
-      background:none; border:none; color:var(--text-color);
-      font-size:20px; font-weight:bold; float:right; cursor:pointer;
+      background:none;border:none;color:var(--text-color);
+      font-size:20px;font-weight:bold;float:right;cursor:pointer;
     }
   </style>
 </head>
