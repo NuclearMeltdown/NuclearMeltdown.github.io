@@ -136,36 +136,37 @@
     }
 
     function calculateArbeitszeit() {
-      const workTime = calculateWorkingTime();
-      let totalHours = workTime.hours + (workTime.minutes / 60);
+  const workTime = calculateWorkingTime();
+  const totalHours = workTime.hours + (workTime.minutes / 60);
 
-  // Wir verwenden eine iterative Methode, um die tatsächliche Arbeitszeit zu stabilisieren.
-  // Start: Arbeitszeit = Gesamtzeit ohne Pausen.
-  // Dann berechnen wir Pausen basierend auf dieser Arbeitszeit und passen die Arbeitszeit an.
-  // Wiederholen, bis sich die Arbeitszeit nicht mehr ändert.
+  // Wir suchen einen Fixpunkt: arbeitszeit = totalHours - pausen(arbeitszeit)
+  // Dazu iterieren wir, bis sich die Arbeitszeit nicht mehr ändert.
   
-      let arbeitszeit = totalHours;
-      let prevArbeitszeit = -1;
-
-      while (Math.abs(arbeitszeit - prevArbeitszeit) > 0.000001) {
-        prevArbeitszeit = arbeitszeit;
-        let pausen = parseAdditionalPause();
-
-    // Pausen basieren nun auf der bereits berechneten Arbeitszeit (ohne diese Pausen erneut hinzuzuzählen)
-    // Bei > 6h Arbeitszeit 30 Min. (0,5h)
-    // Bei > 9h Arbeitszeit zusätzlich weitere 15 Min. (0,25h)
-        if (arbeitszeit > 9) {
-          pausen += 0.5;   // ab 6h
-          pausen += 0.25;  // ab 9h
-        } else if (arbeitszeit > 6) {
-          pausen += 0.5;   // ab 6h
-      }
-
-        arbeitszeit = totalHours - pausen;
+  let arbeitszeit = totalHours;
+  let prevArbeitszeit = -1;
+  
+  for (let i = 0; i < 100; i++) {
+    if (Math.abs(arbeitszeit - prevArbeitszeit) < 1e-9) {
+      break; // Stabiler Wert gefunden
     }
-
-      return arbeitszeit;
+    prevArbeitszeit = arbeitszeit;
+    
+    let pausen = parseAdditionalPause();
+    // Pausen basieren auf der bereits errechneten Arbeitszeit (prevArbeitszeit)
+    if (prevArbeitszeit > 9) {
+      // ab 6h: 30 Minuten + ab 9h: weitere 15 Minuten
+      pausen += 0.5 + 0.25;
+    } else if (prevArbeitszeit > 6) {
+      // ab 6h: 30 Minuten
+      pausen += 0.5;
+    }
+    
+    arbeitszeit = totalHours - pausen;
   }
+  
+  return arbeitszeit;
+}
+
 
 
 
