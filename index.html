@@ -127,32 +127,27 @@
       return (hours || 0) + ((minutes || 0) / 60);
     }
 
-    // Neue Fixpunktberechnung für Pausen:
+    // Fixpunktberechnung der Arbeitszeit:
     function calculateArbeitszeit() {
       const workTime = calculateWorkingTime();
       const totalHours = workTime.hours + (workTime.minutes / 60);
 
-      // Iteratives Verfahren, um die Arbeitszeit (nach Pausen) zu bestimmen:
-      // Arbeitszeit = Anwesenheitszeit - Pausen(Arbeitszeit)
-      // Wir iterieren, bis sich ein stabiler Wert einstellt.
       let arbeitszeit = totalHours;
       for (let i = 0; i < 100; i++) {
-        const prevArbeitszeit = arbeitszeit;
+        const prev = arbeitszeit;
         let pausen = parseAdditionalPause();
-        if (prevArbeitszeit > 9) {
-          // ab 6h 30 Min + ab 9h weitere 15 Min
+        if (prev > 9) {
           pausen += 0.5 + 0.25;
-        } else if (prevArbeitszeit > 6) {
-          // ab 6h 30 Min
+        } else if (prev > 6) {
           pausen += 0.5;
         }
 
-        const newArbeitszeit = totalHours - pausen;
-        if (Math.abs(newArbeitszeit - arbeitszeit) < 1e-9) {
-          arbeitszeit = newArbeitszeit;
+        const neu = totalHours - pausen;
+        if (Math.abs(neu - arbeitszeit) < 1e-9) {
+          arbeitszeit = neu;
           break;
         }
-        arbeitszeit = newArbeitszeit;
+        arbeitszeit = neu;
       }
 
       return arbeitszeit;
@@ -166,30 +161,55 @@
       return `${sign}${hours}:${pad(minutes)}`;
     }
 
+    // Pausenberechnung für saveDay():
+    function calculatePausenForWorkTime(totalHours) {
+      let arbeitszeit = totalHours;
+      for (let i = 0; i < 100; i++) {
+        const prev = arbeitszeit;
+        let pausen = parseAdditionalPause();
+        if (prev > 9) {
+          pausen += 0.5 + 0.25;
+        } else if (prev > 6) {
+          pausen += 0.5;
+        }
+        const neu = totalHours - pausen;
+        if (Math.abs(neu - arbeitszeit) < 1e-9) {
+          return pausen;
+        }
+        arbeitszeit = neu;
+      }
+      // Falls nicht stabil: letzte Berechnung
+      let pausen = parseAdditionalPause();
+      if (arbeitszeit > 9) {
+        pausen += 0.5 + 0.25;
+      } else if (arbeitszeit > 6) {
+        pausen += 0.5;
+      }
+      return pausen;
+    }
+
     function calculateEndTime(durationHours) {
       const ak = getAdjustedKommenZeit();
       if (!ak) return "--:--";
 
-      // Für die Endzeitberechnung berücksichtigen wir Pausen genauso wie in calculateArbeitszeit:
-      // Hier ist durationHours die gewünschte Arbeitszeit, wir müssen iterieren wie zuvor:
+      // Pausen für die gegebene Arbeitszeit durationHours
       let arbeitszeit = durationHours;
       for (let i = 0; i < 100; i++) {
-        const prevArbeitszeit = arbeitszeit;
+        const prev = arbeitszeit;
         let pausen = parseAdditionalPause();
-        if (prevArbeitszeit > 9) {
+        if (prev > 9) {
           pausen += 0.5 + 0.25;
-        } else if (prevArbeitszeit > 6) {
+        } else if (prev > 6) {
           pausen += 0.5;
         }
-        const totalWithPausen = durationHours + pausen;
-        if (Math.abs(arbeitszeit - durationHours) < 1e-9) {
+        const neu = durationHours; 
+        if (Math.abs(neu - arbeitszeit) < 1e-9) {
           break;
         }
-        arbeitszeit = durationHours; // arbeitszeit ist hier statisch durationHours
+        arbeitszeit = neu;
       }
 
-      // Wenn wir hier sind, arbeiten wir mit durationHours als Arbeitszeit und kennen die Pausen aus der Iteration:
-      // Wir müssen also die Pausen erneut berechnen, um die Endzeit zu bestimmen:
+      // Nun endgültig Pausen berechnen:
       let pausen = parseAdditionalPause();
       if (durationHours > 9) {
         pausen += 0.5 + 0.25;
@@ -229,8 +249,16 @@
 
       const workTime = calculateWorkingTime();
       const totalHours = workTime.hours + (workTime.minutes / 60);
-      const pausen = parseAdditionalPause() + (arbeitszeit > 9 ? 0.5+0.25 : (arbeitszeit > 6 ? 0.5 : 0));
-      
+
+      // Pausen erneut berechnen für Anzeige:
+      let pauseArb = arbeitszeit;
+      let pausen = parseAdditionalPause();
+      if (pauseArb > 9) {
+        pausen += 0.5+0.25;
+      } else if (pauseArb > 6) {
+        pausen += 0.5;
+      }
+
       document.getElementById("anwesend-zeit").value = `${workTime.hours}:${pad(workTime.minutes)} (${totalHours.toFixed(2)}h)`;
       document.getElementById("pausenzeit").value = `${(pausen*60).toFixed(0)} Min`;
       document.getElementById("arbeitszeit").value = `${formatDecimalToTime(arbeitszeit)} (${arbeitszeit.toFixed(2)}h)`;
@@ -319,7 +347,7 @@
         const diffMs = gehenZeit - adjustedKommen;
         const hourMs = 1000 * 60 * 60;
         const totalHours = Math.floor(diffMs/hourMs) + ((Math.floor((diffMs % hourMs)/(1000*60)))/60);
-        const pausen = calculatePausen(totalHours);
+        const pausen = calculatePausenForWorkTime(totalHours);
         const arbeitszeit = totalHours - pausen;
         if (checkViolations(adjustedKommen, gehenZeit, arbeitszeit)) {
           if (!confirm("Es gibt Verstöße gegen die Gleitzeitregeln. Trotzdem speichern?")) {
@@ -334,6 +362,7 @@
 
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
+
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -402,16 +431,14 @@
       const hours=Math.floor(diffMs/hourMs);
       const minutes=Math.floor((diffMs%hourMs)/(1000*60));
       const totalHours=hours+(minutes/60);
-      let pausen=0;
-      // Hier gehen wir von der fertigen Arbeitszeit aus wie oben beschrieben:
-      // Wir müssen es iterativ lösen oder einfach die selbe Logik wie in calculateArbeitszeit anwenden.
-      // Da calcArbeitszeitFromEntry nur zur Kontrolle genutzt wird, können wir es vereinfachen:
+
+      // Auch hier Fixpunktberechnung:
       let arbeitszeit = totalHours;
       for (let i = 0; i < 100; i++) {
         const prev = arbeitszeit;
-        pausen = parseAdditionalPause();
+        let pausen = parseAdditionalPause();
         if (prev > 9) {
-          pausen += 0.5 + 0.25;
+          pausen += 0.5+0.25;
         } else if (prev > 6) {
           pausen += 0.5;
         }
@@ -488,7 +515,7 @@
       const hourMs=1000*60*60;
       const totalHours=Math.floor(diffMs/hourMs)+((Math.floor((diffMs%hourMs)/(1000*60)))/60);
 
-      // Fixpunktberechnung für die Arbeitszeit
+      // Fixpunktberechnung Arbeitszeit
       let arbeitszeit = totalHours;
       for (let i = 0; i < 100; i++) {
         const prev = arbeitszeit;
@@ -1030,7 +1057,7 @@
             <input type="number" id="wochenarbeitszeit" value="38" onchange="updateCalculations()">
           </div>
           <div class="column">
-            <label for="zusatzliche-pause">Zus. Pausen (z.B. 0:15):</label>
+            <label for="zusatzliche-pause">Zusätzliche Pausenzeiten (z.B. 0:15):</label>
             <input type="text" id="zusatzliche-pause" onchange="updateCalculations()">
           </div>
         </div>
