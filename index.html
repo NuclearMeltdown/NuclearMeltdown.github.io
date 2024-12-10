@@ -129,18 +129,38 @@
 
     function calculatePausen(totalHours) {
       let pausen = 0;
-      if (workTime > 6) pausen += 0.5;
-      if (workTime > 9) pausen += 0.25;
+      if (totalHours > 6) pausen += 0.5;
+      if (totalHours > 9) pausen += 0.25;
       pausen += parseAdditionalPause();
       return pausen;
     }
 
     function calculateArbeitszeit() {
-      const workTime = calculateWorkingTime();
-      const totalHours = workTime.hours + (workTime.minutes / 60);
-      const pausen = calculatePausen(totalHours);
-      return totalHours - pausen;
+  const workTime = calculateWorkingTime();
+  let totalHours = workTime.hours + (workTime.minutes / 60);
+  
+  let pausen = 0;
+  let prevPausen = -1;
+
+  while (prevPausen !== pausen) {
+    prevPausen = pausen;
+    let arbeitszeit = totalHours - pausen;
+    pausen = 0;
+
+    if (arbeitszeit > 9) {
+      pausen += 0.5; // ab 6h: 30min
+      pausen += 0.25; // ab 9h: weitere 15min
+    } else if (arbeitszeit > 6) {
+      pausen += 0.5; // ab 6h: 30min
     }
+    
+    pausen += parseAdditionalPause();
+  }
+
+  const arbeitszeit = totalHours - pausen;
+  return arbeitszeit;
+}
+
 
     function formatDecimalToTime(decimalHours) {
       const absVal = Math.abs(decimalHours);
