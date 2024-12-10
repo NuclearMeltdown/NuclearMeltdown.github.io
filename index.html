@@ -136,30 +136,37 @@
     }
 
     function calculateArbeitszeit() {
-  const workTime = calculateWorkingTime();
-  let totalHours = workTime.hours + (workTime.minutes / 60);
+      const workTime = calculateWorkingTime();
+      let totalHours = workTime.hours + (workTime.minutes / 60);
+
+  // Wir verwenden eine iterative Methode, um die tatsächliche Arbeitszeit zu stabilisieren.
+  // Start: Arbeitszeit = Gesamtzeit ohne Pausen.
+  // Dann berechnen wir Pausen basierend auf dieser Arbeitszeit und passen die Arbeitszeit an.
+  // Wiederholen, bis sich die Arbeitszeit nicht mehr ändert.
   
-  let pausen = 0;
-  let prevPausen = -1;
+      let arbeitszeit = totalHours;
+      let prevArbeitszeit = -1;
 
-  while (prevPausen !== pausen) {
-    prevPausen = pausen;
-    let arbeitszeit = totalHours - pausen;
-    pausen = 0;
+      while (Math.abs(arbeitszeit - prevArbeitszeit) > 0.000001) {
+        prevArbeitszeit = arbeitszeit;
+        let pausen = parseAdditionalPause();
 
-    if (arbeitszeit > 9) {
-      pausen += 0.5; // ab 6h: 30min
-      pausen += 0.25; // ab 9h: weitere 15min
-    } else if (arbeitszeit > 6) {
-      pausen += 0.5; // ab 6h: 30min
+    // Pausen basieren nun auf der bereits berechneten Arbeitszeit (ohne diese Pausen erneut hinzuzuzählen)
+    // Bei > 6h Arbeitszeit 30 Min. (0,5h)
+    // Bei > 9h Arbeitszeit zusätzlich weitere 15 Min. (0,25h)
+        if (arbeitszeit > 9) {
+          pausen += 0.5;   // ab 6h
+          pausen += 0.25;  // ab 9h
+        } else if (arbeitszeit > 6) {
+          pausen += 0.5;   // ab 6h
+      }
+
+        arbeitszeit = totalHours - pausen;
     }
-    
-    pausen += parseAdditionalPause();
+
+      return arbeitszeit;
   }
 
-  const arbeitszeit = totalHours - pausen;
-  return arbeitszeit;
-}
 
 
     function formatDecimalToTime(decimalHours) {
