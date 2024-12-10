@@ -129,8 +129,8 @@
 
     function calculatePausen(totalHours) {
       let pausen = 0;
-      if (totalHours > 6) pausen += 0.5;
-      if (totalHours > 9) pausen += 0.25;
+      if (workTime > 6) pausen += 0.5;
+      if (workTime > 9) pausen += 0.25;
       pausen += parseAdditionalPause();
       return pausen;
     }
