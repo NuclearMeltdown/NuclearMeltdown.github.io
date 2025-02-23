@@ -37,6 +37,24 @@
     let currentWeekYear = null;
     let currentWeekNo = null;
 
+    // Toggle-States: Urlaub oder Krank (nur einer darf aktiv sein)
+    function onUrlaubToggle() {
+      const urlaubCheck = document.getElementById('urlaub-toggle');
+      const krankCheck  = document.getElementById('krank-toggle');
+      if (urlaubCheck.checked) {
+        // Krank deaktivieren
+        krankCheck.checked = false;
+      }
+    }
+    function onKrankToggle() {
+      const urlaubCheck = document.getElementById('urlaub-toggle');
+      const krankCheck  = document.getElementById('krank-toggle');
+      if (krankCheck.checked) {
+        // Urlaub deaktivieren
+        urlaubCheck.checked = false;
+      }
+    }
+
     function getAdjustedKommenZeit() {
       if (!kommenZeit) return null;
       const isPcBuchung = document.getElementById('pc-buchung').checked;
@@ -363,6 +381,7 @@
       const today = new Date();
       const datum = today.toISOString().split('T')[0];
 
+      adjustedKommen = getAdjustedKommenZeit();
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
 
@@ -474,6 +493,22 @@
       }
     }
 
+    // Neue Erweiterung: Urlaub/Krank-Toggles => Wir speichern in dayData.urlaub / dayData.krank
+    function onUrlaubToggleAddDay() {
+      const urlaubCheck = document.getElementById('urlaub-toggle');
+      const krankCheck  = document.getElementById('krank-toggle');
+      if (urlaubCheck.checked) {
+        krankCheck.checked = false;
+      }
+    }
+    function onKrankToggleAddDay() {
+      const urlaubCheck = document.getElementById('urlaub-toggle');
+      const krankCheck  = document.getElementById('krank-toggle');
+      if (krankCheck.checked) {
+        urlaubCheck.checked = false;
+      }
+    }
+
     function showAddDayModal(weekday,index){
       const dateVal = new Date(getDateOfISOWeek(currentWeekNo,currentWeekYear));
       dateVal.setDate(dateVal.getDate()+(weekday-1));
@@ -483,6 +518,10 @@
       document.getElementById('add-day-kommen').value="";
       document.getElementById('add-day-gehen').value="";
       document.getElementById('pc-buchung-add-day').checked=false;
+
+      // Urlaub/Krank neu hinzugefügt
+      document.getElementById('urlaub-toggle').checked = false;
+      document.getElementById('krank-toggle').checked  = false;
 
       document.getElementById('add-day-modal').setAttribute('data-date', dateVal.toISOString().split('T')[0]);
       document.getElementById('add-day-modal').style.display='block';
@@ -494,6 +533,56 @@
       const gehenVal=document.getElementById('add-day-gehen').value;
       const isPcBuchungAddDay=document.getElementById('pc-buchung-add-day').checked;
 
+      // Neue Flags
+      const isUrlaub = document.getElementById('urlaub-toggle').checked;
+      const isKrank  = document.getElementById('krank-toggle').checked;
+
+      // Wenn Urlaub oder Krank, ignorieren wir Zeitberechnungen
+      // => differenz = 0, oder wir können es ganz nach Geschmack gestalten
+      // Für die Demo: differenz = 0, um das Stundenkonto nicht zu beeinflussen
+      if(isUrlaub || isKrank){
+        // Wir speichern das Nötige, aber Arbeitszeit = 0
+        const wochenarbeitszeit=parseFloat(document.getElementById("wochenarbeitszeit").value)||38;
+        const sollArbeitszeit=wochenarbeitszeit/5;
+        const aktuellesKonto=parseFloat(document.getElementById('aktuelles-konto').value)||0;
+        const differenz = 0; // z.B. 0, da Urlaub/Krank => keine Arbeitszeit
+        const differenzTime = "0:00";
+        const neuesStundenkonto=aktuellesKonto;
+
+        const dayData={
+          datum: dateVal,
+          differenz: differenz.toFixed(2),
+          differenzTime: differenzTime,
+          stundenkonto: neuesStundenkonto.toFixed(2),
+          kommen: null,
+          gehen: null,
+          urlaub: isUrlaub, // neu
+          krank:  isKrank   // neu
+        };
+
+        let history=JSON.parse(localStorage.getItem('history'))||[];
+        const existingIndex=history.findIndex(e=>e.datum===dateVal);
+        const displayDate=new Date(dateVal).toLocaleDateString('de-DE');
+        if(existingIndex!==-1){
+          if(!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Möchten Sie ihn ersetzen?`)){
+            return;
+          }
+          history[existingIndex]=dayData;
+        } else {
+          history.push(dayData);
+        }
+
+        localStorage.setItem('history',JSON.stringify(history));
+        document.getElementById('aktuelles-konto').value=neuesStundenkonto.toFixed(2);
+        localStorage.setItem('aktuellesStundenkonto',neuesStundenkonto.toFixed(2));
+        updateCalculations();
+        closeAddDayModal();
+        loadHistory();
+        alert(isUrlaub ? "Urlaub eingetragen." : "Krankheitstag eingetragen.");
+        return;
+      }
+
+      // Wenn weder Urlaub noch Krank: alles wie gehabt
       if(!dateVal||!kommenVal||!gehenVal){
         alert("Bitte Kommen- und Gehen-Zeit angeben.");
         return;
@@ -549,7 +638,10 @@
         differenzTime:differenzTime,
         stundenkonto:neuesStundenkonto.toFixed(2),
         kommen:adjusted.toISOString(),
-        gehen:gehenDate.toISOString()
+        gehen:gehenDate.toISOString(),
+        // Urlaub / Krank hier false, da nicht ausgewählt
+        urlaub: false,
+        krank:  false
       };
 
       let history=JSON.parse(localStorage.getItem('history'))||[];
@@ -570,7 +662,7 @@
       updateCalculations();
       closeAddDayModal();
       loadHistory();
-      alert("Der Tag wurde nachgetragen.");
+      alert("Der Tag wurde gebucht.");
     }
 
     function closeAddDayModal(){
@@ -583,13 +675,29 @@
       if(!entry)return;
       const displayDate=new Date(dateStr).toLocaleDateString('de-DE');
 
-      const kommen=entry.kommen?new Date(entry.kommen):null;
-      const gehen=entry.gehen?new Date(entry.gehen):null;
+      // Wenn Tag Urlaub oder Krank => wir stellen das anders dar
+      if(entry.urlaub){
+        document.getElementById('detail-date').textContent=displayDate;
+        document.getElementById('detail-kommen').textContent="--:--";
+        document.getElementById('detail-gehen').textContent="--:--";
+        document.getElementById('detail-differenz').textContent="Urlaub";
+      }
+      else if(entry.krank){
+        document.getElementById('detail-date').textContent=displayDate;
+        document.getElementById('detail-kommen').textContent="--:--";
+        document.getElementById('detail-gehen').textContent="--:--";
+        document.getElementById('detail-differenz').textContent="Krank";
+      }
+      else {
+        // Normaler Fall
+        const kommen=entry.kommen?new Date(entry.kommen):null;
+        const gehen=entry.gehen?new Date(entry.gehen):null;
 
-      document.getElementById('detail-date').textContent=displayDate;
-      document.getElementById('detail-kommen').textContent=kommen?formatTime(kommen):"--:--";
-      document.getElementById('detail-gehen').textContent=gehen?formatTime(gehen):"--:--";
-      document.getElementById('detail-differenz').textContent=`${entry.differenz}h (${entry.differenzTime})`;
+        document.getElementById('detail-date').textContent=displayDate;
+        document.getElementById('detail-kommen').textContent=kommen?formatTime(kommen):"--:--";
+        document.getElementById('detail-gehen').textContent=gehen?formatTime(gehen):"--:--";
+        document.getElementById('detail-differenz').textContent=`${entry.differenz}h (${entry.differenzTime})`;
+      }
 
       document.getElementById('detail-modal').style.display='block';
     }
@@ -629,30 +737,56 @@
         listItem.classList.add('history-item');
 
         if(entry){
-          const differenzValue=parseFloat(entry.differenz);
-          totalDifferenz+=differenzValue;
-          const differenzClass=differenzValue>0?'positive-value':(differenzValue<0?'negative-value':'zero-value');
-          const displayDate=new Date(entry.datum).toLocaleDateString('de-DE');
-          const violation=checkEntryViolationsForHistory(entry);
-
-          let violationStyle = "flex:1;";
-          if(violation) {
-            violationStyle += "background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;";
+          // Falls Urlaub oder Krank, zeigen wir das entsprechend an
+          if(entry.urlaub){
+            listItem.innerHTML=`
+              <div class="history-entry" style="flex:1; background-color:#ffd900;color:#000;border-radius:8px;padding:5px;">
+                <div><strong>${weekdayNames[idx]}</strong> (${new Date(entry.datum).toLocaleDateString('de-DE')})</div>
+                <div>Urlaub</div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+                <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
+                <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
+              </div>
+            `;
           }
+          else if(entry.krank){
+            listItem.innerHTML=`
+              <div class="history-entry" style="flex:1; background-color:#ffd900;color:#000;border-radius:8px;padding:5px;">
+                <div><strong>${weekdayNames[idx]}</strong> (${new Date(entry.datum).toLocaleDateString('de-DE')})</div>
+                <div>Krank</div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+                <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
+                <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
+              </div>
+            `;
+          }
+          else {
+            const differenzValue=parseFloat(entry.differenz);
+            totalDifferenz+=differenzValue;
+            const differenzClass=differenzValue>0?'positive-value':(differenzValue<0?'negative-value':'zero-value');
+            const displayDate=new Date(entry.datum).toLocaleDateString('de-DE');
+            const violation=checkEntryViolationsForHistory(entry);
 
-          const violationMarks=violation?' !!!':'';
-          const differenzSpanClass = violation ? '' : differenzClass;
+            let violationStyle = "flex:1;";
+            if(violation) {
+              violationStyle += "background-color:#ff3b30;color:#ffffff;border-radius:8px;padding:5px;";
+            }
+            const violationMarks=violation?' !!!':'';
+            const differenzSpanClass = violation ? '' : differenzClass;
 
-          listItem.innerHTML=`
-            <div class="history-entry" style="${violationStyle}">
-              <div><strong>${weekdayNames[idx]}</strong> (${displayDate})</div>
-              <div>Differenz: <span class="${differenzSpanClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks}</span></div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-              <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
-              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
-            </div>
-          `;
+            listItem.innerHTML=`
+              <div class="history-entry" style="${violationStyle}">
+                <div><strong>${weekdayNames[idx]}</strong> (${displayDate})</div>
+                <div>Differenz: <span class="${differenzSpanClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks}</span></div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+                <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
+                <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
+              </div>
+            `;
+          }
         } else {
           listItem.innerHTML=`
             <div class="history-entry" style="flex:1;">
@@ -748,13 +882,28 @@
       if(!entry)return;
       const displayDate=new Date(dateStr).toLocaleDateString('de-DE');
 
-      const kommen=entry.kommen?new Date(entry.kommen):null;
-      const gehen=entry.gehen?new Date(entry.gehen):null;
+      // Urlaub/Krank in Details abfangen:
+      if(entry.urlaub){
+        document.getElementById('detail-date').textContent=displayDate;
+        document.getElementById('detail-kommen').textContent="--:--";
+        document.getElementById('detail-gehen').textContent="--:--";
+        document.getElementById('detail-differenz').textContent="Urlaub";
+      }
+      else if(entry.krank){
+        document.getElementById('detail-date').textContent=displayDate;
+        document.getElementById('detail-kommen').textContent="--:--";
+        document.getElementById('detail-gehen').textContent="--:--";
+        document.getElementById('detail-differenz').textContent="Krank";
+      }
+      else {
+        const kommen=entry.kommen?new Date(entry.kommen):null;
+        const gehen=entry.gehen?new Date(entry.gehen):null;
 
-      document.getElementById('detail-date').textContent=displayDate;
-      document.getElementById('detail-kommen').textContent=kommen?formatTime(kommen):"--:--";
-      document.getElementById('detail-gehen').textContent=gehen?formatTime(gehen):"--:--";
-      document.getElementById('detail-differenz').textContent=`${entry.differenz}h (${entry.differenzTime})`;
+        document.getElementById('detail-date').textContent=displayDate;
+        document.getElementById('detail-kommen').textContent=kommen?formatTime(kommen):"--:--";
+        document.getElementById('detail-gehen').textContent=gehen?formatTime(gehen):"--:--";
+        document.getElementById('detail-differenz').textContent=`${entry.differenz}h (${entry.differenzTime})`;
+      }
 
       document.getElementById('detail-modal').style.display='block';
     }
@@ -1198,6 +1347,23 @@
         </label>
         <span>PC-Buchung</span>
       </div>
+
+      <!-- Neue Checkboxen für Urlaub/Krank -->
+      <div class="switch-container" style="margin-top:10px;">
+        <label class="switch">
+          <input type="checkbox" id="urlaub-toggle" onchange="onUrlaubToggleAddDay()">
+          <span class="slider"></span>
+        </label>
+        <span>Urlaub</span>
+      </div>
+      <div class="switch-container" style="margin-top:10px;">
+        <label class="switch">
+          <input type="checkbox" id="krank-toggle" onchange="onKrankToggleAddDay()">
+          <span class="slider"></span>
+        </label>
+        <span>Krank</span>
+      </div>
+
       <button class="button" onclick="addManualDay()">Speichern</button>
     </div>
   </div>
