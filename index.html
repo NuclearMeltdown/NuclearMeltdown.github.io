@@ -802,7 +802,7 @@
             listItem.innerHTML=`
               <div class="history-entry" style="${violationStyle}">
                 <div><strong>${weekdayNames[idx]}</strong> (${displayDate})</div>
-                <div>Differenz: <span class="${differenzSpanClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks} ${locationEmoji}</span></div>
+                <div>Diff: <span class="${differenzSpanClass}">${entry.differenz}h (${entry.differenzTime})${violationMarks} ${locationEmoji}</span></div>
               </div>
               <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
                 <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
@@ -1293,7 +1293,7 @@
           <input type="checkbox" id="detail-pc-buchung">
           <span class="slider"></span>
         </label>
-        <span>PC-Buchung (readonly)</span>
+        <span>PC-Buchung</span>
       </div>
       <p>Pausen: <span id="detail-pausen"></span></p>
     </div>
