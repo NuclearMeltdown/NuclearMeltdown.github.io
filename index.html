@@ -14,7 +14,6 @@
   <!-- Icons -->
   <link rel="apple-touch-icon" href="https://NuclearMeltdown.github.io/apple-touch-icon.png"> <!-- 180x180 recommended -->
   <!-- Basic Splash Screen Image (iOS will use this or theme-color) -->
-  <!-- For perfect splash screens, provide specific sizes via media queries -->
   <link rel="apple-touch-startup-image" href="https://NuclearMeltdown.github.io/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon.png"> <!-- Favicon for browsers -->
   <meta name="application-name" content="Arbeitszeitrechner"/>
@@ -396,7 +395,7 @@
 
     // Tag speichern
     function checkViolations(kommenDate, gehenDate, arbeitszeit) {
-        if (!kommenDate || !gehenDate) return false; // Cannot check if times are missing
+        if (!kommenDate || !gehenDate || isNaN(kommenDate.getTime()) || isNaN(gehenDate.getTime())) return false; // Cannot check if times are missing/invalid
         const kommenStunde = kommenDate.getHours() + (kommenDate.getMinutes() / 60);
         const gehenStunde = gehenDate.getHours() + (gehenDate.getMinutes() / 60);
         // Check: Kommen 6-16, Gehen <= 20, Arbeitszeit 4-10 (if > 0)
@@ -552,20 +551,19 @@
 
         let contentHTML = '';
         let actionsHTML = '';
+        let entryDiv = document.createElement('div'); // Create div for content
+        entryDiv.classList.add('history-entry');
 
         if (entry) {
           let locationEmoji = entry.buero ? "🏢" : "🏠";
           let specialDayText = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : (entry.schulung ? "Schulung" : ""));
 
           if (specialDayText) {
-              let bgColor = entry.krank ? 'var(--special-day-krank-bg)' : 'var(--special-day-urlaub-bg)';
-              let textColor = 'var(--special-day-text)';
-              // Added margin-right to special-day entry for spacing from buttons
-              contentHTML = `
-                <div class="history-entry special-day" style="background-color:${bgColor}; color:${textColor}; margin-right: 5px;">
+              // Add specific class for background color, no inline style
+              entryDiv.classList.add(entry.krank ? 'history-entry-krank' : 'history-entry-urlaub');
+              entryDiv.innerHTML = `
                   <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
                   <div>${specialDayText} ${locationEmoji}</div>
-                </div>
               `;
           } else {
               const diffVal = parseFloat(entry.differenz) || 0;
@@ -573,22 +571,19 @@
               const diffClass = diffVal > 0.001 ? "positive-value" : (diffVal < -0.001 ? "negative-value" : "zero-value");
               const kommen = entry.kommen ? new Date(entry.kommen) : null;
               const gehen = entry.gehen ? new Date(entry.gehen) : null;
-              const netTime = calculateNetArbeitszeitFromEntry(entry); // Recalculate net time for violation check
+              const netTime = calculateNetArbeitszeitFromEntry(entry);
               const isViolation = checkViolations(kommen, gehen, netTime);
               const violationMark = isViolation ? ' <span class="violation-mark">!</span>' : '';
               // Add violation class to li for border styling
               if (isViolation) li.classList.add('violation-entry');
 
-              // Moved Differenz inline with time range
-              contentHTML = `
-                <div class="history-entry">
+              entryDiv.innerHTML = `
                   <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
                   <div>
                     ${formatTime(kommen)} - ${formatTime(gehen)} ${locationEmoji}
                     <span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>
                     ${violationMark}
                   </div>
-                </div>
               `;
           }
            actionsHTML = `
@@ -600,11 +595,10 @@
 
         } else {
           // No entry for this day
-          contentHTML = `
-            <div class="history-entry no-data">
+          entryDiv.classList.add('no-data');
+          entryDiv.innerHTML = `
               <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
               <div>Kein Eintrag</div>
-            </div>
           `;
           actionsHTML = `
             <div class="history-actions">
@@ -613,7 +607,8 @@
           `;
         }
 
-        li.innerHTML = contentHTML + actionsHTML;
+        li.appendChild(entryDiv); // Append the content div
+        li.insertAdjacentHTML('beforeend', actionsHTML); // Append actions HTML
         historyList.appendChild(li);
       });
 
@@ -638,9 +633,7 @@
         if (diffMs < 0) return 0;
 
         const totalH = diffMs / (1000 * 60 * 60);
-        // IMPORTANT: Need to know the 'additional pause' setting *at the time of saving*
-        // This info isn't stored. We'll use the *current* setting as an approximation.
-        // For perfect accuracy, additional pause should be stored with the entry.
+        // Approximation: Use current additional pause setting
         const pausen = calculatePausenForWorkTime(totalH);
         return Math.max(0, totalH - pausen);
     }
@@ -1064,17 +1057,18 @@
                 cell.classList.add('has-entry');
                 const diffVal = parseFloat(entry.differenz) || 0;
                 monthlyTotalDiff += diffVal;
-                let diffClass = '';
+
                  if (entry.urlaub || entry.krank || entry.schulung) {
-                    diffClass = entry.krank ? 'special-day-krank-bg' : 'special-day-urlaub-bg';
+                    // Use specific classes for special days (no padding)
+                    cell.classList.add(entry.krank ? 'calendar-day-krank' : 'calendar-day-urlaub');
                     cell.title = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung");
                  } else {
-                    if (diffVal > 0.001) diffClass = 'positive-value';
-                    else if (diffVal < -0.001) diffClass = 'negative-value';
-                    else diffClass = 'zero-value';
+                    // Use specific classes for normal entries (no padding)
+                    if (diffVal > 0.001) cell.classList.add('calendar-day-positive');
+                    else if (diffVal < -0.001) cell.classList.add('calendar-day-negative');
+                    else cell.classList.add('calendar-day-zero');
                     cell.title = `Differenz: ${entry.differenzTime}`;
                  }
-                cell.classList.add(diffClass);
                 cell.onclick = () => showDayDetails(currentDateStr);
             } else if (dayOfWeek === 0 || dayOfWeek === 6) {
                 cell.classList.add('weekend');
@@ -1458,15 +1452,11 @@
       display: flex;
       gap: 10px; /* Space between columns */
       margin-bottom: 10px;
-      align-items: flex-end; /* Default alignment */
-    }
-    /* Specific alignment for time input rows */
-    .time-input-row {
-        align-items: center; /* Vertically center items in these rows */
+      align-items: baseline; /* Align items based on text baseline */
     }
     .column { flex: 1; min-width: 0; /* Prevent overflow */ }
 
-    /* Switches (iOS Style) */
+    /* Switches (iOS Style) - Adjusted */
     .switch-container {
       display: flex;
       align-items: center;
@@ -1482,7 +1472,7 @@
     .switch {
       position: relative;
       display: inline-block;
-      width: 51px;
+      width: 52px; /* Slightly wider track */
       height: 31px;
       flex-shrink: 0; /* Prevent switch from shrinking */
     }
@@ -1506,8 +1496,8 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.15);
     }
     input:checked + .slider { background-color: var(--system-green-light); }
-    /* Corrected translateX for proper fit */
-    input:checked + .slider:before { transform: translateX(20px); }
+    /* Adjusted translateX for better visual fit */
+    input:checked + .slider:before { transform: translateX(21px); }
     @media (prefers-color-scheme: dark) {
         .slider { background-color: #39393d; } /* iOS dark off-grey */
         input:checked + .slider { background-color: var(--system-green-dark); }
@@ -1535,8 +1525,6 @@
     input.positive-value, input.negative-value, input.zero-value {
         color: var(--text-color) !important; /* Keep text readable */
         font-weight: 600;
-        /* Optional: Add a subtle border instead of background */
-        /* border-left: 3px solid var(--positive-value-bg); */
     }
 
     /* Invalid Time Input */
@@ -1586,11 +1574,16 @@
     .history-entry div:first-child { font-weight: 600; } /* Date/Day */
     .history-entry div:not(:first-child) { font-size: 14px; color: var(--secondary-text-color); }
     .history-entry.no-data div:not(:first-child) { font-style: italic; }
-    .history-entry.special-day {
-        padding: 8px 12px;
+    /* Specific background classes for special days */
+    .history-entry-urlaub, .history-entry-krank {
+        padding: 8px 12px; /* Keep padding consistent */
         border-radius: 8px;
         margin: -8px 5px -8px 0; /* Adjust padding slightly & add right margin */
+        color: var(--special-day-text);
     }
+    .history-entry-urlaub { background-color: var(--special-day-urlaub-bg); }
+    .history-entry-krank { background-color: var(--special-day-krank-bg); }
+
     .history-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
     .violation-mark {
         color: var(--hint-color);
@@ -1720,18 +1713,20 @@
         cursor: default;
         border: 2px solid transparent; /* For today's highlight */
         transition: background-color 0.2s ease, border-color 0.2s ease;
+        box-sizing: border-box; /* Ensure padding/border are included */
     }
     .calendar-day.empty { background-color: transparent; }
     .calendar-day.weekend { color: var(--secondary-text-color); }
     .calendar-day.has-entry {
         cursor: pointer;
-        color: var(--button-text-color); /* White text on colored background */
+        color: var(--button-text-color); /* Default white text on colored background */
     }
-    .calendar-day.has-entry.positive-value { background-color: var(--positive-value-bg); }
-    .calendar-day.has-entry.negative-value { background-color: var(--negative-value-bg); }
-    .calendar-day.has-entry.zero-value { background-color: var(--zero-value-bg); }
-    .calendar-day.has-entry.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text); }
-    .calendar-day.has-entry.special-day-krank-bg { background-color: var(--special-day-krank-bg); color: var(--special-day-text); }
+    /* Specific background classes for calendar days (no padding) */
+    .calendar-day-positive { background-color: var(--positive-value-bg); }
+    .calendar-day-negative { background-color: var(--negative-value-bg); }
+    .calendar-day-zero { background-color: var(--zero-value-bg); }
+    .calendar-day-urlaub { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text); }
+    .calendar-day-krank { background-color: var(--special-day-krank-bg); color: var(--special-day-text); }
 
     .calendar-day.no-entry {
         color: var(--system-blue-light);
@@ -1820,22 +1815,22 @@
 <div id="app-container">
 
   <!-- Main Calculator Page -->
-  <div id="main-page" class="page">
+  <div id="main-page" class="page active"> <!-- Start with main page active -->
     <div class="container">
       <h1>Arbeitszeit</h1>
 
       <!-- Kommen / Gehen + PC + Büro -->
       <div class="section">
         <h3>Zeiterfassung</h3>
-        <!-- Added class 'time-input-row' for vertical alignment -->
-        <div class="row time-input-row">
+        <!-- Use baseline alignment for the row -->
+        <div class="row">
           <div class="column">
             <label for="kommen-display">Kommen</label>
             <input type="time" id="kommen-display">
           </div>
           <div class="column">
-            <!-- Removed spacer label, alignment handled by row class -->
-            <button class="button" onclick="setZeit('kommen')" style="margin-top:0; height: 44px; padding: 10px;">Jetzt</button>
+            <!-- Button label changed -->
+            <button class="button" onclick="setZeit('kommen')" style="height: 44px; padding: 10px; margin-bottom: 10px;">Kommen</button>
           </div>
         </div>
 
@@ -1854,15 +1849,15 @@
           </label>
         </div>
 
-        <!-- Added class 'time-input-row' for vertical alignment -->
-        <div class="row time-input-row">
+        <!-- Use baseline alignment for the row -->
+        <div class="row">
           <div class="column">
             <label for="gehen-display">Gehen</label>
             <input type="time" id="gehen-display">
           </div>
           <div class="column">
-             <!-- Removed spacer label -->
-            <button class="button" onclick="setZeit('gehen')" style="margin-top:0; height: 44px; padding: 10px;">Jetzt</button>
+             <!-- Button label changed -->
+            <button class="button" onclick="setZeit('gehen')" style="height: 44px; padding: 10px; margin-bottom: 10px;">Gehen</button>
           </div>
         </div>
         <p id="hinweis"></p>
