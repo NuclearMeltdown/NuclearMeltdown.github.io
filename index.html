@@ -2,12 +2,12 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Arbeitszeitrechner">
+  <meta name="apple-mobile-web-app-title" content="Arbeitszeit">
 
   <!-- Icons optimiert -->
   <link rel="apple-touch-icon" href="https://NuclearMeltdown.github.io/apple-touch-icon.png">
@@ -15,31 +15,36 @@
   <meta name="application-name" content="Arbeitszeitrechner"/>
   <meta name="msapplication-TileColor" content="#000000" />
   <meta name="msapplication-TileImage" content="https://NuclearMeltdown.github.io/mstile-144x144.png" />
-  
+
   <title>Arbeitszeitrechner</title>
 
   <script>
     // Globale Variablen
-    let kommenZeit = null, gehenZeit = null, currentWeekYear = null, currentWeekNo = null;
+    let kommenZeit = null, gehenZeit = null;
+    let currentWeekYear = null, currentWeekNo = null;
+    let currentMonthYear = null, currentMonth = null;
+    let currentView = 'main'; // main, history, month, stats
 
     // Hilfsfunktionen
     const $ = id => document.getElementById(id);
     const pad = num => num.toString().padStart(2, "0");
-    
+
     function parseTime(str) {
       if (!str) return null;
       const [hh, mm] = str.split(":").map(Number);
+      if (isNaN(hh) || isNaN(mm)) return null; // Basic validation
       const now = new Date();
       now.setHours(hh, mm, 0, 0);
       return now;
     }
-    
+
     function formatTime(date) {
-      if (!date) return "--:--";
+      if (!date || isNaN(date.getTime())) return "--:--";
       return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
-    
+
     function formatDecimalToTime(decimalH) {
+      if (isNaN(decimalH)) return "0:00";
       const absVal = Math.abs(decimalH);
       const hh = Math.floor(absVal);
       const mm = Math.round((absVal - hh) * 60);
@@ -48,12 +53,26 @@
 
     // LocalStorage Funktionen
     function storeToLS(key, value) {
-      localStorage.setItem(key, value);
+      try {
+        localStorage.setItem(key, value);
+      } catch (e) {
+        console.error("Error saving to localStorage", e);
+        alert("Fehler beim Speichern der Daten. Möglicherweise ist der Speicher voll.");
+      }
     }
-    
+
     function getFromLS(key, defaultVal = null) {
-      const val = localStorage.getItem(key);
-      return val !== null ? val : defaultVal;
+      try {
+        const val = localStorage.getItem(key);
+        return val !== null ? val : defaultVal;
+      } catch (e) {
+        console.error("Error reading from localStorage", e);
+        return defaultVal;
+      }
+    }
+
+    function getHistory() {
+        return JSON.parse(getFromLS('history', '[]'));
     }
 
     // Init beim Laden
@@ -61,36 +80,80 @@
       restoreInputsFromLocalStorage();
       const heute = new Date();
       [currentWeekYear, currentWeekNo] = getWeekNumber(heute);
+      currentMonthYear = heute.getFullYear();
+      currentMonth = heute.getMonth(); // 0-11
+
+      // Restore last known account balance
+      const lastKonto = getFromLS('aktuellesStundenkonto');
+      if (lastKonto) {
+        $('aktuelles-konto').value = parseFloat(lastKonto).toFixed(2);
+      } else {
+         // Try to get from last history entry if available
+         const history = getHistory();
+         if (history.length > 0) {
+            const lastEntry = history.sort((a,b) => new Date(b.datum) - new Date(a.datum))[0];
+            if (lastEntry.stundenkonto) {
+                $('aktuelles-konto').value = parseFloat(lastEntry.stundenkonto).toFixed(2);
+            }
+         }
+      }
+
       updateCalculations();
+      switchView('main'); // Start on main page
+      setupEventListeners();
     }
-    
+
+    function setupEventListeners() {
+        // Add listeners for bottom nav
+        $('nav-main').addEventListener('click', () => switchView('main'));
+        $('nav-history').addEventListener('click', () => switchView('history'));
+        $('nav-month').addEventListener('click', () => switchView('month'));
+        $('nav-stats').addEventListener('click', () => switchView('stats'));
+
+        // Existing listeners (ensure they are only added once if init is called again)
+        $('kommen-display').oninput = onInputChange;
+        $('gehen-display').oninput = onInputChange;
+        $('pc-buchung').onchange = onInputChange;
+        $('buero-toggle').onchange = onInputChange;
+        $('wochenarbeitszeit').onchange = onInputChange;
+        $('zusatzliche-pause').onchange = onInputChange;
+        $('aktuelles-konto').onchange = onInputChange;
+
+        // Modal close buttons
+        document.querySelectorAll('.close-button').forEach(btn => {
+            btn.onclick = () => btn.closest('.modal').style.display = 'none';
+        });
+
+        // Stats period selector
+        $('stats-period').onchange = () => calculateAndDisplayStats();
+    }
+
     function restoreInputsFromLocalStorage() {
       const storedKommen = getFromLS('kommenZeitValue');
       const storedGehen = getFromLS('gehenZeitValue');
-      
+
       if (storedKommen) {
         $('kommen-display').value = storedKommen;
         kommenZeit = parseTime(storedKommen);
       }
-      
+
       if (storedGehen) {
         $('gehen-display').value = storedGehen;
         gehenZeit = parseTime(storedGehen);
       }
-      
+
       $('pc-buchung').checked = getFromLS('pcBuchungChecked') === 'true';
       $('buero-toggle').checked = getFromLS('bueroChecked') === 'true';
-      
+
       const storedPause = getFromLS('zusatzlichePauseValue');
       if (storedPause) $('zusatzliche-pause').value = storedPause;
-      
+
       const storedWochenAZ = getFromLS('wochenarbeitszeitValue');
       if (storedWochenAZ) $('wochenarbeitszeit').value = storedWochenAZ;
-      
-      const storedAktKonto = getFromLS('aktuellesKontoValue');
-      if (storedAktKonto) $('aktuelles-konto').value = storedAktKonto;
+
+      // Aktuelles Konto wird in init() separat behandelt
     }
-    
+
     function storeInputsToLocalStorage() {
       storeToLS('kommenZeitValue', $('kommen-display').value);
       storeToLS('gehenZeitValue', $('gehen-display').value);
@@ -98,7 +161,8 @@
       storeToLS('bueroChecked', $('buero-toggle').checked ? 'true' : 'false');
       storeToLS('zusatzlichePauseValue', $('zusatzliche-pause').value);
       storeToLS('wochenarbeitszeitValue', $('wochenarbeitszeit').value);
-      storeToLS('aktuellesKontoValue', $('aktuelles-konto').value);
+      // Store current account balance separately for persistence
+      storeToLS('aktuellesStundenkonto', $('aktuelles-konto').value);
     }
 
     // Kommen/Gehen Buttons
@@ -119,18 +183,26 @@
     function onInputChange() {
       kommenZeit = parseTime($('kommen-display').value);
       gehenZeit = parseTime($('gehen-display').value);
-      storeInputsToLocalStorage();
+      storeInputsToLocalStorage(); // Store changes immediately
       updateCalculations();
     }
 
-    // Arbeitszeit-Berechnungen
+    // Arbeitszeit-Berechnungen (weitgehend unverändert)
     function parseAdditionalPause() {
       const val = $('zusatzliche-pause').value;
       if (!val) return 0;
-      const [hh, mm] = val.split(":").map(Number);
-      return (hh || 0) + ((mm || 0) / 60);
+      // Allow comma as decimal separator
+      const cleanedVal = val.replace(',', '.');
+      if (cleanedVal.includes(':')) {
+          const [hh, mm] = cleanedVal.split(":").map(Number);
+          return (hh || 0) + ((mm || 0) / 60);
+      } else {
+          // Interpret as decimal hours if no colon
+          const decimalHours = parseFloat(cleanedVal);
+          return isNaN(decimalHours) ? 0 : decimalHours;
+      }
     }
-    
+
     function getAdjustedKommenZeit() {
       if (!kommenZeit) return null;
       const adjusted = new Date(kommenZeit.getTime());
@@ -139,101 +211,93 @@
       }
       return adjusted;
     }
-    
+
     function calculateWorkingTime() {
       const ak = getAdjustedKommenZeit();
-      if (!ak || !gehenZeit) return { hours: 0, minutes: 0 };
-      
+      if (!ak || !gehenZeit) return { hours: 0, minutes: 0, totalHours: 0 };
+
       const diffMs = gehenZeit - ak;
-      if (diffMs < 0) return { hours: 0, minutes: 0 };
-      
-      const hh = Math.floor(diffMs / (1000 * 60 * 60));
-      const mm = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      return { hours: hh, minutes: mm };
-    }
-    
-    function calculateArbeitszeit() {
-      const wTime = calculateWorkingTime();
-      const totalH = wTime.hours + (wTime.minutes / 60);
-      
-      let net = totalH;
-      for (let i = 0; i < 20; i++) {
-        const prev = net;
-        let pausen = parseAdditionalPause();
-        if (prev > 9) pausen += 0.75;
-        else if (prev > 6) pausen += 0.5;
-        
-        const neu = totalH - pausen;
-        if (Math.abs(neu - net) < 1e-9) {
-          net = neu;
-          break;
-        }
-        net = neu;
-      }
-      return net;
-    }
-    
-    function calculatePausenForWorkTime(totalHours) {
-      let net = totalHours;
-      for (let i = 0; i < 20; i++) {
-        const prev = net;
-        let pausen = parseAdditionalPause();
-        if (prev > 9) pausen += 0.75;
-        else if (prev > 6) pausen += 0.5;
-        
-        const neu = totalHours - pausen;
-        if (Math.abs(neu - net) < 1e-9) return pausen;
-        net = neu;
-      }
-      
-      // Falls nicht konvergiert
-      let pausen = parseAdditionalPause();
-      if (net > 9) pausen += 0.75;
-      else if (net > 6) pausen += 0.5;
-      return pausen;
+      if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 };
+
+      const totalMinutes = Math.floor(diffMs / (1000 * 60));
+      const hh = Math.floor(totalMinutes / 60);
+      const mm = totalMinutes % 60;
+      const totalH = totalMinutes / 60;
+      return { hours: hh, minutes: mm, totalHours: totalH };
     }
 
-    // Ausstempeln
+    function calculatePausenForWorkTime(totalHours) {
+        let net = totalHours;
+        let pausen = 0;
+        // Iterative approach to find stable pause value
+        for (let i = 0; i < 5; i++) { // Limit iterations
+            const prevNet = net;
+            pausen = parseAdditionalPause(); // Start with additional pause
+            if (prevNet > 9) pausen += 0.75; // 45 min
+            else if (prevNet > 6) pausen += 0.5; // 30 min
+
+            net = totalHours - pausen;
+            if (Math.abs(net - prevNet) < 1e-9) break; // Converged
+        }
+        // Ensure final pause calculation based on the *final* net time derived from presence
+        pausen = parseAdditionalPause();
+        if (net > 9) pausen += 0.75;
+        else if (net > 6) pausen += 0.5;
+
+        return pausen; // Return calculated pause in hours
+    }
+
+    function calculateArbeitszeit() {
+      const wTime = calculateWorkingTime();
+      if (wTime.totalHours <= 0) return 0;
+
+      const pausen = calculatePausenForWorkTime(wTime.totalHours);
+      const netArbeitszeit = wTime.totalHours - pausen;
+
+      return Math.max(0, netArbeitszeit); // Ensure non-negative
+    }
+
+    // Ausstempeln (Fixpunkt-Iteration beibehalten)
     function calculateEndTimeFixpoint(desiredNet) {
       const ak = getAdjustedKommenZeit();
       if (!ak) return "--:--";
-      
-      let presence = desiredNet;
-      for (let i = 0; i < 20; i++) {
-        const prev = presence;
+
+      let presence = desiredNet; // Initial guess: presence = net time
+      for (let i = 0; i < 5; i++) { // Limit iterations
+        const prevPresence = presence;
         let pausen = parseAdditionalPause();
-        if (prev > 9) pausen += 0.75;
-        else if (prev > 6) pausen += 0.5;
-        
-        const presenceNeu = desiredNet + pausen;
-        if (Math.abs(presenceNeu - presence) < 1e-9) {
-          presence = presenceNeu;
-          break;
-        }
-        presence = presenceNeu;
+        // Calculate statutory breaks based on *presence* time
+        if (prevPresence > 9) pausen += 0.75;
+        else if (prevPresence > 6) pausen += 0.5;
+
+        presence = desiredNet + pausen; // New estimate for presence
+        if (Math.abs(presence - prevPresence) < 1e-9) break; // Converged
       }
-      
+
       const endTime = new Date(ak.getTime());
-      endTime.setMinutes(endTime.getMinutes() + (presence * 60));
+      endTime.setMinutes(endTime.getMinutes() + Math.round(presence * 60));
       return formatTime(endTime);
     }
-    
+
     function updateEndTimes() {
       if (!kommenZeit) {
         ['soll', '4h', '6h', '9h', '10h'].forEach(id => {
-          $(`end-time-${id}`).value = "";
+          const el = $(`end-time-${id}`);
+          if (el) el.value = ""; // Check if element exists
         });
         return;
       }
-      
+
       [4, 6, 9, 10].forEach(d => {
-        $(`end-time-${d}h`).value = calculateEndTimeFixpoint(d);
+        const el = $(`end-time-${d}h`);
+        if (el) el.value = calculateEndTimeFixpoint(d);
       });
-      
+
       const wAZ = parseFloat($('wochenarbeitszeit').value) || 38;
       const sollProTag = wAZ / 5;
       const outS = calculateEndTimeFixpoint(sollProTag);
-      $('end-time-soll').value = `(${sollProTag.toFixed(2)}h): ${outS}`;
+      const elSoll = $('end-time-soll');
+      if (elSoll) elSoll.value = `(${sollProTag.toFixed(2)}h): ${outS}`;
     }
 
     // UI-Updates
@@ -241,68 +305,67 @@
       const netArbeitszeit = calculateArbeitszeit();
       const wAZ = parseFloat($('wochenarbeitszeit').value) || 38;
       const sollProTag = wAZ / 5;
-      
-      let diff = parseFloat((netArbeitszeit - sollProTag).toFixed(2));
+
+      let diff = netArbeitszeit > 0 ? parseFloat((netArbeitszeit - sollProTag).toFixed(2)) : 0;
       const aktKontoVal = parseFloat($('aktuelles-konto').value) || 0;
       let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
-      
-      // Anwesenheitszeit
+
+      // Anwesenheitszeit & Pausen
       const wTime = calculateWorkingTime();
-      const totalH = wTime.hours + (wTime.minutes / 60);
-      
-      let pausen = parseAdditionalPause();
-      if (netArbeitszeit > 9) pausen += 0.75;
-      else if (netArbeitszeit > 6) pausen += 0.5;
+      const pausen = calculatePausenForWorkTime(wTime.totalHours);
       const pausenMin = Math.round(pausen * 60);
-      
+
       // UI-Aktualisierung
-      $('anwesend-zeit').value = `${wTime.hours}:${pad(wTime.minutes)} (${totalH.toFixed(2)}h)`;
-      $('pausenzeit').value = `${pausenMin} Min`;
+      $('anwesend-zeit').value = `${wTime.hours}:${pad(wTime.minutes)} (${wTime.totalHours.toFixed(2)}h)`;
+      $('pausenzeit').value = `${pausenMin} Min (${pausen.toFixed(2)}h)`;
       $('arbeitszeit').value = `${formatDecimalToTime(netArbeitszeit)} (${netArbeitszeit.toFixed(2)}h)`;
       $('sollarbeitszeit-display').value = `${formatDecimalToTime(sollProTag)} (${sollProTag.toFixed(2)}h)`;
-      
+
       $('differenz').value = diff.toFixed(2);
       $('differenz-time').value = formatDecimalToTime(diff);
       $('neues-konto').value = newKto.toFixed(2);
       $('neues-konto-time').value = formatDecimalToTime(newKto);
       $('aktuelles-konto-time').value = formatDecimalToTime(aktKontoVal);
-      
-      // Einfärben
-      const fields = ['differenz', 'differenz-time', 'neues-konto', 'neues-konto-time'];
-      fields.forEach(id => {
-        const el = $(id);
-        el.classList.remove('positive-value', 'negative-value', 'zero-value');
-        
-        if (diff > 0) el.classList.add('positive-value');
-        else if (diff < 0) el.classList.add('negative-value');
-        else el.classList.add('zero-value');
+
+      // Einfärben der Differenz/Konto-Felder
+      const fieldsToColor = [
+          { id: 'differenz', value: diff },
+          { id: 'differenz-time', value: diff },
+          { id: 'neues-konto', value: newKto },
+          { id: 'neues-konto-time', value: newKto },
+          { id: 'aktuelles-konto-time', value: aktKontoVal }
+      ];
+
+      fieldsToColor.forEach(item => {
+          const el = $(item.id);
+          el.classList.remove('positive-value', 'negative-value', 'zero-value');
+          if (item.value > 0.001) el.classList.add('positive-value');
+          else if (item.value < -0.001) el.classList.add('negative-value');
+          else el.classList.add('zero-value');
       });
-      
-      // Hinweis
+
+
+      // Hinweis Logik (leicht angepasst)
       let hinweisText = "";
       const ak = getAdjustedKommenZeit();
       const kommenField = $('kommen-display');
       const gehenField = $('gehen-display');
-      
+
       kommenField.classList.remove('invalid-time');
       gehenField.classList.remove('invalid-time');
-      
-      if (netArbeitszeit < 4 || netArbeitszeit > 10) {
+
+      if (netArbeitszeit > 0 && (netArbeitszeit < 4 || netArbeitszeit > 10)) {
         hinweisText += "Achtung: Arbeitszeit außerhalb 4-10h!<br>";
       }
-      
+
       if (ak) {
         const kStunde = ak.getHours() + (ak.getMinutes() / 60);
         if (kStunde < 6 || kStunde > 16) {
-          hinweisText += "Achtung: Kommen vor 06:00 oder nach 16:00!<br>";
-          kommenField.classList.add('invalid-time');
-        }
-        if (netArbeitszeit >= 4 && kStunde > 16) {
-          hinweisText += "Achtung: 4h-Mindestzeit => Kommen nicht nach 16:00!<br>";
+          hinweisText += "Achtung: Kommen außerhalb 06:00-16:00!<br>";
           kommenField.classList.add('invalid-time');
         }
       }
-      
+
       if (gehenZeit) {
         const gStunde = gehenZeit.getHours() + (gehenZeit.getMinutes() / 60);
         if (gStunde > 20) {
@@ -310,64 +373,67 @@
           gehenField.classList.add('invalid-time');
         }
       }
-      
+
       const hinweis = $('hinweis');
       hinweis.innerHTML = hinweisText;
       hinweis.style.display = hinweisText ? 'block' : 'none';
-      
+
       updateEndTimes();
     }
 
-    // Tag speichern
+    // Tag speichern (angepasst für Violations Check)
     function checkViolations(kommenDate, gehenDate, arbeitszeit) {
-      const kommenStunde = kommenDate.getHours() + (kommenDate.getMinutes() / 60);
-      const gehenStunde = gehenDate.getHours() + (gehenDate.getMinutes() / 60);
-      return (kommenStunde < 6 || kommenStunde > 16 || gehenStunde > 20 || arbeitszeit < 4);
+        if (!kommenDate || !gehenDate) return false; // Cannot check if times are missing
+        const kommenStunde = kommenDate.getHours() + (kommenDate.getMinutes() / 60);
+        const gehenStunde = gehenDate.getHours() + (gehenDate.getMinutes() / 60);
+        // Check: Kommen 6-16, Gehen <= 20, Arbeitszeit 4-10 (if > 0)
+        return (kommenStunde < 6 || kommenStunde > 16 || gehenStunde > 20 || (arbeitszeit > 0 && arbeitszeit < 4) || arbeitszeit > 10);
     }
-    
+
     function saveDay() {
-      updateCalculations();
-      
+      updateCalculations(); // Ensure calculations are current
+
       const today = new Date();
-      const dayOfWeek = today.getDay(); // 0=So,6=Sa
+      const dayOfWeek = today.getDay(); // 0=So, 6=Sa
       if (dayOfWeek === 0 || dayOfWeek === 6) {
-        alert("Samstag und Sonntag sind nicht zulässig!");
+        alert("Speichern am Wochenende nicht vorgesehen.");
         return;
       }
-      
+
       const adjustedKommen = getAdjustedKommenZeit();
+      const netArbeitszeit = calculateArbeitszeit();
+
+      // Check for violations before saving
       if (adjustedKommen && gehenZeit) {
-        const diffMs = gehenZeit - adjustedKommen;
-        if (diffMs < 0) {
-          alert("Gehen vor Kommen!");
-          return;
-        }
-        
-        const hourMs = 3600000;
-        const totalH = Math.floor(diffMs / hourMs) + ((Math.floor(diffMs % hourMs / (1000 * 60))) / 60);
-        const pausen = calculatePausenForWorkTime(totalH);
-        const net = totalH - pausen;
-        
-        if (checkViolations(adjustedKommen, gehenZeit, net)) {
-          if (!confirm("Verstoß gegen Gleitzeit. Trotzdem speichern?")) {
-            return;
+          if (gehenZeit < adjustedKommen) {
+              alert("Gehen-Zeit liegt vor der (ggf. angepassten) Kommen-Zeit!");
+              return;
           }
-        }
+          if (checkViolations(adjustedKommen, gehenZeit, netArbeitszeit)) {
+              if (!confirm("Es liegt ein Verstoß gegen die Gleitzeitregeln vor (Zeiten außerhalb des Rahmens oder Arbeitszeit <4h/>10h). Trotzdem speichern?")) {
+                  return;
+              }
+          }
+      } else if (!adjustedKommen || !gehenZeit) {
+          alert("Bitte Kommen- und Gehen-Zeit für die Speicherung angeben.");
+          return;
       }
-      
+
+
       const diffVal = parseFloat($('differenz').value) || 0;
       const diffTime = $('differenz-time').value || "0:00";
       const newVal = parseFloat($('neues-konto').value) || 0;
-      
+
       const datum = today.toISOString().split('T')[0];
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
       const isBuero = $('buero-toggle').checked;
-      
-      let history = JSON.parse(getFromLS('history', '[]'));
-      const displayDate = (new Date(datum)).toLocaleDateString('de-DE');
+      const isPcBuchung = $('pc-buchung').checked;
+
+      let history = getHistory();
+      const displayDate = today.toLocaleDateString('de-DE');
       const existingIndex = history.findIndex(e => e.datum === datum);
-      
+
       const dayData = {
         datum: datum,
         differenz: diffVal.toFixed(2),
@@ -378,29 +444,37 @@
         urlaub: false,
         krank: false,
         schulung: false,
-        pcBuchung: $('pc-buchung').checked,
+        pcBuchung: isPcBuchung,
         buero: isBuero
       };
-      
+
       if (existingIndex !== -1) {
-        if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)) {
+        if (!confirm(`Für heute (${displayDate}) existiert bereits ein Eintrag. Überschreiben?`)) {
           return;
         }
         history[existingIndex] = dayData;
       } else {
         history.push(dayData);
       }
-      
+
       storeToLS('history', JSON.stringify(history));
       $('aktuelles-konto').value = newVal.toFixed(2);
-      storeToLS('aktuellesStundenkonto', newVal.toFixed(2));
-      
-      storeInputsToLocalStorage();
-      updateCalculations();
+      storeToLS('aktuellesStundenkonto', newVal.toFixed(2)); // Update persistent balance
+
+      // Optional: Clear inputs after saving?
+      // $('kommen-display').value = ''; kommenZeit = null;
+      // $('gehen-display').value = ''; gehenZeit = null;
+      // storeInputsToLocalStorage(); // Save cleared state
+      // updateCalculations();
+
       alert("Der Tag wurde gespeichert.");
+      // Optionally switch to history view or update other views
+      if (currentView === 'history') loadHistory();
+      if (currentView === 'month') loadMonthData();
+      if (currentView === 'stats') calculateAndDisplayStats();
     }
 
-    // KW-Funktionen
+    // KW-Funktionen (unverändert)
     function getWeekNumber(d) {
       d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
       d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -408,890 +482,1375 @@
       const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
       return [d.getUTCFullYear(), weekNo];
     }
-    
+
     function getDateOfISOWeek(w, y) {
       const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
-      const dow = simple.getDay();
+      const dow = simple.getUTCDay() || 7; // Make Sunday 7
       const ISOweekStart = new Date(simple);
-      ISOweekStart.setDate(simple.getDate() - ((dow + 6) % 7));
+      ISOweekStart.setUTCDate(simple.getUTCDate() - dow + 1); // Go back to Monday
       return ISOweekStart;
     }
 
-    // Verlauf-Funktionen
-    function showHistory() {
-      $('main-page').style.display = 'none';
-      $('history-page').style.display = 'block';
-      loadHistory();
-    }
-    
-    function showMainPage() {
-      $('history-page').style.display = 'none';
-      $('main-page').style.display = 'block';
-    }
-    
-    function calcArbeitszeitFromEntry(entry) {
-      if (!entry.kommen || !entry.gehen) return 0;
-      const k = new Date(entry.kommen);
-      const g = new Date(entry.gehen);
-      const diffMs = g - k;
-      if (diffMs < 0) return 0;
-      
-      const hourMs = 3600000;
-      const hh = Math.floor(diffMs / hourMs);
-      const mm = Math.floor((diffMs % hourMs) / (1000 * 60));
-      const total = hh + (mm / 60);
-      
-      let net = total;
-      for (let i = 0; i < 20; i++) {
-        const prev = net;
-        let pausen = parseAdditionalPause();
-        if (prev > 9) pausen += 0.75;
-        else if (prev > 6) pausen += 0.5;
-        
-        const neu = total - pausen;
-        if (Math.abs(neu - net) < 1e-9) {
-          net = neu;
-          break;
+    // --- Navigation ---
+    function switchView(viewId) {
+        currentView = viewId;
+        ['main', 'history', 'month', 'stats'].forEach(id => {
+            $(`${id}-page`).style.display = (id === viewId) ? 'block' : 'none';
+            $(`nav-${id}`).classList.toggle('active', id === viewId);
+        });
+
+        // Load data for the activated view
+        if (viewId === 'history') {
+            loadHistory();
+        } else if (viewId === 'month') {
+            loadMonthData();
+        } else if (viewId === 'stats') {
+            calculateAndDisplayStats();
         }
-        net = neu;
-      }
-      return net;
     }
-    
-    function checkEntryViolationsForHistory(entry) {
-      if (!entry.kommen || !entry.gehen) return false;
-      const k = new Date(entry.kommen);
-      const g = new Date(entry.gehen);
-      const net = calcArbeitszeitFromEntry(entry);
-      return checkViolations(k, g, net);
+
+
+    // --- History View (Wochenansicht) ---
+    function loadHistory() {
+      const historyList = $('history-list');
+      historyList.innerHTML = ''; // Clear previous list
+
+      let history = getHistory();
+
+      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+      const weekEndDate = new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate() + 4); // Monday to Friday
+      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
+
+      $('week-info').textContent = `KW ${currentWeekNo} / ${currentWeekYear}`;
+      $('week-range').textContent = weekRange;
+
+      const weekdays = [1, 2, 3, 4, 5]; // Monday to Friday
+      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+
+      let weeklyTotalDiff = 0;
+
+      weekdays.forEach((wd, idx) => {
+        const currentDate = new Date(weekStartDate);
+        currentDate.setDate(weekStartDate.getDate() + idx);
+        const currentDateStr = currentDate.toISOString().split('T')[0];
+
+        const entry = history.find(e => e.datum === currentDateStr);
+
+        const li = document.createElement('li');
+        li.classList.add('history-item');
+
+        let contentHTML = '';
+        let actionsHTML = '';
+
+        if (entry) {
+          let locationEmoji = entry.buero ? "🏢" : "🏠";
+          let specialDayText = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : (entry.schulung ? "Schulung" : ""));
+          let bgColor = 'transparent';
+          let textColor = 'var(--text-color)';
+
+          if (specialDayText) {
+              bgColor = entry.krank ? 'var(--special-day-krank-bg)' : 'var(--special-day-urlaub-bg)';
+              textColor = 'var(--special-day-text)';
+              contentHTML = `
+                <div class="history-entry special-day" style="background-color:${bgColor}; color:${textColor};">
+                  <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
+                  <div>${specialDayText} ${locationEmoji}</div>
+                </div>
+              `;
+          } else {
+              const diffVal = parseFloat(entry.differenz) || 0;
+              weeklyTotalDiff += diffVal;
+              const diffClass = diffVal > 0.001 ? "positive-value" : (diffVal < -0.001 ? "negative-value" : "zero-value");
+              const kommen = entry.kommen ? new Date(entry.kommen) : null;
+              const gehen = entry.gehen ? new Date(entry.gehen) : null;
+              const netTime = calculateNetArbeitszeitFromEntry(entry); // Recalculate net time for violation check
+              const isViolation = checkViolations(kommen, gehen, netTime);
+              const violationMark = isViolation ? ' <span class="violation-mark">!</span>' : '';
+              const entryStyle = isViolation ? 'style="border-left: 3px solid var(--hint-color); padding-left: 5px;"' : '';
+
+              contentHTML = `
+                <div class="history-entry" ${entryStyle}>
+                  <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
+                  <div>${formatTime(kommen)} - ${formatTime(gehen)} ${locationEmoji}</div>
+                  <div>Differenz: <span class="diff-badge ${diffClass}">${entry.differenzTime}</span>${violationMark}</div>
+                </div>
+              `;
+          }
+           actionsHTML = `
+            <div class="history-actions">
+              <button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button>
+              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>
+            </div>
+          `;
+
+        } else {
+          // No entry for this day
+          contentHTML = `
+            <div class="history-entry no-data">
+              <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
+              <div>Kein Eintrag</div>
+            </div>
+          `;
+          actionsHTML = `
+            <div class="history-actions">
+               <button class="inline-button add-button" onclick="showAddDayModal('${currentDateStr}')">+</button>
+            </div>
+          `;
+        }
+
+        li.innerHTML = contentHTML + actionsHTML;
+        historyList.appendChild(li);
+      });
+
+      // Update weekly summary
+      const diffClassSummary = weeklyTotalDiff > 0.001 ? "positive-value" : (weeklyTotalDiff < -0.001 ? "negative-value" : "zero-value");
+      $('weekly-summary-content').innerHTML = `
+        Gesamtdifferenz:
+           <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(weeklyTotalDiff)} (${weeklyTotalDiff.toFixed(2)}h)</span>
+      `;
+
+      updateWeekNavigation();
     }
-    
+
+    function calculateNetArbeitszeitFromEntry(entry) {
+        if (!entry.kommen || !entry.gehen || entry.urlaub || entry.krank || entry.schulung) return 0;
+        const k = new Date(entry.kommen);
+        const g = new Date(entry.gehen);
+        const diffMs = g - k;
+        if (diffMs < 0) return 0;
+
+        const totalH = diffMs / (1000 * 60 * 60);
+        const pausen = calculatePausenForWorkTime(totalH); // Use the same pause logic
+        return Math.max(0, totalH - pausen);
+    }
+
+
     function deleteEntryByDate(dateStr) {
-      let history = JSON.parse(getFromLS('history', '[]'));
+      let history = getHistory();
       const index = history.findIndex(e => e.datum === dateStr);
       if (index !== -1) {
         const displayDate = (new Date(dateStr)).toLocaleDateString('de-DE');
         if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
           history.splice(index, 1);
           storeToLS('history', JSON.stringify(history));
-          loadHistory();
+          // Reload the current view if it depends on history
+          if (currentView === 'history') loadHistory();
+          if (currentView === 'month') loadMonthData();
+          if (currentView === 'stats') calculateAndDisplayStats();
         }
       }
-    }
-    
-    function loadHistory() {
-      const historyList = $('history-list');
-      historyList.innerHTML = '';
-      
-      let history = JSON.parse(getFromLS('history', '[]'));
-      
-      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-      const weekEndDate = new Date(weekStartDate);
-      weekEndDate.setDate(weekStartDate.getDate() + 4);
-      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
-      
-      $('week-info').textContent = `KW ${currentWeekNo} (${weekRange})`;
-      
-      const weekdays = [1, 2, 3, 4, 5];
-      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
-      
-      let totalDiff = 0;
-      
-      weekdays.forEach((wd, idx) => {
-        const entry = history.find(e => {
-          const d = new Date(e.datum);
-          const [y2, w2] = getWeekNumber(d);
-          return y2 === currentWeekYear && w2 === currentWeekNo && d.getDay() === wd;
-        });
-        
-        const li = document.createElement('li');
-        li.classList.add('history-item');
-        
-        if (entry) {
-          let locationEmoji = entry.buero ? "🏢" : "🏠";
-          let bgColor, textColor, content;
-          
-          if (entry.urlaub || entry.krank || entry.schulung) {
-            bgColor = entry.krank ? "#ffd900" : "#30d158";
-            textColor = "#000";
-            content = `
-              <div class="history-entry" style="flex:1; background-color:${bgColor};color:${textColor};border-radius:8px;padding:5px;">
-                <div><strong>${weekdayNames[idx]}</strong> (${(new Date(entry.datum)).toLocaleDateString('de-DE')})</div>
-                <div>${entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung")} ${locationEmoji}</div>
-              </div>
-            `;
-          } else {
-            const diffVal = parseFloat(entry.differenz) || 0;
-            totalDiff += diffVal;
-            const diffClass = diffVal > 0 ? "positive-value" : (diffVal < 0 ? "negative-value" : "zero-value");
-            const dispDate = (new Date(entry.datum)).toLocaleDateString('de-DE');
-            const viol = checkEntryViolationsForHistory(entry);
-            
-            let style = "flex:1;";
-            if (viol) {
-              style += "background-color:#ff3b30;color:#fff;border-radius:8px;padding:5px;";
-            }
-            const violMarks = viol ? " !!!" : "";
-            const diffSpan = viol ? "" : diffClass;
-            
-            content = `
-              <div class="history-entry" style="${style}">
-                <div><strong>${weekdayNames[idx]}</strong> (${dispDate})</div>
-                <div>Differenz: <span class="${diffSpan}">${entry.differenz}h (${entry.differenzTime})${violMarks} ${locationEmoji}</span></div>
-              </div>
-            `;
-          }
-          
-          li.innerHTML = `
-            ${content}
-            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-              <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
-              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
-            </div>
-          `;
-        } else {
-          // Kein Eintrag
-          li.innerHTML = `
-            <div class="history-entry" style="flex:1;">
-              <div><strong>${weekdayNames[idx]}</strong></div>
-              <div>Keine Daten vorhanden</div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-              <button class="inline-button" onclick="showAddDayModal(${wd},${idx})">Manuelle Buchung</button>
-            </div>
-          `;
-        }
-        historyList.appendChild(li);
-      });
-      
-      const diffClass = totalDiff > 0 ? "positive-value" : (totalDiff < 0 ? "negative-value" : "zero-value");
-      $('weekly-summary').innerHTML = `
-        <h3>Wöchentliche Zusammenfassung</h3>
-        <p>Gesamte Differenz:
-           <span class="${diffClass}">${totalDiff.toFixed(2)}h (${formatDecimalToTime(totalDiff)})</span>
-        </p>
-      `;
-      
-      updateWeekNavigation();
-    }
-    
-    function updateWeekNavigation() {
-      const pagination = $('pagination');
-      pagination.innerHTML = '';
-      
-      const navContainer = document.createElement('div');
-      navContainer.classList.add('nav-container');
-      
-      // Year Navigation
-      const prevYearBtn = document.createElement('button');
-      prevYearBtn.textContent = '«';
-      prevYearBtn.onclick = () => {
-        currentWeekYear--;
-        loadHistory();
-      };
-      
-      // Week Navigation
-      const prevBtn = document.createElement('button');
-      prevBtn.textContent = '‹';
-      prevBtn.onclick = () => {
-        const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        d.setDate(d.getDate() - 7);
-        [currentWeekYear, currentWeekNo] = getWeekNumber(d);
-        loadHistory();
-      };
-      
-      // Week Select
-      const weekSelect = document.createElement('select');
-      weekSelect.id = 'week-select';
-      for (let i = 1; i <= 53; i++) {
-        const opt = document.createElement('option');
-        opt.value = i;
-        const st = getDateOfISOWeek(i, currentWeekYear);
-        opt.textContent = `KW ${i} (${st.toLocaleDateString('de-DE')})`;
-        if (i === currentWeekNo) {
-          opt.selected = true;
-        }
-        weekSelect.appendChild(opt);
-      }
-      weekSelect.onchange = () => {
-        currentWeekNo = parseInt(weekSelect.value);
-        loadHistory();
-      };
-      
-      // Next buttons
-      const nextBtn = document.createElement('button');
-      nextBtn.textContent = '›';
-      nextBtn.onclick = () => {
-        const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        d.setDate(d.getDate() + 7);
-        [currentWeekYear, currentWeekNo] = getWeekNumber(d);
-        loadHistory();
-      };
-      
-      const nextYearBtn = document.createElement('button');
-      nextYearBtn.textContent = '»';
-      nextYearBtn.onclick = () => {
-        currentWeekYear++;
-        loadHistory();
-      };
-      
-      [prevYearBtn, prevBtn, weekSelect, nextBtn, nextYearBtn].forEach(el => navContainer.appendChild(el));
-      pagination.appendChild(navContainer);
     }
 
-    // Manuelle Buchung
-    function showAddDayModal(weekday, index) {
-      const dateVal = new Date(getDateOfISOWeek(currentWeekNo, currentWeekYear));
-      dateVal.setDate(dateVal.getDate() + (weekday - 1));
-      const displayDate = dateVal.toLocaleDateString('de-DE');
-      
-      $('add-day-modal-title').textContent = `Manuelle Buchung für ${displayDate}`;
-      $('add-day-kommen').value = "";
-      $('add-day-gehen').value = "";
-      $('pc-buchung-add-day').checked = false;
-      $('buero-add-day').checked = false;
-      
-      $('urlaub-toggle').checked = false;
-      $('krank-toggle').checked = false;
-      $('schulung-toggle').checked = false;
-      
-      $('add-day-modal').setAttribute('data-date', dateVal.toISOString().split('T')[0]);
-      $('add-day-modal').style.display = 'block';
-    }
-    
-    function toggleSpecialDay(type) {
-      const types = ['urlaub', 'krank', 'schulung'];
-      types.forEach(t => {
-        if (t !== type) $(t + '-toggle').checked = false;
-      });
-    }
-    
-    function addManualDay() {
-      const dateVal = $('add-day-modal').getAttribute('data-date');
-      if (!dateVal) {
-        alert("Kein gültiges Datum für die Buchung!");
-        return;
-      }
-      
-      const realDate = new Date(dateVal);
-      const dayOfWeek = realDate.getDay();
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
-        alert("Samstag und Sonntag sind nicht zulässig!");
-        return;
-      }
-      
-      const isUrlaub = $('urlaub-toggle').checked;
-      const isKrank = $('krank-toggle').checked;
-      const isSchulung = $('schulung-toggle').checked;
-      const isBueroAddDay = $('buero-add-day').checked;
-      
-      let history = JSON.parse(getFromLS('history', '[]'));
-      const existingIndex = history.findIndex(e => e.datum === dateVal);
-      const displayDate = (new Date(dateVal)).toLocaleDateString('de-DE');
-      
-      // Urlaub / Krank / Schulung => Zeit ignorieren
-      if (isUrlaub || isKrank || isSchulung) {
-        const aktKto = parseFloat($('aktuelles-konto').value) || 0;
-        let label = isUrlaub ? "Urlaub" : (isKrank ? "Krank" : "Schulung");
-        
-        const dayData = {
-          datum: dateVal,
-          differenz: "0.00",
-          differenzTime: "0:00",
-          stundenkonto: aktKto.toFixed(2),
-          kommen: null,
-          gehen: null,
-          urlaub: isUrlaub,
-          krank: isKrank,
-          schulung: isSchulung,
-          pcBuchung: false,
-          buero: isBueroAddDay
-        };
-        
-        if (existingIndex !== -1) {
-          if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)) {
-            return;
-          }
-          history[existingIndex] = dayData;
-        } else {
-          history.push(dayData);
-        }
-        
-        storeToLS('history', JSON.stringify(history));
-        storeToLS('aktuellesStundenkonto', aktKto.toFixed(2));
-        updateCalculations();
-        closeAddDayModal();
-        loadHistory();
-        alert(`${label} eingetragen.`);
-        return;
-      }
-      
-      // Normale Buchung
-      const kommenVal = $('add-day-kommen').value;
-      const gehenVal = $('add-day-gehen').value;
-      
-      if (!kommenVal || !gehenVal) {
-        alert("Bitte Kommen- und Gehen-Zeit angeben oder Urlaub/Krank/Schulung wählen!");
-        return;
-      }
-      
-      const isPcBuchungAddDay = $('pc-buchung-add-day').checked;
-      const wAZ = parseFloat($('wochenarbeitszeit').value) || 38;
-      const sollProTag = wAZ / 5;
-      const aktKto = parseFloat($('aktuelles-konto').value) || 0;
-      
-      const kommenDate = parseTime(kommenVal);
-      const gehenDate = parseTime(gehenVal);
-      
-      if (!kommenDate || !gehenDate) {
-        alert("Ungültige Zeiten!");
-        return;
-      }
-      
-      if (gehenDate < kommenDate) {
-        alert("Gehen-Zeit liegt vor Kommen-Zeit!");
-        return;
-      }
-      
-      const diffMs = gehenDate - kommenDate;
-      const hourMs = 3600000;
-      const totalH = Math.floor(diffMs / hourMs) + ((Math.floor(diffMs % hourMs / (1000 * 60))) / 60);
-      
-      let adjustedKommen = new Date(kommenDate.getTime());
-      if (isPcBuchungAddDay) {
-        adjustedKommen.setMinutes(adjustedKommen.getMinutes() - 8);
-      }
-      
-      // Fixpunkt Netto
-      let net = totalH;
-      for (let i = 0; i < 20; i++) {
-        const prev = net;
-        let pausen = parseAdditionalPause();
-        if (prev > 9) pausen += 0.75;
-        else if (prev > 6) pausen += 0.5;
-        
-        const neu = totalH - pausen;
-        if (Math.abs(neu - net) < 1e-9) {
-          net = neu;
-          break;
-        }
-        net = neu;
-      }
-      
-      // Gleitzeit check
-      if (checkViolations(adjustedKommen, gehenDate, net)) {
-        if (!confirm("Verstoß gegen Gleitzeitregeln. Trotzdem speichern?")) {
-          return;
-        }
-      }
-      
-      let diffVal = parseFloat((net - sollProTag).toFixed(2));
-      let newKto = parseFloat((aktKto + diffVal).toFixed(2));
-      const diffTime = formatDecimalToTime(diffVal);
-      
-      const dayData = {
-        datum: dateVal,
-        differenz: diffVal.toFixed(2),
-        differenzTime: diffTime,
-        stundenkonto: newKto.toFixed(2),
-        kommen: adjustedKommen.toISOString(),
-        gehen: gehenDate.toISOString(),
-        urlaub: false,
-        krank: false,
-        schulung: false,
-        pcBuchung: isPcBuchungAddDay,
-        buero: isBueroAddDay
+    function updateWeekNavigation() {
+      const pagination = $('pagination');
+      pagination.innerHTML = ''; // Clear existing buttons
+
+      const createButton = (text, onClick) => {
+          const btn = document.createElement('button');
+          btn.textContent = text;
+          btn.onclick = onClick;
+          return btn;
       };
-      
-      if (existingIndex !== -1) {
-        if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)) {
-          return;
-        }
-        history[existingIndex] = dayData;
-      } else {
-        history.push(dayData);
-      }
-      
-      storeToLS('history', JSON.stringify(history));
-      $('aktuelles-konto').value = newKto.toFixed(2);
-      storeToLS('aktuellesStundenkonto', newKto.toFixed(2));
-      
-      updateCalculations();
-      closeAddDayModal();
-      loadHistory();
-      alert("Der Tag wurde nachgetragen.");
+
+      const prevWeekBtn = createButton('‹ Vorige KW', () => {
+          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+          d.setDate(d.getDate() - 7);
+          [currentWeekYear, currentWeekNo] = getWeekNumber(d);
+          loadHistory();
+      });
+
+      const nextWeekBtn = createButton('Nächste KW ›', () => {
+          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+          d.setDate(d.getDate() + 7);
+          [currentWeekYear, currentWeekNo] = getWeekNumber(d);
+          loadHistory();
+      });
+
+      pagination.appendChild(prevWeekBtn);
+      // Optional: Add a "Current Week" button here
+      pagination.appendChild(nextWeekBtn);
     }
-    
+
+
+    // --- Manuelle Buchung / Add Day Modal ---
+    function showAddDayModal(dateStr) {
+        const dateVal = new Date(dateStr);
+        const displayDate = dateVal.toLocaleDateString('de-DE');
+        const weekdayName = dateVal.toLocaleDateString('de-DE', { weekday: 'long' });
+
+        $('add-day-modal-title').textContent = `Buchung für ${weekdayName}, ${displayDate}`;
+        $('add-day-kommen').value = "";
+        $('add-day-gehen').value = "";
+        $('pc-buchung-add-day').checked = getFromLS('pcBuchungChecked') === 'true'; // Default to user setting
+        $('buero-add-day').checked = getFromLS('bueroChecked') === 'true'; // Default to user setting
+
+        $('urlaub-toggle').checked = false;
+        $('krank-toggle').checked = false;
+        $('schulung-toggle').checked = false;
+        toggleTimeFieldsDisabled(false); // Enable time fields initially
+
+        $('add-day-modal').setAttribute('data-date', dateStr);
+        $('add-day-modal').style.display = 'flex'; // Use flex for centering
+    }
+
+    function toggleSpecialDay(type) {
+        const types = ['urlaub', 'krank', 'schulung'];
+        const isChecked = $(type + '-toggle').checked;
+
+        types.forEach(t => {
+            if (t !== type) $(t + '-toggle').checked = false;
+        });
+
+        // Disable time fields if any special day is checked
+        toggleTimeFieldsDisabled(isChecked);
+    }
+
+    function toggleTimeFieldsDisabled(disabled) {
+        $('add-day-kommen').disabled = disabled;
+        $('add-day-gehen').disabled = disabled;
+        $('pc-buchung-add-day').disabled = disabled;
+        // Keep Buero/Homeoffice enabled even for special days
+    }
+
+
+    function addManualDay() {
+        const dateVal = $('add-day-modal').getAttribute('data-date');
+        if (!dateVal) {
+            alert("Kein gültiges Datum für die Buchung!");
+            return;
+        }
+
+        const realDate = new Date(dateVal);
+        const dayOfWeek = realDate.getDay();
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+            alert("Samstag und Sonntag sind nicht zulässig!");
+            return;
+        }
+
+        const isUrlaub = $('urlaub-toggle').checked;
+        const isKrank = $('krank-toggle').checked;
+        const isSchulung = $('schulung-toggle').checked;
+        const isBueroAddDay = $('buero-add-day').checked;
+        const isPcBuchungAddDay = $('pc-buchung-add-day').checked;
+
+        let history = getHistory();
+        const existingIndex = history.findIndex(e => e.datum === dateVal);
+        const displayDate = realDate.toLocaleDateString('de-DE');
+
+        let dayData = {
+            datum: dateVal,
+            differenz: "0.00",
+            differenzTime: "0:00",
+            stundenkonto: "0.00", // Will be updated later
+            kommen: null,
+            gehen: null,
+            urlaub: isUrlaub,
+            krank: isKrank,
+            schulung: isSchulung,
+            pcBuchung: false, // Default for special days
+            buero: isBueroAddDay
+        };
+
+        // --- Special Day Handling ---
+        if (isUrlaub || isKrank || isSchulung) {
+            // For special days, difference is 0, konto remains unchanged from previous day
+            const lastKonto = findLastKontoBeforeDate(history, dateVal);
+            dayData.stundenkonto = lastKonto.toFixed(2);
+            let label = isUrlaub ? "Urlaub" : (isKrank ? "Krank" : "Schulung");
+
+            if (existingIndex !== -1) {
+                if (!confirm(`Eintrag für ${displayDate} existiert. Mit ${label} überschreiben?`)) return;
+                history[existingIndex] = dayData;
+            } else {
+                history.push(dayData);
+            }
+            saveAndReload(history, dayData.stundenkonto);
+            alert(`${label} für ${displayDate} eingetragen.`);
+            return;
+        }
+
+        // --- Normal Work Day Handling ---
+        const kommenVal = $('add-day-kommen').value;
+        const gehenVal = $('add-day-gehen').value;
+
+        if (!kommenVal || !gehenVal) {
+            alert("Bitte Kommen- und Gehen-Zeit angeben oder Urlaub/Krank/Schulung wählen!");
+            return;
+        }
+
+        const kommenDateManual = parseTime(kommenVal);
+        const gehenDateManual = parseTime(gehenVal);
+
+        if (!kommenDateManual || !gehenDateManual) {
+            alert("Ungültige Zeitformate!");
+            return;
+        }
+
+        if (gehenDateManual < kommenDateManual) {
+            alert("Gehen-Zeit liegt vor Kommen-Zeit!");
+            return;
+        }
+
+        // Calculate times based on manual input
+        let adjustedKommenManual = new Date(kommenDateManual.getTime());
+        if (isPcBuchungAddDay) {
+            adjustedKommenManual.setMinutes(adjustedKommenManual.getMinutes() - 8);
+        }
+
+        const diffMsManual = gehenDateManual - adjustedKommenManual;
+        const totalHManual = diffMsManual / (1000 * 60 * 60);
+        const pausenManual = calculatePausenForWorkTime(totalHManual);
+        const netManual = Math.max(0, totalHManual - pausenManual);
+
+        // Check violations for manual entry
+        if (checkViolations(adjustedKommenManual, gehenDateManual, netManual)) {
+            if (!confirm("Die eingegebenen Zeiten verstoßen gegen die Gleitzeitregeln. Trotzdem speichern?")) {
+                return;
+            }
+        }
+
+        const wAZ = parseFloat($('wochenarbeitszeit').value) || 38;
+        const sollProTag = wAZ / 5;
+        const diffValManual = parseFloat((netManual - sollProTag).toFixed(2));
+        const lastKonto = findLastKontoBeforeDate(history, dateVal, existingIndex); // Find balance before this day
+        const newKtoManual = parseFloat((lastKonto + diffValManual).toFixed(2));
+        const diffTimeManual = formatDecimalToTime(diffValManual);
+
+        // Update dayData for normal work day
+        dayData.differenz = diffValManual.toFixed(2);
+        dayData.differenzTime = diffTimeManual;
+        dayData.stundenkonto = newKtoManual.toFixed(2);
+        dayData.kommen = adjustedKommenManual.toISOString();
+        dayData.gehen = gehenDateManual.toISOString();
+        dayData.pcBuchung = isPcBuchungAddDay;
+        dayData.urlaub = false;
+        dayData.krank = false;
+        dayData.schulung = false;
+
+
+        if (existingIndex !== -1) {
+            if (!confirm(`Eintrag für ${displayDate} existiert. Überschreiben?`)) return;
+            history[existingIndex] = dayData;
+        } else {
+            history.push(dayData);
+        }
+
+        saveAndReload(history, dayData.stundenkonto); // Save and update UI
+        alert(`Arbeitstag für ${displayDate} gespeichert.`);
+    }
+
+    function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
+        const targetDate = new Date(dateStr);
+        const relevantHistory = history
+            .filter((entry, index) => index !== excludeIndex && new Date(entry.datum) < targetDate)
+            .sort((a, b) => new Date(b.datum) - new Date(a.datum)); // Sort descending by date
+
+        if (relevantHistory.length > 0 && relevantHistory[0].stundenkonto !== undefined) {
+            return parseFloat(relevantHistory[0].stundenkonto) || 0;
+        }
+        // If no previous entry, use the current value from the main page input
+        return parseFloat($('aktuelles-konto').value) || 0;
+    }
+
+
+    function saveAndReload(history, newKontoValue) {
+        // Sort history before saving to ensure correct order for future calculations
+        history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
+        storeToLS('history', JSON.stringify(history));
+
+        // Update the main page's current balance display *if* the saved day is the latest one
+        const latestEntry = history[history.length - 1];
+        if (latestEntry && latestEntry.stundenkonto !== undefined) {
+             const latestKonto = parseFloat(latestEntry.stundenkonto);
+             $('aktuelles-konto').value = latestKonto.toFixed(2);
+             storeToLS('aktuellesStundenkonto', latestKonto.toFixed(2)); // Persist latest balance
+             updateCalculations(); // Update dependent fields on main page
+        }
+
+
+        closeAddDayModal();
+        // Reload the current view
+        if (currentView === 'history') loadHistory();
+        if (currentView === 'month') loadMonthData();
+        if (currentView === 'stats') calculateAndDisplayStats();
+    }
+
+
     function closeAddDayModal() {
       $('add-day-modal').style.display = 'none';
     }
 
-    // Detail-Anzeige
+    // --- Detail-Anzeige Modal ---
     function showDayDetails(dateStr) {
-      const history = JSON.parse(getFromLS('history', '[]'));
+      const history = getHistory();
       const entry = history.find(e => e.datum === dateStr);
       if (!entry) return;
-      
+
       const dispDate = (new Date(dateStr)).toLocaleDateString('de-DE');
-      const pcSwitch = $('detail-pc-buchung');
-      pcSwitch.checked = !!entry.pcBuchung;
-      pcSwitch.disabled = true;
-      
-      let pausenLabel = "--";
-      
+      const weekdayName = (new Date(dateStr)).toLocaleDateString('de-DE', { weekday: 'long' });
+
+      $('detail-modal-title').textContent = `Details: ${weekdayName}, ${dispDate}`;
+
+      let detailsHTML = '';
+      let pausenLabel = "N/A";
+      let anwesenheitLabel = "N/A";
+      let nettoLabel = "N/A";
+      let pcBuchungChecked = !!entry.pcBuchung;
+      let bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
+
       if (entry.urlaub || entry.krank || entry.schulung) {
         const statusText = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung");
-        $('detail-date').textContent = dispDate;
-        $('detail-kommen').textContent = "--:--";
-        $('detail-gehen').textContent = "--:--";
-        $('detail-differenz').textContent = statusText;
-        pausenLabel = "n/a";
+        detailsHTML = `
+          <p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p>
+          <p><strong>Kommen:</strong> --:--</p>
+          <p><strong>Gehen:</strong> --:--</p>
+          <p><strong>Differenz:</strong> 0.00h (0:00)</p>
+        `;
+        pcBuchungChecked = false; // No PC booking for special days
       } else {
         const kommen = entry.kommen ? new Date(entry.kommen) : null;
         const gehen = entry.gehen ? new Date(entry.gehen) : null;
-        
-        $('detail-date').textContent = dispDate;
-        $('detail-kommen').textContent = kommen ? formatTime(kommen) : "--:--";
-        $('detail-gehen').textContent = gehen ? formatTime(gehen) : "--:--";
-        $('detail-differenz').textContent = `${entry.differenz}h (${entry.differenzTime})`;
-        
+        const kommenFormatted = formatTime(kommen);
+        const gehenFormatted = formatTime(gehen);
+        const diffVal = parseFloat(entry.differenz) || 0;
+        const diffClass = diffVal > 0.001 ? "positive-value" : (diffVal < -0.001 ? "negative-value" : "zero-value");
+
         if (kommen && gehen) {
-          const diffMs = gehen - kommen;
-          if (diffMs >= 0) {
-            const hourMs = 3600000;
-            const totH = Math.floor(diffMs / hourMs) + ((Math.floor(diffMs % hourMs / (1000 * 60))) / 60);
-            const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
-            const sollTag = wAZ / 5;
-            const net = parseFloat(entry.differenz) || 0;
-            const realNet = net + sollTag;
-            const pausenVal = totH - realNet;
-            
-            pausenLabel = pausenVal > 0 ? `${Math.round(pausenVal * 60)} Min` : "0 Min";
-          }
+            const diffMs = gehen - kommen;
+            if (diffMs >= 0) {
+                const totalH = diffMs / (1000 * 60 * 60);
+                anwesenheitLabel = `${Math.floor(totalH)}:${pad(Math.round((totalH % 1) * 60))} (${totalH.toFixed(2)}h)`;
+
+                const netCalculated = calculateNetArbeitszeitFromEntry(entry);
+                nettoLabel = `${formatDecimalToTime(netCalculated)} (${netCalculated.toFixed(2)}h)`;
+
+                const pausenVal = totalH - netCalculated;
+                pausenLabel = pausenVal > 0 ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)` : "0 Min";
+            }
         }
+
+        detailsHTML = `
+          <p><strong>Ort:</strong> ${bueroEmoji}</p>
+          <p><strong>Kommen:</strong> ${kommenFormatted} ${pcBuchungChecked ? '(PC-Buchung aktiv)' : ''}</p>
+          <p><strong>Gehen:</strong> ${gehenFormatted}</p>
+          <p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p>
+          <p><strong>Pause:</strong> ${pausenLabel}</p>
+          <p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}</p>
+          <p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p>
+          <p><strong>Stundenkonto danach:</strong> ${formatDecimalToTime(parseFloat(entry.stundenkonto || 0))} (${parseFloat(entry.stundenkonto || 0).toFixed(2)}h)</p>
+        `;
       }
-      
-      $('detail-pausen').textContent = pausenLabel;
-      $('detail-modal').style.display = 'block';
+
+      $('detail-content').innerHTML = detailsHTML;
+      $('detail-modal').style.display = 'flex'; // Use flex for centering
     }
-    
+
     function closeDetailModal() {
       $('detail-modal').style.display = 'none';
     }
+
+    // --- Month View ---
+    const monthNames = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+
+    function getFirstDayOfMonth(year, month) {
+        return new Date(year, month, 1).getDay(); // 0=Sun, 1=Mon,...
+    }
+
+    function getDaysInMonth(year, month) {
+        return new Date(year, month + 1, 0).getDate();
+    }
+
+    function loadMonthData() {
+        const history = getHistory();
+        const monthData = history.filter(entry => {
+            const entryDate = new Date(entry.datum);
+            return entryDate.getFullYear() === currentMonthYear && entryDate.getMonth() === currentMonth;
+        });
+        renderCalendar(monthData);
+        updateMonthNavigation();
+    }
+
+    function renderCalendar(monthData) {
+        const calendarGrid = $('calendar-grid');
+        calendarGrid.innerHTML = ''; // Clear previous grid
+        $('month-year-display').textContent = `${monthNames[currentMonth]} ${currentMonthYear}`;
+
+        const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
+        let firstDay = getFirstDayOfMonth(currentMonthYear, currentMonth);
+        firstDay = (firstDay === 0) ? 6 : firstDay - 1; // Adjust Sunday (0) to be 6, shift others Mon(1)->0 etc.
+
+        // Add weekday headers
+        const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+        weekdays.forEach(wd => {
+            const headerCell = document.createElement('div');
+            headerCell.classList.add('calendar-header');
+            headerCell.textContent = wd;
+            calendarGrid.appendChild(headerCell);
+        });
+
+
+        // Add empty cells for the first days offset
+        for (let i = 0; i < firstDay; i++) {
+            const emptyCell = document.createElement('div');
+            emptyCell.classList.add('calendar-day', 'empty');
+            calendarGrid.appendChild(emptyCell);
+        }
+
+        let monthlyTotalDiff = 0;
+
+        // Add day cells
+        for (let day = 1; day <= daysInMonth; day++) {
+            const cell = document.createElement('div');
+            cell.classList.add('calendar-day');
+            cell.textContent = day;
+
+            const currentDate = new Date(currentMonthYear, currentMonth, day);
+            const currentDateStr = currentDate.toISOString().split('T')[0];
+            const dayOfWeek = currentDate.getDay(); // 0=Sun, 6=Sat
+
+            const entry = monthData.find(e => e.datum === currentDateStr);
+
+            if (entry) {
+                cell.classList.add('has-entry');
+                const diffVal = parseFloat(entry.differenz) || 0;
+                monthlyTotalDiff += diffVal;
+                let diffClass = '';
+                 if (entry.urlaub || entry.krank || entry.schulung) {
+                    diffClass = entry.krank ? 'special-day-krank-bg' : 'special-day-urlaub-bg';
+                    cell.title = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung");
+                 } else {
+                    if (diffVal > 0.001) diffClass = 'positive-value';
+                    else if (diffVal < -0.001) diffClass = 'negative-value';
+                    else diffClass = 'zero-value';
+                    cell.title = `Differenz: ${entry.differenzTime}`;
+                 }
+                cell.classList.add(diffClass);
+                cell.onclick = () => showDayDetails(currentDateStr);
+            } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+                cell.classList.add('weekend');
+            } else {
+                 // Empty workday - allow adding entry
+                 cell.classList.add('no-entry');
+                 cell.onclick = () => showAddDayModal(currentDateStr);
+                 cell.title = "Klicken zum Hinzufügen";
+            }
+
+            // Highlight today
+            const today = new Date();
+            if (currentDate.toDateString() === today.toDateString()) {
+                cell.classList.add('today');
+            }
+
+            calendarGrid.appendChild(cell);
+        }
+
+         // Update monthly summary
+        const diffClassSummary = monthlyTotalDiff > 0.001 ? "positive-value" : (monthlyTotalDiff < -0.001 ? "negative-value" : "zero-value");
+        $('month-summary-content').innerHTML = `
+            Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(monthlyTotalDiff)} (${monthlyTotalDiff.toFixed(2)}h)</span>
+        `;
+    }
+
+    function updateMonthNavigation() {
+        // Simple Prev/Next Month buttons
+        $('prev-month').onclick = () => {
+            currentMonth--;
+            if (currentMonth < 0) {
+                currentMonth = 11;
+                currentMonthYear--;
+            }
+            loadMonthData();
+        };
+        $('next-month').onclick = () => {
+            currentMonth++;
+            if (currentMonth > 11) {
+                currentMonth = 0;
+                currentMonthYear++;
+            }
+            loadMonthData();
+        };
+    }
+
+    // --- Statistics View ---
+    function calculateAndDisplayStats() {
+        const period = $('stats-period').value;
+        const history = getHistory();
+        const today = new Date();
+        let startDate, endDate;
+
+        switch (period) {
+            case 'current_month':
+                startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+                endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999); // End of month
+                break;
+            case 'last_month':
+                startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                endDate = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999); // End of last month
+                break;
+            case 'current_year':
+                startDate = new Date(today.getFullYear(), 0, 1);
+                endDate = new Date(today.getFullYear(), 11, 31, 23, 59, 59, 999); // End of year
+                break;
+            case 'all_time':
+            default:
+                startDate = new Date(1970, 0, 1); // Far past
+                endDate = new Date(2100, 0, 1); // Far future
+                break;
+        }
+
+        const filteredHistory = history.filter(entry => {
+            const entryDate = new Date(entry.datum);
+            return entryDate >= startDate && entryDate <= endDate;
+        });
+
+        let totalNetHours = 0;
+        let totalDiff = 0;
+        let workDays = 0;
+        let officeDays = 0;
+        let homeDays = 0;
+        let vacationDays = 0;
+        let sickDays = 0;
+        let trainingDays = 0;
+
+        filteredHistory.forEach(entry => {
+            if (entry.urlaub) {
+                vacationDays++;
+            } else if (entry.krank) {
+                sickDays++;
+            } else if (entry.schulung) {
+                trainingDays++;
+            } else if (entry.kommen && entry.gehen) {
+                // It's a work day
+                workDays++;
+                const netHours = calculateNetArbeitszeitFromEntry(entry);
+                totalNetHours += netHours;
+                totalDiff += parseFloat(entry.differenz || 0);
+                if (entry.buero) {
+                    officeDays++;
+                } else {
+                    homeDays++;
+                }
+            }
+        });
+
+        const avgDailyHours = workDays > 0 ? totalNetHours / workDays : 0;
+
+        // Display Stats
+        const statsContent = $('stats-content');
+        statsContent.innerHTML = `
+            <li>Gesamt Netto-Arbeitszeit: <span>${formatDecimalToTime(totalNetHours)} (${totalNetHours.toFixed(2)}h)</span></li>
+            <li>Durchschnittl. tägl. Arbeitszeit: <span>${formatDecimalToTime(avgDailyHours)} (${avgDailyHours.toFixed(2)}h)</span></li>
+            <li>Gesamte Differenz: <span class="diff-badge ${totalDiff > 0.001 ? 'positive-value' : (totalDiff < -0.001 ? 'negative-value' : 'zero-value')}">${formatDecimalToTime(totalDiff)} (${totalDiff.toFixed(2)}h)</span></li>
+            <li>Arbeitstage gesamt: <span>${workDays}</span></li>
+            <li>&nbsp;&nbsp;&nbsp;davon Büro: <span>${officeDays}</span></li>
+            <li>&nbsp;&nbsp;&nbsp;davon Homeoffice: <span>${homeDays}</span></li>
+            <li>Urlaubstage: <span>${vacationDays}</span></li>
+            <li>Krankheitstage: <span>${sickDays}</span></li>
+            <li>Schulungstage: <span>${trainingDays}</span></li>
+        `;
+    }
+
+
+    // --- Initial Load ---
+    document.addEventListener('DOMContentLoaded', init);
+
   </script>
 
   <style>
     :root {
-      --background-color: #f2f2f7;
-      --text-color: #000000;
-      --card-background-color: #ffffff;
-      --input-background-color: #ffffff;
-      --input-border-color: #c7c7cc;
-      --button-background-color: #007aff;
+      /* Light Mode iOS-like Colors */
+      --system-background-light: #f2f2f7;
+      --system-secondary-background-light: #ffffff;
+      --system-tertiary-background-light: #f2f2f7; /* For inputs etc. */
+      --text-color-light: #000000;
+      --secondary-text-color-light: rgba(60, 60, 67, 0.6);
+      --separator-color-light: rgba(60, 60, 67, 0.29);
+      --system-blue-light: #007aff;
+      --system-green-light: #34c759;
+      --system-red-light: #ff3b30;
+      --system-orange-light: #ff9500;
+      --system-yellow-light: #ffcc00; /* Krank */
+      --system-teal-light: #5ac8fa; /* Urlaub/Schulung */
+      --system-gray-light: #8e8e93;
+
+      /* Dark Mode iOS-like Colors */
+      --system-background-dark: #000000;
+      --system-secondary-background-dark: #1c1c1e;
+      --system-tertiary-background-dark: #2c2c2e; /* For inputs etc. */
+      --text-color-dark: #ffffff;
+      --secondary-text-color-dark: rgba(235, 235, 245, 0.6);
+      --separator-color-dark: rgba(84, 84, 88, 0.65);
+      --system-blue-dark: #0a84ff;
+      --system-green-dark: #30d158;
+      --system-red-dark: #ff453a;
+      --system-orange-dark: #ff9f0a;
+      --system-yellow-dark: #ffd60a; /* Krank */
+      --system-teal-dark: #64d2ff; /* Urlaub/Schulung */
+      --system-gray-dark: #8e8e93;
+
+      /* Semantic Colors */
+      --background-color: var(--system-background-light);
+      --card-background-color: var(--system-secondary-background-light);
+      --input-background-color: var(--system-tertiary-background-light);
+      --text-color: var(--text-color-light);
+      --secondary-text-color: var(--secondary-text-color-light);
+      --separator-color: var(--separator-color-light);
+      --button-background-color: var(--system-blue-light);
       --button-text-color: #ffffff;
-      --hint-color: #ff3b30;
-      --positive-background-color: #007aff;
-      --negative-background-color: #ff9500;
-      --zero-background-color: #34c759;
+      --positive-value-bg: var(--system-blue-light);
+      --negative-value-bg: var(--system-orange-light);
+      --zero-value-bg: var(--system-green-light);
+      --hint-color: var(--system-red-light);
+      --special-day-urlaub-bg: var(--system-teal-light);
+      --special-day-krank-bg: var(--system-yellow-light);
+      --special-day-text: #000000; /* Text on special day backgrounds */
+      --nav-background: var(--system-secondary-background-light);
+      --nav-icon-color: var(--system-gray-light);
+      --nav-icon-active-color: var(--system-blue-light);
+
+      --safe-area-top: env(safe-area-inset-top, 0px);
+      --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-area-left: env(safe-area-inset-left, 0px);
+      --safe-area-right: env(safe-area-inset-right, 0px);
     }
-    
+
     @media (prefers-color-scheme: dark) {
       :root {
-        --background-color: #000000;
-        --text-color: #ffffff;
-        --card-background-color: #1c1c1e;
-        --input-background-color: #2c2c2e;
-        --input-border-color: #3a3a3c;
-        --button-background-color: #0a84ff;
-        --hint-color: #ff453a;
+        --background-color: var(--system-background-dark);
+        --card-background-color: var(--system-secondary-background-dark);
+        --input-background-color: var(--system-tertiary-background-dark);
+        --text-color: var(--text-color-dark);
+        --secondary-text-color: var(--secondary-text-color-dark);
+        --separator-color: var(--separator-color-dark);
+        --button-background-color: var(--system-blue-dark);
+        --positive-value-bg: var(--system-blue-dark);
+        --negative-value-bg: var(--system-orange-dark);
+        --zero-value-bg: var(--system-green-dark);
+        --hint-color: var(--system-red-dark);
+        --special-day-urlaub-bg: var(--system-teal-dark);
+        --special-day-krank-bg: var(--system-yellow-dark);
+        --special-day-text: #000000;
+        --nav-background: var(--system-secondary-background-dark);
+        --nav-icon-color: var(--system-gray-dark);
+        --nav-icon-active-color: var(--system-blue-dark);
       }
     }
 
     html, body {
       background-color: var(--background-color);
       color: var(--text-color);
-      margin: 0; padding: 0;
-      font-family: -apple-system, system-ui, sans-serif;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      -webkit-text-size-adjust: 100%; /* Prevent font scaling */
+      -webkit-tap-highlight-color: rgba(0,0,0,0); /* Disable tap highlight */
+      height: 100%;
+      overflow: hidden; /* Prevent scrolling on body */
     }
-    
-    body::before, body::after {
-      content: "";
-      position: fixed;
-      left: 0; right: 0;
-      background-color: var(--background-color);
+
+    #app-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh; /* Full viewport height */
     }
-    
-    body::before {
-      top: 0;
-      height: env(safe-area-inset-top);
+
+    .page {
+        flex-grow: 1; /* Takes remaining space */
+        overflow-y: auto; /* Allows scrolling within the page */
+        -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+        padding: calc(15px + var(--safe-area-top)) calc(15px + var(--safe-area-left)) 15px calc(15px + var(--safe-area-right));
+        display: none; /* Hidden by default */
     }
-    
-    body::after {
-      bottom: 0;
-      height: env(safe-area-inset-bottom);
+    .page.active {
+        display: block;
     }
 
     .container {
       max-width: 600px;
-      margin: auto;
-      padding: 20px;
+      margin: 0 auto; /* Center content */
+      padding-bottom: calc(70px + var(--safe-area-bottom)); /* Space for bottom nav */
     }
-    
-    h1, h2, h3 {
-      font-weight: 600;
-      margin-bottom: 20px;
-    }
-    
-    h1 { font-size: 28px; }
-    h2 { font-size: 24px; }
-    h3 { font-size: 20px; margin-bottom: 10px; }
-    
-    .section { margin-bottom: 30px; }
 
-    .button, .inline-button, .delete-button {
-      background-color: var(--button-background-color);
-      color: var(--button-text-color);
+    /* Typography */
+    h1 { font-size: 34px; font-weight: 700; margin: 10px 0 20px 0; }
+    h2 { font-size: 22px; font-weight: 600; margin: 25px 0 15px 0; border-bottom: 1px solid var(--separator-color); padding-bottom: 8px; }
+    h3 { font-size: 17px; font-weight: 600; margin: 20px 0 10px 0; color: var(--secondary-text-color); text-transform: uppercase; }
+    label { font-size: 15px; font-weight: 400; color: var(--secondary-text-color); display: block; margin-bottom: 5px; }
+    p { font-size: 17px; line-height: 1.4; margin: 5px 0 15px 0; }
+
+    /* Sections & Cards */
+    .section {
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    @media (prefers-color-scheme: dark) {
+       .section { box-shadow: none; } /* Less shadow in dark mode */
+    }
+
+    /* Buttons */
+    .button, .inline-button, .delete-button, .add-button {
       border: none;
-      border-radius: 12px;
+      border-radius: 8px;
       font-weight: 600;
       cursor: pointer;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+      text-align: center;
+      transition: background-color 0.15s ease, opacity 0.15s ease;
       box-sizing: border-box;
-      line-height: 1.2em;
-    }
-    
-    .button {
-      width: 100%;
-      padding: 15px;
-      font-size: 17px;
-      margin-bottom: 10px;
-      height: 56px;
-    }
-    
-    .inline-button, .delete-button {
-      font-size: 15px;
-      padding: 10px 15px;
-    }
-    
-    .delete-button {
-      background-color: var(--hint-color);
-    }
-    
-    .button:active, .inline-button:active {
-      opacity: 0.8;
+      line-height: 1.2;
+      -webkit-appearance: none;
+      appearance: none;
     }
 
-    input, select {
+    .button {
       width: 100%;
-      padding: 15px;
+      padding: 14px;
       font-size: 17px;
-      border: none;
-      border-radius: 12px;
+      background-color: var(--button-background-color);
+      color: var(--button-text-color);
+      margin-top: 10px; /* Space above main buttons */
+    }
+    .button:active { background-color: color-mix(in srgb, var(--button-background-color) 80%, black); }
+
+    .inline-button, .delete-button, .add-button {
+      font-size: 15px;
+      padding: 8px 12px;
+      background-color: var(--input-background-color); /* Subtle background */
+      color: var(--system-blue-light);
+      min-width: 40px; /* Ensure tappable area */
+    }
+    @media (prefers-color-scheme: dark) {
+        .inline-button, .delete-button, .add-button { color: var(--system-blue-dark); }
+    }
+
+    .delete-button {
+      background-color: var(--hint-color);
+      color: var(--button-text-color);
+    }
+    .delete-button:active { background-color: color-mix(in srgb, var(--hint-color) 80%, black); }
+
+    .add-button {
+        font-size: 20px; /* Make plus bigger */
+        padding: 5px 10px;
+    }
+
+    .inline-button:active, .add-button:active { opacity: 0.7; }
+
+
+    /* Inputs & Selects */
+    input[type="time"], input[type="number"], input[type="text"], select {
+      width: 100%;
+      padding: 12px 15px;
+      font-size: 17px;
+      border: 1px solid var(--separator-color);
+      border-radius: 8px;
       margin-bottom: 10px;
       background-color: var(--input-background-color);
       color: var(--text-color);
       box-sizing: border-box;
       -webkit-appearance: none;
       appearance: none;
-      line-height: 1.2em;
-      height: 56px;
+      height: 44px; /* Standard iOS input height */
+      line-height: 1.2;
     }
-    
-    input:read-only {
-      border: none;
+    input:focus, select:focus {
+        border-color: var(--system-blue-light);
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--system-blue-light) 30%, transparent);
     }
-    
-    input[type=time]::-webkit-calendar-picker-indicator {
-      display: none;
-    }
+     @media (prefers-color-scheme: dark) {
+        input:focus, select:focus {
+            border-color: var(--system-blue-dark);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--system-blue-dark) 30%, transparent);
+        }
+     }
 
-    #hinweis {
-      color: var(--hint-color);
-      font-weight: 600;
-      font-size: 15px;
-      display: none;
-      margin-top: 10px;
+    input:read-only, input:disabled {
+      background-color: var(--separator-color-light);
+      opacity: 0.7;
+      cursor: default;
+      border-color: transparent;
     }
+     @media (prefers-color-scheme: dark) {
+        input:read-only, input:disabled {
+            background-color: var(--separator-color-dark);
+        }
+     }
 
-    ul {
-      list-style-type: none;
-      padding-left: 0;
-      margin: 0;
-    }
-    
-    li {
-      font-size: 17px;
-      padding: 5px 0;
-      border-bottom: 1px solid var(--input-border-color);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    
-    .history-item { min-height: 70px; }
-    .history-entry { flex: 1; margin-right: 10px; }
-    p { font-size: 17px; margin: 5px 0; }
+    input[type=time]::-webkit-calendar-picker-indicator { display: none; } /* Hide default time picker icon */
 
-    .positive-value,
-    .negative-value,
-    .zero-value {
-      padding: 2px 4px;
-      border-radius: 5px;
-      color: #fff !important;
-    }
-    
-    .positive-value { background-color: var(--positive-background-color) !important; }
-    .negative-value { background-color: var(--negative-background-color) !important; }
-    .zero-value { background-color: var(--zero-background-color) !important; }
-    
-    .invalid-time {
-      background-color: var(--hint-color) !important;
-      color: #fff !important;
-    }
-
-    #history-page { display: none; }
-    
-    .nav-button {
-      width: auto;
-      padding: 10px 20px;
-      margin-bottom: 20px;
-    }
-    
+    /* Layout Helpers */
     .row {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
+      gap: 10px; /* Space between columns */
       margin-bottom: 10px;
+      align-items: flex-end; /* Align items based on their bottom edge */
     }
-    
-    .column {
-      flex: 1;
-      margin-right: 10px;
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .column:last-child { margin-right: 0; }
+    .column { flex: 1; min-width: 0; /* Prevent overflow */ }
 
-    #pagination {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      margin: 20px 0;
-    }
-    
-    #pagination .nav-container {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    
-    #pagination button,
-    #pagination select {
-      background-color: var(--button-background-color);
-      color: var(--button-text-color);
-      border: none;
-      border-radius: 12px;
-      padding: 12px;
-      margin: 5px;
-      cursor: pointer;
-      font-size: 16px;
-      height: auto;
-    }
-    
-    #pagination select {
-      width: auto;
-      max-width: 200px;
-      flex: 1;
-    }
-
+    /* Switches (iOS Style) */
     .switch-container {
       display: flex;
       align-items: center;
-      margin-bottom: 10px;
+      margin: 15px 0;
+      justify-content: space-between; /* Space out label and switch */
+      min-height: 44px; /* Tappable height */
     }
-    
+    .switch-container span:first-of-type { /* Label text */
+        flex-grow: 1;
+        margin-right: 10px;
+        font-size: 17px;
+    }
     .switch {
       position: relative;
       display: inline-block;
-      width: 50px;
-      height: 28px;
-      margin-right: 10px;
+      width: 51px;
+      height: 31px;
+      flex-shrink: 0; /* Prevent switch from shrinking */
     }
-    
     .switch input { opacity: 0; width: 0; height: 0; }
-    
     .slider {
       position: absolute;
       cursor: pointer;
       top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #ccc;
-      transition: 0.4s;
-      border-radius: 14px;
+      background-color: #e9e9eb; /* iOS off-grey */
+      transition: .4s;
+      border-radius: 34px;
     }
-    
     .slider:before {
       position: absolute;
       content: "";
-      height: 22px; width: 22px;
-      left: 3px; top: 3px;
+      height: 27px; width: 27px;
+      left: 2px; bottom: 2px;
       background-color: white;
-      transition: 0.4s;
+      transition: .4s;
       border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
     }
-    
-    input:checked + .slider {
-      background-color: var(--button-background-color);
+    input:checked + .slider { background-color: var(--system-green-light); }
+    input:checked + .slider:before { transform: translateX(20px); }
+    @media (prefers-color-scheme: dark) {
+        .slider { background-color: #39393d; } /* iOS dark off-grey */
+        input:checked + .slider { background-color: var(--system-green-dark); }
     }
-    
-    input:checked + .slider:before {
-      transform: translateX(22px);
+    input:disabled + .slider { opacity: 0.5; cursor: default; }
+
+
+    /* Value Badges (Positive/Negative/Zero) */
+    .diff-badge,
+    .positive-value, .negative-value, .zero-value {
+      padding: 3px 8px;
+      border-radius: 10px; /* Pill shape */
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--button-text-color) !important; /* Ensure text is white/contrasting */
+      display: inline-block;
+      line-height: 1.1;
+      vertical-align: middle;
+    }
+    .positive-value { background-color: var(--positive-value-bg) !important; }
+    .negative-value { background-color: var(--negative-value-bg) !important; }
+    .zero-value { background-color: var(--zero-value-bg) !important; }
+
+    /* Input field coloring for values */
+    input.positive-value, input.negative-value, input.zero-value {
+        color: var(--text-color) !important; /* Keep text readable */
+        font-weight: 600;
+        /* Optional: Add a subtle border instead of background */
+        /* border-left: 3px solid var(--positive-value-bg); */
     }
 
+    /* Invalid Time Input */
+    .invalid-time {
+      border-color: var(--hint-color) !important;
+      background-color: color-mix(in srgb, var(--hint-color) 10%, var(--input-background-color)) !important;
+    }
+
+    /* Hinweis Box */
+    #hinweis {
+      color: var(--hint-color);
+      font-weight: 500;
+      font-size: 14px;
+      display: none; /* Hidden by default */
+      margin-top: 15px;
+      padding: 10px;
+      background-color: color-mix(in srgb, var(--hint-color) 10%, var(--card-background-color));
+      border-radius: 8px;
+      border-left: 3px solid var(--hint-color);
+    }
+
+    /* History List (iOS Style) */
+    #history-list {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+      background-color: var(--card-background-color);
+      border-radius: 10px;
+      overflow: hidden; /* Clip children to rounded corners */
+    }
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 15px;
+      border-bottom: 1px solid var(--separator-color);
+      min-height: 60px; /* Good tappable height */
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-entry { flex-grow: 1; margin-right: 10px; }
+    .history-entry div { margin-bottom: 4px; font-size: 17px; }
+    .history-entry div:first-child { font-weight: 600; } /* Date/Day */
+    .history-entry div:not(:first-child) { font-size: 14px; color: var(--secondary-text-color); }
+    .history-entry.no-data div:not(:first-child) { font-style: italic; }
+    .history-entry.special-day {
+        padding: 8px 12px;
+        border-radius: 8px;
+        margin: -8px 0; /* Adjust padding slightly */
+    }
+    .history-actions { display: flex; gap: 8px; align-items: center; }
+    .violation-mark {
+        color: var(--hint-color);
+        font-weight: bold;
+        display: inline-block;
+        margin-left: 4px;
+    }
+
+    /* Weekly Summary & Pagination */
+    #weekly-summary, #month-summary {
+        margin-top: 20px;
+        padding: 15px;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        font-size: 17px;
+    }
+    #pagination, #month-navigation {
+      display: flex;
+      justify-content: space-between; /* Pushes buttons apart */
+      align-items: center;
+      margin: 20px 0;
+      padding: 0 15px; /* Align with card padding */
+    }
+    #pagination button, #month-navigation button {
+      background-color: transparent;
+      color: var(--system-blue-light);
+      border: none;
+      padding: 10px;
+      font-size: 17px;
+      font-weight: 400; /* Normal weight for nav text */
+      cursor: pointer;
+    }
+     @media (prefers-color-scheme: dark) {
+        #pagination button, #month-navigation button { color: var(--system-blue-dark); }
+     }
+    #month-year-display {
+        font-size: 17px;
+        font-weight: 600;
+        text-align: center;
+    }
+
+
+    /* Modals (iOS Style) */
     .modal {
-      display: none;
+      display: none; /* Hidden by default */
       position: fixed;
-      z-index: 9999;
+      z-index: 1000;
       left: 0; top: 0;
       width: 100%; height: 100%;
       overflow: auto;
-      background-color: rgba(0,0,0,0.5);
+      background-color: rgba(0,0,0,0.4); /* Dimming background */
+      /* Flexbox for centering */
+      display: flex;
       justify-content: center;
       align-items: center;
-    }
-    
-    .modal-content {
-      background-color: var(--card-background-color);
-      border-radius: 12px;
       padding: 20px;
-      max-width: 400px;
-      margin: 50px auto;
-      color: var(--text-color);
       box-sizing: border-box;
     }
-    
+    .modal-content {
+      background-color: var(--card-background-color);
+      border-radius: 14px; /* iOS modal radius */
+      padding: 20px;
+      max-width: 400px;
+      width: 90%; /* Responsive width */
+      color: var(--text-color);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      position: relative; /* For close button positioning */
+    }
+    .modal-content h3 { margin-top: 0; text-align: center; color: var(--text-color); text-transform: none; }
     .close-button {
+      position: absolute;
+      top: 10px; right: 10px;
+      background: var(--separator-color); /* Subtle circle */
+      border: none;
+      color: var(--secondary-text-color);
+      font-size: 16px;
+      font-weight: bold;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      line-height: 26px; /* Center '×' */
+      text-align: center;
+      padding: 0;
+    }
+    .close-button:active { opacity: 0.7; }
+
+    /* Detail Modal Specifics */
+    #detail-content p {
+        font-size: 16px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--separator-color);
+        padding-bottom: 8px;
+    }
+     #detail-content p:last-child { border-bottom: none; }
+    #detail-content strong {
+        color: var(--secondary-text-color);
+        display: inline-block;
+        width: 140px; /* Align labels */
+    }
+    #detail-content span { font-weight: 500; }
+
+
+    /* Month View Calendar */
+    #calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 5px;
+        background-color: var(--card-background-color);
+        padding: 10px;
+        border-radius: 10px;
+        margin-top: 15px;
+    }
+    .calendar-header {
+        font-size: 12px;
+        font-weight: 600;
+        text-align: center;
+        color: var(--secondary-text-color);
+        padding-bottom: 5px;
+    }
+    .calendar-day {
+        aspect-ratio: 1 / 1; /* Make cells square */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 15px;
+        border-radius: 50%; /* Circular days */
+        cursor: default;
+        border: 2px solid transparent; /* For today's highlight */
+        transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .calendar-day.empty { background-color: transparent; }
+    .calendar-day.weekend { color: var(--secondary-text-color); }
+    .calendar-day.has-entry {
+        cursor: pointer;
+        color: var(--button-text-color); /* White text on colored background */
+    }
+    .calendar-day.has-entry.positive-value { background-color: var(--positive-value-bg); }
+    .calendar-day.has-entry.negative-value { background-color: var(--negative-value-bg); }
+    .calendar-day.has-entry.zero-value { background-color: var(--zero-value-bg); }
+    .calendar-day.has-entry.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text); }
+    .calendar-day.has-entry.special-day-krank-bg { background-color: var(--special-day-krank-bg); color: var(--special-day-text); }
+
+    .calendar-day.no-entry {
+        color: var(--system-blue-light);
+        cursor: pointer;
+        font-weight: 500; /* Make addable days stand out slightly */
+    }
+     @media (prefers-color-scheme: dark) {
+        .calendar-day.no-entry { color: var(--system-blue-dark); }
+     }
+    .calendar-day.no-entry:hover { background-color: var(--separator-color); }
+
+    .calendar-day.today {
+        border: 2px solid var(--system-blue-light);
+        font-weight: bold;
+    }
+     @media (prefers-color-scheme: dark) {
+        .calendar-day.today { border-color: var(--system-blue-dark); }
+     }
+
+    /* Statistics View */
+    #stats-content {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        padding: 15px;
+    }
+    #stats-content li {
+        font-size: 17px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--separator-color);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+     #stats-content li:last-child { border-bottom: none; }
+    #stats-content span { font-weight: 600; } /* Highlight the value */
+
+
+    /* Bottom Navigation */
+    #bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: calc(50px + var(--safe-area-bottom)); /* Standard height + safe area */
+      background-color: var(--nav-background);
+      border-top: 1px solid var(--separator-color);
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start; /* Align icons to top */
+      padding-top: 5px; /* Space above icons */
+      padding-bottom: var(--safe-area-bottom); /* Add padding for home indicator */
+      z-index: 100;
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       background: none;
       border: none;
-      color: var(--text-color);
-      font-size: 20px;
-      font-weight: bold;
-      float: right;
+      color: var(--nav-icon-color);
+      font-size: 10px; /* Label size */
       cursor: pointer;
+      padding: 0 10px;
+      flex: 1; /* Distribute space evenly */
+      height: 100%; /* Fill nav height */
+      text-align: center;
     }
+    .nav-item svg {
+      width: 24px;
+      height: 24px;
+      margin-bottom: 2px;
+      fill: currentColor; /* Use text color for SVG fill */
+    }
+    .nav-item.active {
+      color: var(--nav-icon-active-color);
+    }
+
   </style>
 </head>
-<body onload="init()">
-  <div id="main-page">
+<body>
+
+<div id="app-container">
+
+  <!-- Main Calculator Page -->
+  <div id="main-page" class="page">
     <div class="container">
-      <h1>Arbeitszeitrechner</h1>
-      <button class="button nav-button" onclick="showHistory()">Verlauf anzeigen</button>
+      <h1>Arbeitszeit</h1>
 
       <!-- Kommen / Gehen + PC + Büro -->
       <div class="section">
+        <h3>Zeiterfassung</h3>
         <div class="row">
           <div class="column">
-            <input type="time" id="kommen-display" oninput="onInputChange()">
+            <label for="kommen-display">Kommen</label>
+            <input type="time" id="kommen-display">
           </div>
           <div class="column">
-            <button class="button" onclick="setZeit('kommen')">Kommen (Jetzt)</button>
+            <label>&nbsp;</label> <!-- Spacer for alignment -->
+            <button class="button" onclick="setZeit('kommen')" style="margin-top:0; height: 44px; padding: 10px;">Jetzt</button>
           </div>
         </div>
 
         <div class="switch-container">
+          <span>PC-Buchung (-8 Min)</span>
           <label class="switch">
-            <input type="checkbox" id="pc-buchung" onchange="onInputChange()">
+            <input type="checkbox" id="pc-buchung">
             <span class="slider"></span>
           </label>
-          <span>PC-Buchung</span>
-
-          <label class="switch" style="margin-left:15px;">
-            <input type="checkbox" id="buero-toggle" onchange="onInputChange()">
+        </div>
+         <div class="switch-container">
+          <span>Anwesenheit im Büro</span>
+          <label class="switch">
+            <input type="checkbox" id="buero-toggle">
             <span class="slider"></span>
           </label>
-          <span>Büro</span>
         </div>
 
         <div class="row">
           <div class="column">
-            <input type="time" id="gehen-display" oninput="onInputChange()">
+            <label for="gehen-display">Gehen</label>
+            <input type="time" id="gehen-display">
           </div>
           <div class="column">
-            <button class="button" onclick="setZeit('gehen')">Gehen (Jetzt)</button>
+             <label>&nbsp;</label>
+            <button class="button" onclick="setZeit('gehen')" style="margin-top:0; height: 44px; padding: 10px;">Jetzt</button>
           </div>
         </div>
         <p id="hinweis"></p>
       </div>
 
-      <!-- Wochenarbeitszeit + Zusatzpause -->
+      <!-- Einstellungen -->
       <div class="section">
-        <div class="row">
+         <h3>Einstellungen</h3>
+         <div class="row">
           <div class="column">
-            <label for="wochenarbeitszeit">Wochenarbeitszeit (Std.):</label>
-            <input type="number" id="wochenarbeitszeit" value="38" onchange="onInputChange()">
+            <label for="wochenarbeitszeit">Wochen-AZ (Std.)</label>
+            <input type="number" id="wochenarbeitszeit" value="38" step="0.5">
           </div>
           <div class="column">
-            <label for="zusatzliche-pause">Zus. Pausen (z.B. 0:15):</label>
-            <input type="text" id="zusatzliche-pause" onchange="onInputChange()">
+            <label for="zusatzliche-pause">Zus. Pause (hh:mm / h.d)</label>
+            <input type="text" id="zusatzliche-pause" placeholder="z.B. 0:15 oder 0.5">
           </div>
         </div>
+         <div class="row">
+             <div class="column">
+                <label for="aktuelles-konto">Aktuelles Stundenkonto</label>
+                <input type="number" id="aktuelles-konto" value="0" step="0.01">
+             </div>
+             <div class="column">
+                <label>Akt. Konto (Zeit)</label>
+                <input type="text" id="aktuelles-konto-time" readonly>
+             </div>
+         </div>
       </div>
+
 
       <!-- Zeitenübersicht -->
       <div class="section">
-        <h3>Zeitenübersicht</h3>
+        <h3>Übersicht Heute</h3>
         <div class="row">
           <div class="column">
-            <label>Anwesenheitszeit:</label>
+            <label>Anwesenheit</label>
             <input type="text" id="anwesend-zeit" readonly>
           </div>
           <div class="column">
-            <label>Pausen:</label>
+            <label>Pause gesamt</label>
             <input type="text" id="pausenzeit" readonly>
           </div>
         </div>
         <div class="row">
           <div class="column">
-            <label>Arbeitszeit:</label>
+            <label>Netto-Arbeitszeit</label>
             <input type="text" id="arbeitszeit" readonly>
           </div>
           <div class="column">
-            <label>Sollarbeitszeit:</label>
+            <label>Soll pro Tag</label>
             <input type="text" id="sollarbeitszeit-display" readonly>
           </div>
         </div>
-      </div>
-
-      <!-- Stundenkonto -->
-      <div class="section">
-        <h3>Stundenkonto</h3>
-        <div class="row">
+         <div class="row">
           <div class="column">
-            <label>Aktuelles Stundenkonto:</label>
-            <input type="number" id="aktuelles-konto" value="0" onchange="onInputChange()">
-          </div>
-          <div class="column">
-            <label>In Zeit:</label>
-            <input type="text" id="aktuelles-konto-time" readonly>
-          </div>
-        </div>
-        <div class="row">
-          <div class="column">
-            <label>Differenz:</label>
+            <label>Differenz (Dezimal)</label>
             <input type="text" id="differenz" readonly>
           </div>
           <div class="column">
-            <label>In Zeit:</label>
+            <label>Differenz (Zeit)</label>
             <input type="text" id="differenz-time" readonly>
           </div>
         </div>
         <div class="row">
           <div class="column">
-            <label>Neues Stundenkonto:</label>
+            <label>Neues Stundenkonto</label>
             <input type="text" id="neues-konto" readonly>
           </div>
           <div class="column">
-            <label>In Zeit:</label>
+            <label>Neues Konto (Zeit)</label>
             <input type="text" id="neues-konto-time" readonly>
           </div>
         </div>
@@ -1300,30 +1859,30 @@
 
       <!-- Ausstempelzeiten -->
       <div class="section">
-        <h3>Berechnete Ausstempelzeiten (inkl. Pausen):</h3>
+        <h3>Gehen um (ca.)</h3>
         <div class="row">
           <div class="column">
-            <label>Sollarbeitszeit:</label>
+            <label>Soll erfüllt:</label>
             <input type="text" id="end-time-soll" readonly>
           </div>
         </div>
         <div class="row">
           <div class="column">
-            <label>4h:</label>
+            <label>4h Netto:</label>
             <input type="text" id="end-time-4h" readonly>
           </div>
           <div class="column">
-            <label>6h:</label>
+            <label>6h Netto:</label>
             <input type="text" id="end-time-6h" readonly>
           </div>
         </div>
         <div class="row">
           <div class="column">
-            <label>9h:</label>
+            <label>9h Netto:</label>
             <input type="text" id="end-time-9h" readonly>
           </div>
           <div class="column">
-            <label>10h:</label>
+            <label>10h Netto:</label>
             <input type="text" id="end-time-10h" readonly>
           </div>
         </div>
@@ -1331,35 +1890,69 @@
     </div>
   </div>
 
-  <!-- History -->
-  <div id="history-page">
+  <!-- History Page (Weekly View) -->
+  <div id="history-page" class="page">
     <div class="container">
       <h1>Verlauf</h1>
-      <button class="button nav-button" onclick="showMainPage()">Zurück</button>
       <h2 id="week-info"></h2>
+      <p id="week-range" style="text-align: center; color: var(--secondary-text-color); margin-top: -10px; margin-bottom: 20px;"></p>
       <ul id="history-list"></ul>
-      <div id="weekly-summary"></div>
+      <div id="weekly-summary">
+          <h3 style="margin-top: 0;">Wochenübersicht</h3>
+          <p id="weekly-summary-content"></p>
+      </div>
       <div id="pagination"></div>
     </div>
   </div>
 
-  <!-- Detail-Modal -->
+  <!-- Month View Page -->
+  <div id="month-page" class="page">
+      <div class="container">
+          <h1>Monatsübersicht</h1>
+          <div id="month-navigation">
+              <button id="prev-month">‹ Voriger</button>
+              <span id="month-year-display"></span>
+              <button id="next-month">Nächster ›</button>
+          </div>
+          <div id="calendar-grid">
+              <!-- Calendar will be rendered here by JS -->
+          </div>
+           <div id="month-summary">
+              <h3 style="margin-top: 0;">Monatsübersicht</h3>
+              <p id="month-summary-content"></p>
+           </div>
+      </div>
+  </div>
+
+  <!-- Statistics Page -->
+  <div id="stats-page" class="page">
+      <div class="container">
+          <h1>Statistik</h1>
+          <div class="section">
+              <label for="stats-period">Zeitraum auswählen:</label>
+              <select id="stats-period">
+                  <option value="current_month">Aktueller Monat</option>
+                  <option value="last_month">Letzter Monat</option>
+                  <option value="current_year">Aktuelles Jahr</option>
+                  <option value="all_time">Gesamt</option>
+              </select>
+          </div>
+          <ul id="stats-content">
+              <!-- Stats will be rendered here by JS -->
+              <li>Lade Statistiken...</li>
+          </ul>
+      </div>
+  </div>
+
+
+  <!-- Detail Modal -->
   <div id="detail-modal" class="modal">
     <div class="modal-content">
       <button class="close-button" onclick="closeDetailModal()">×</button>
-      <h3>Details für <span id="detail-date"></span></h3>
-      <p>Kommen: <span id="detail-kommen"></span></p>
-      <p>Gehen: <span id="detail-gehen"></span></p>
-      <p>Differenz: <span id="detail-differenz"></span></p>
-
-      <div class="switch-container" style="margin-top:10px;">
-        <label class="switch">
-          <input type="checkbox" id="detail-pc-buchung">
-          <span class="slider"></span>
-        </label>
-        <span>PC-Buchung (readonly)</span>
+      <h3 id="detail-modal-title">Details</h3>
+      <div id="detail-content">
+          <!-- Details will be rendered here by JS -->
       </div>
-      <p>Pausen: <span id="detail-pausen"></span></p>
     </div>
   </div>
 
@@ -1370,55 +1963,78 @@
       <h3 id="add-day-modal-title">Manuelle Buchung</h3>
       <div class="row">
         <div class="column">
-          <label for="add-day-kommen">Kommen:</label>
+          <label for="add-day-kommen">Kommen</label>
           <input type="time" id="add-day-kommen">
         </div>
         <div class="column">
-          <label for="add-day-gehen">Gehen:</label>
+          <label for="add-day-gehen">Gehen</label>
           <input type="time" id="add-day-gehen">
         </div>
       </div>
 
-      <div class="switch-container" style="margin-top:10px;">
+      <div class="switch-container">
+        <span>PC-Buchung (-8 Min)</span>
         <label class="switch">
           <input type="checkbox" id="pc-buchung-add-day">
           <span class="slider"></span>
         </label>
-        <span>PC-Buchung</span>
       </div>
-
-      <div class="switch-container" style="margin-top:10px;">
+       <div class="switch-container">
+        <span>Anwesenheit im Büro</span>
         <label class="switch">
           <input type="checkbox" id="buero-add-day">
           <span class="slider"></span>
         </label>
-        <span>Büro</span>
       </div>
 
-      <div class="switch-container" style="margin-top:10px;">
+      <h3 style="margin-top: 25px; margin-bottom: 5px; font-size: 15px;">Oder Abwesenheit:</h3>
+      <div class="switch-container">
+        <span>Urlaub</span>
         <label class="switch">
           <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')">
           <span class="slider"></span>
         </label>
-        <span>Urlaub</span>
       </div>
-      <div class="switch-container" style="margin-top:10px;">
+      <div class="switch-container">
+        <span>Krank</span>
         <label class="switch">
           <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')">
           <span class="slider"></span>
         </label>
-        <span>Krank</span>
       </div>
-      <div class="switch-container" style="margin-top:10px;">
+      <div class="switch-container">
+        <span>Schulung</span>
         <label class="switch">
           <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')">
           <span class="slider"></span>
         </label>
-        <span>Schulung</span>
       </div>
 
       <button class="button" onclick="addManualDay()">Speichern</button>
     </div>
   </div>
+
+  <!-- Bottom Navigation Bar -->
+  <nav id="bottom-nav">
+      <button id="nav-main" class="nav-item active">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.59L12 17.17l-1.41 1.42L9.17 17l1.41-1.41L9.17 14.17l1.42-1.41L12 14.17l1.41-1.41 1.42 1.41L13.41 15.59l1.42 1.41L13.41 18.41zM11 6h2v5h-2V6z"/></svg>
+          <span>Rechner</span>
+      </button>
+      <button id="nav-history" class="nav-item">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M15 2H9c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h6c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 18c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm3-4H9V4h6v12z"/></svg>
+          <span>Verlauf</span>
+      </button>
+      <button id="nav-month" class="nav-item">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM9 14H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zm-8 4H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zM5 8V6h14v2H5z"/></svg>
+          <span>Monat</span>
+      </button>
+      <button id="nav-stats" class="nav-item">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg>
+          <span>Statistik</span>
+      </button>
+  </nav>
+
+</div> <!-- End #app-container -->
+
 </body>
 </html>
