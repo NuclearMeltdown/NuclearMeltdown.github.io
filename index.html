@@ -220,24 +220,8 @@
         updateCalculations();
       }
 
-      // --- HILFSFUNKTION: Parse Pausen-Input von Hauptseite ---
       function parseAdditionalPause() {
         const val = $("zusatzliche-pause").value;
-        if (!val) return 0;
-        const cleanedVal = val.replace(",", ".");
-        if (cleanedVal.includes(":")) {
-          const parts = cleanedVal.split(":");
-          const hh = parseInt(parts[0], 10) || 0;
-          const mm = parseInt(parts[1], 10) || 0;
-          return hh + mm / 60;
-        } else {
-          const decimalHours = parseFloat(cleanedVal);
-          return isNaN(decimalHours) ? 0 : decimalHours;
-        }
-      }
-
-      // --- NEUE HILFSFUNKTION: Parse Pausen-Input vom Modal ---
-      function parseManualPauseInput(val) {
         if (!val) return 0;
         const cleanedVal = val.replace(",", ".");
         if (cleanedVal.includes(":")) {
@@ -277,32 +261,16 @@
         return { hours: hh, minutes: mm, totalHours: totalH };
       }
 
-      // --- MODIFIZIERT: Akzeptiert optionale zusätzliche Pausenstunden ---
-      function calculatePausenForWorkTime(totalHours, additionalPauseHours = null) {
-        let additionalPause = 0;
-        // Nutze den übergebenen Wert, wenn er gültig ist
-        if (additionalPauseHours !== null && !isNaN(additionalPauseHours) && additionalPauseHours >= 0) {
-            additionalPause = additionalPauseHours;
-        } else {
-            // Fallback: Lese vom Hauptseiten-Input, wenn kein gültiger Wert übergeben wurde
-            // (oder wenn die Funktion ohne 2. Argument aufgerufen wird)
-            additionalPause = parseAdditionalPause();
-        }
-
-        let pausen = additionalPause; // Beginne mit der ermittelten zusätzlichen Pause
-
-        // Gesetzliche Pausen hängen von der *Anwesenheitszeit* (totalHours) ab
-        if (totalHours > 9) pausen += 0.75; // 45 min
-        else if (totalHours > 6) pausen += 0.5; // 30 min
-
-        return pausen; // Gib die berechnete Pause in Stunden zurück
+      function calculatePausenForWorkTime(totalHours) {
+        let pausen = parseAdditionalPause();
+        if (totalHours > 9) pausen += 0.75;
+        else if (totalHours > 6) pausen += 0.5;
+        return pausen;
       }
 
       function calculateArbeitszeit() {
         const wTime = calculateWorkingTime();
         if (wTime.totalHours <= 0) return 0;
-        // Rufe calculatePausenForWorkTime ohne 2. Argument auf,
-        // damit es den Wert vom Hauptseiten-Input nimmt
         const pausen = calculatePausenForWorkTime(wTime.totalHours);
         const netArbeitszeit = wTime.totalHours - pausen;
         return Math.max(0, netArbeitszeit);
@@ -314,9 +282,7 @@
         let presence = desiredNet;
         for (let i = 0; i < 5; i++) {
           const prevPresence = presence;
-          // Hier verwenden wir die Hauptseiten-Pause für die Endzeitberechnung
-          const additionalPauseFromMain = parseAdditionalPause();
-          let pausen = additionalPauseFromMain;
+          let pausen = parseAdditionalPause();
           if (prevPresence > 9) pausen += 0.75;
           else if (prevPresence > 6) pausen += 0.5;
           presence = desiredNet + pausen;
@@ -357,7 +323,6 @@
         const aktKontoVal = parseFloat($("aktuelles-konto").value) || 0;
         let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
         const wTime = calculateWorkingTime();
-        // Hier auch die Hauptseiten-Pause für die Anzeige verwenden
         const pausen = calculatePausenForWorkTime(wTime.totalHours);
         const pausenMin = Math.round(pausen * 60);
         $("anwesend-zeit").value = `${wTime.hours}:${pad(wTime.minutes)} (${wTime.totalHours.toFixed(2)}h)`;
@@ -495,8 +460,6 @@
           schulung: false,
           pcBuchung: isPcBuchung,
           buero: isBuero,
-          // Speichere die zusätzliche Pause für diesen Tag (optional)
-          zusatzPause: parseAdditionalPause() || 0,
         };
         if (existingIndex !== -1) {
           if (
@@ -610,11 +573,9 @@
                     : "zero-value";
               const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-              // Verwende die gespeicherte Zusatzpause, falls vorhanden
               const netTime = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
-                gehenLokal,
-                entry.zusatzPause // Übergib gespeicherte Pause
+                gehenLokal
               );
               const isViolation = checkViolations(kommenLokal, gehenLokal, netTime);
               const violationMark = isViolation
@@ -656,8 +617,7 @@
         updateWeekNavigation();
       }
 
-      // --- MODIFIZIERT: Akzeptiert optionale gespeicherte Zusatzpause ---
-      function calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal, zusatzPause = 0) {
+      function calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal) {
         if (!kommenLokal || !gehenLokal) return 0;
         let gehenAdjusted = new Date(gehenLokal.getTime());
         if (gehenAdjusted < kommenLokal) {
@@ -666,8 +626,7 @@
         const diffMs = gehenAdjusted - kommenLokal;
         if (diffMs < 0) return 0;
         const totalH = diffMs / (1000 * 60 * 60);
-        // Verwende die gespeicherte Zusatzpause (oder 0) für die Pausenberechnung
-        const pausen = calculatePausenForWorkTime(totalH, zusatzPause);
+        const pausen = calculatePausenForWorkTime(totalH);
         return Math.max(0, totalH - pausen);
       }
 
@@ -715,7 +674,6 @@
         pagination.appendChild(nextWeekBtn);
       }
 
-      // --- MODIFIZIERT: Leert das neue Pausenfeld ---
       function showAddDayModal(dateStr) {
         const dateVal = new Date(dateStr + "T00:00:00");
         const displayDate = dateVal.toLocaleDateString("de-DE");
@@ -731,12 +689,9 @@
         $("urlaub-toggle").checked = false;
         $("krank-toggle").checked = false;
         $("schulung-toggle").checked = false;
-
-        $("add-day-zusatzliche-pause").value = ""; // --- NEU: Feld leeren ---
-        toggleTimeFieldsDisabled(false); // Enable time fields initially
-
-        $("add-day-modal").setAttribute("data-date", dateStr); // Store YYYY-MM-DD
-        $("add-day-modal").style.display = "flex"; // Use flex for centering
+        toggleTimeFieldsDisabled(false);
+        $("add-day-modal").setAttribute("data-date", dateStr);
+        $("add-day-modal").style.display = "flex";
       }
 
       function toggleSpecialDay(type) {
@@ -752,16 +707,12 @@
         );
       }
 
-      // --- MODIFIZIERT: Deaktiviert/Aktiviert auch das Pausenfeld ---
       function toggleTimeFieldsDisabled(disabled) {
         $("add-day-kommen").disabled = disabled;
         $("add-day-gehen").disabled = disabled;
         $("pc-buchung-add-day").disabled = disabled;
-        $("add-day-zusatzliche-pause").disabled = disabled; // --- NEU ---
-        // Keep Buero/Homeoffice enabled even for special days
       }
 
-      // --- MODIFIZIERT: Berücksichtigt die manuelle Pause ---
       function addManualDay() {
         const dateVal = $("add-day-modal").getAttribute("data-date");
         if (!dateVal) {
@@ -794,10 +745,7 @@
           schulung: isSchulung,
           pcBuchung: false,
           buero: isBueroAddDay,
-          zusatzPause: 0, // Standardwert für Zusatzpause
         };
-
-        // --- Special Day Handling ---
         if (isUrlaub || isKrank || isSchulung) {
           const lastKonto = findLastKontoBeforeDate(
             history,
@@ -825,8 +773,6 @@
           alert(`${label} für ${displayDate} eingetragen.`);
           return;
         }
-
-        // --- Normal Work Day Handling ---
         const kommenVal = $("add-day-kommen").value;
         const gehenVal = $("add-day-gehen").value;
         if (!kommenVal || !gehenVal) {
@@ -858,16 +804,8 @@
           return;
         }
         const totalHManual = diffMsManual / (1000 * 60 * 60);
-
-        // --- NEU: Lese und parse die manuelle Pause aus dem Modal-Input ---
-        const pauseValStr = $('add-day-zusatzliche-pause').value;
-        const parsedManualPause = parseManualPauseInput(pauseValStr);
-        // --- Ende NEU ---
-
-        // --- MODIFIZIERT: Übergib die geparste manuelle Pause an die Funktion ---
-        const pausenManual = calculatePausenForWorkTime(totalHManual, parsedManualPause);
+        const pausenManual = calculatePausenForWorkTime(totalHManual);
         const netManual = Math.max(0, totalHManual - pausenManual);
-
         if (checkViolations(adjustedKommenManual, gehenDateManual, netManual)) {
           if (
             !confirm(
@@ -896,8 +834,6 @@
         dayData.urlaub = false;
         dayData.krank = false;
         dayData.schulung = false;
-        dayData.zusatzPause = parsedManualPause; // Speichere die eingegebene Pause
-
         if (existingIndex !== -1) {
           if (!confirm(`Eintrag für ${displayDate} existiert. Überschreiben?`))
             return;
@@ -965,7 +901,6 @@
         if (modal) modal.style.display = "none";
       }
 
-      // --- MODIFIZIERT: Zeigt gespeicherte Zusatzpause an ---
       function showDayDetails(dateStr) {
         const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
@@ -1015,18 +950,15 @@
             if (diffMs >= 0) {
               const totalH = diffMs / (1000 * 60 * 60);
               anwesenheitLabel = `${Math.floor(totalH)}:${pad(Math.round((totalH % 1) * 60))} (${totalH.toFixed(2)}h)`;
-              // Verwende gespeicherte Zusatzpause für Netto-Berechnung
               const netCalculated = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
-                gehenLokal,
-                entry.zusatzPause // Übergib gespeicherte Pause
+                gehenLokal
               );
               nettoLabel = `${formatDecimalToTime(netCalculated)} (${netCalculated.toFixed(2)}h)`;
-              // Berechne Gesamtpause (gesetzlich + gespeichert)
-              const gesamtPauseVal = calculatePausenForWorkTime(totalH, entry.zusatzPause);
+              const pausenVal = totalH - netCalculated;
               pausenLabel =
-                gesamtPauseVal > 0
-                  ? `${Math.round(gesamtPauseVal * 60)} Min (${gesamtPauseVal.toFixed(2)}h)`
+                pausenVal > 0
+                  ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)`
                   : "0 Min";
             }
           }
@@ -1035,7 +967,7 @@
           <p><strong>Kommen:</strong> ${kommenFormatted} ${pcBuchungChecked ? "(PC-Buchung aktiv)" : ""}</p>
           <p><strong>Gehen:</strong> ${gehenFormatted}</p>
           <p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p>
-          <p><strong>Pause (Gesamt):</strong> ${pausenLabel}</p>
+          <p><strong>Pause:</strong> ${pausenLabel}</p>
           <p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}</p>
           <p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p>
           <p><strong>Stundenkonto danach:</strong> ${formatDecimalToTime(parseFloat(entry.stundenkonto || 0))} (${parseFloat(entry.stundenkonto || 0).toFixed(2)}h)</p>`;
@@ -1237,11 +1169,9 @@
             workDays++;
             const kommenLokal = new Date(entry.kommen);
             const gehenLokal = new Date(entry.gehen);
-            // Verwende gespeicherte Zusatzpause für Statistik
             const netHours = calculateNetArbeitszeitFromEntryData(
               kommenLokal,
-              gehenLokal,
-              entry.zusatzPause // Übergib gespeicherte Pause
+              gehenLokal
             );
             totalNetHours += netHours;
             totalDiff += parseFloat(entry.differenz || 0);
@@ -1302,7 +1232,6 @@
               if (!Array.isArray(importedData)) {
                 throw new Error("Importierte Datei ist kein gültiges JSON-Array.");
               }
-              // Einfache Prüfung auf erwartete Struktur
               if (
                 importedData.length > 0 &&
                 (importedData[0].datum === undefined ||
@@ -1312,13 +1241,6 @@
                   "Struktur der importierten Daten scheint ungültig zu sein."
                 );
               }
-              // Füge fehlende Felder hinzu (z.B. zusatzPause), falls nötig
-              importedData.forEach(entry => {
-                  if (entry.zusatzPause === undefined) {
-                      entry.zusatzPause = 0; // Standardwert
-                  }
-              });
-
               if (
                 confirm(
                   `Möchten Sie wirklich ${importedData.length} Einträge importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`
@@ -1403,7 +1325,7 @@
         --hint-color: var(--system-red-light);
         --special-day-urlaub-bg: var(--system-teal-light);
         --special-day-krank-bg: var(--system-yellow-light);
-        --special-day-text: #000000; /* Dunkler Text für helle Hintergründe */
+        --special-day-text: #000000;
         --nav-background: var(--system-secondary-background-light);
         --nav-icon-color: var(--system-gray-light);
         --nav-icon-active-color: var(--system-blue-light);
@@ -1433,7 +1355,6 @@
           --hint-color: var(--system-red-dark);
           --special-day-urlaub-bg: var(--system-teal-dark);
           --special-day-krank-bg: var(--system-yellow-dark);
-          --special-day-text: #000000; /* Bleibt dunkel für gute Lesbarkeit */
           --nav-background: var(--system-secondary-background-dark);
           --nav-icon-color: var(--system-gray-dark);
           --nav-icon-active-color: var(--system-blue-dark);
@@ -1442,205 +1363,205 @@
         }
       }
 
-      * {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-        -webkit-tap-highlight-color: transparent;
-      }
-
       html,
       body {
-        height: 100%;
+        background-color: var(--background-color);
+        color: var(--text-color);
+        margin: 0;
+        padding: 0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
           "Segoe UI Symbol";
-        background-color: var(--background-color);
-        color: var(--text-color);
-        font-size: 17px;
-        line-height: 1.4;
-        overscroll-behavior-y: none; /* Verhindert Bounce-Effekt auf Body */
+        -webkit-text-size-adjust: 100%;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        height: 100%;
+        overflow: hidden;
       }
 
       #app-container {
         display: flex;
         flex-direction: column;
-        height: 100%;
-        width: 100%;
-        overflow: hidden; /* Verhindert Scrollen des Hauptcontainers */
+        height: 100vh;
       }
 
       .page {
-        flex-grow: 1; /* Nimmt verfügbaren Platz ein */
-        overflow-y: auto; /* Macht Inhalt scrollbar */
-        -webkit-overflow-scrolling: touch; /* iOS smooth scrolling */
-        /* --- ANGEPASST: Größerer Abstand unten --- */
+        flex-grow: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        /* Padding unten an neue Nav-Höhe angepasst */
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(105px + var(--safe-area-bottom)) /* Größerer Puffer */
+          calc(105px + var(--safe-area-bottom)) /* NEUE Höhe Nav Bar + Safe Area */
           calc(15px + var(--safe-area-right));
-        display: none; /* Standardmäßig ausgeblendet */
+        display: none;
       }
-
       .page.active {
-        display: block; /* Aktive Seite anzeigen */
+        display: block;
       }
 
       .container {
         max-width: 600px;
         margin: 0 auto;
-        padding-bottom: 0; /* Kein extra Padding unten im Container */
+        padding-bottom: 0; /* Kein Padding mehr hier */
       }
 
-      h1,
-      h2,
-      h3 {
-        margin-bottom: 15px;
-        color: var(--text-color);
-      }
       h1 {
-        font-size: 28px;
-        font-weight: bold;
-        margin-top: 10px;
+        font-size: 34px;
+        font-weight: 700;
+        margin: 10px 0 20px 0;
       }
       h2 {
         font-size: 22px;
-        font-weight: bold;
-        margin-top: 25px;
+        font-weight: 600;
+        margin: 25px 0 15px 0;
         border-bottom: 1px solid var(--separator-color);
-        padding-bottom: 5px;
+        padding-bottom: 8px;
       }
       h3 {
-        font-size: 18px;
+        font-size: 17px;
         font-weight: 600;
-        margin-top: 20px;
+        margin: 0 0 10px 0;
+        color: var(--secondary-text-color);
+        text-transform: uppercase;
       }
-
       label {
+        font-size: 15px;
+        font-weight: 400;
+        color: var(--secondary-text-color);
         display: block;
         margin-bottom: 5px;
-        font-weight: 500;
-        color: var(--secondary-text-color);
-        font-size: 15px;
       }
-
-      input[type="time"],
-      input[type="text"],
-      input[type="number"],
-      select {
-        width: 100%;
-        padding: 10px 12px;
-        margin-bottom: 15px;
-        border: 1px solid var(--input-border-color);
-        border-radius: 8px;
-        background-color: var(--input-background-color);
-        color: var(--text-color);
+      p {
         font-size: 17px;
-        min-height: 44px; /* iOS Tappable Area */
-        appearance: none; /* Remove default styling */
-        -webkit-appearance: none;
+        line-height: 1.4;
+        margin: 5px 0 15px 0;
       }
-      input[type="time"]::-webkit-calendar-picker-indicator {
-        display: none; /* Hide default time picker icon */
-      }
-      input:focus,
-      select:focus {
-        outline: none;
-        border-color: var(--system-blue-light);
-        box-shadow: 0 0 0 1px var(--system-blue-light);
-      }
-      input[readonly] {
+
+      .section {
         background-color: var(--card-background-color);
-        color: var(--readonly-text-color);
-        border: 1px solid var(--input-border-color); /* Border für Readonly */
-        cursor: default;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
       }
-      input[readonly]:focus {
-        border-color: var(--input-border-color); /* Kein blauer Rand bei Fokus */
-        box-shadow: none;
-      }
-
-      .input-group {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 15px;
-      }
-      .input-group > div {
-        flex: 1; /* Gleiche Breite für Elemente in der Gruppe */
-      }
-      .input-group > div > input {
-        margin-bottom: 0; /* Kein doppelter Margin */
+      @media (prefers-color-scheme: dark) {
+        .section {
+          box-shadow: none;
+        }
       }
 
-      button {
-        padding: 12px 20px;
-        border: none;
-        border-radius: 8px;
+      .button,
+      .inline-button,
+      .delete-button,
+      .add-button {
         background-color: var(--button-background-color);
         color: var(--button-text-color);
-        font-size: 17px;
-        font-weight: 500;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
         cursor: pointer;
-        transition: background-color 0.2s ease;
-        min-height: 44px; /* iOS Tappable Area */
-        width: 100%; /* Volle Breite für Hauptbuttons */
-        margin-top: 5px;
+        box-sizing: border-box;
+        line-height: 1.2em;
+        text-align: center;
+        transition: background-color 0.1s ease-in-out;
+        -webkit-appearance: none;
+        appearance: none;
       }
-      button:hover,
-      button:active {
-        filter: brightness(0.9);
+      .button {
+        width: 100%;
+        padding: 12px 15px;
+        font-size: 17px;
+        min-height: 44px;
+        margin-bottom: 10px;
       }
-      .button-group {
-        display: flex;
-        gap: 10px;
-        margin-top: 15px;
-      }
-      .button-group button {
-        flex: 1; /* Gleiche Breite für Buttons in der Gruppe */
-        margin-top: 0;
-      }
-
-      /* Inline Buttons (kleiner, für Aktionen in Listen etc.) */
-      .inline-button {
-        padding: 5px 10px;
+      .inline-button,
+      .delete-button,
+      .add-button {
         font-size: 15px;
-        min-height: 30px;
-        width: auto; /* Nicht volle Breite */
-        margin: 0 5px;
-        background-color: var(--input-background-color);
-        color: var(--system-blue-light);
-        border: 1px solid var(--separator-color);
-      }
-      @media (prefers-color-scheme: dark) {
-        .inline-button {
-          color: var(--system-blue-dark);
-        }
-      }
-      .inline-button.add-button {
-        font-size: 20px;
-        padding: 2px 10px;
+        padding: 8px 12px;
+        min-height: 36px;
       }
       .delete-button {
-        background-color: transparent;
-        color: var(--system-red-light);
-        border: none;
-        font-size: 20px;
-        padding: 5px;
-        width: auto;
-        min-height: 30px;
-        margin-left: 5px;
+        background-color: var(--hint-color);
+      }
+      .add-button {
+        background-color: var(--system-green-light);
       }
       @media (prefers-color-scheme: dark) {
-        .delete-button {
-          color: var(--system-red-dark);
+        .add-button {
+          background-color: var(--system-green-dark);
         }
       }
+      .button:active,
+      .inline-button:active,
+      .delete-button:active,
+      .add-button:active {
+        filter: brightness(0.85);
+      }
 
-      /* Switch Toggle (iOS Style) */
+      /* Inputs mit Border (auch readonly) */
+      input[type="time"],
+      input[type="number"],
+      input[type="text"],
+      select {
+        width: 100%;
+        padding: 12px 15px;
+        font-size: 17px;
+        border: 1px solid var(--input-border-color); /* Border für alle */
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background-color: var(--input-background-color);
+        color: var(--text-color);
+        box-sizing: border-box;
+        -webkit-appearance: none;
+        appearance: none;
+        line-height: 1.2em;
+        min-height: 44px;
+      }
+      /* Readonly Inputs mit besserem Kontrast */
+      input:read-only {
+        background-color: var(
+          --card-background-color
+        ); /* Weniger interaktiv */
+        color: var(--readonly-text-color); /* Besser lesbare Farbe */
+      }
+      input[type="time"]::-webkit-calendar-picker-indicator {
+        display: none;
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .column {
+        flex: 1;
+      }
+
+      /* Layout Kommen/Gehen: Input/Button 50/50 */
+      .time-button-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+        align-items: center;
+      }
+      .time-button-row input[type="time"],
+      .time-button-row .button {
+        flex: 1;
+        margin-bottom: 0;
+      }
+      .time-button-row input[type="time"] {
+        text-align: center;
+      }
+      .time-button-row .button {
+        padding: 12px 15px;
+      }
+
+      /* Korrigierter Switch Toggle (breiter) mit Alex' Anpassungen */
       .switch-container {
         display: flex;
         align-items: center;
         margin-bottom: 15px;
-        min-height: 44px; /* Tappable Area */
+        min-height: 44px;
       }
       .switch-container span {
         margin-left: 10px;
@@ -1649,9 +1570,9 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 51px; /* Standard iOS Breite */
+        width: 70px;
         height: 31px;
-        flex-shrink: 0; /* Verhindert Schrumpfen im Flex-Layout */
+        flex-shrink: 0;
       }
       .switch input {
         opacity: 0;
@@ -1667,15 +1588,14 @@
         bottom: 0;
         background-color: var(--slider-bg-color);
         transition: 0.4s;
-        border-radius: 15.5px; /* Halbe Höhe */
+        border-radius: 15.5px;
       }
       .slider:before {
         position: absolute;
         content: "";
-        height: 27px; /* Kleiner als Höhe */
+        height: 27px;
         width: 27px;
-        /* --- ANGEPASST: Slider Knob Position --- */
-        left: 2px;
+        left: 2px; /* 5px nach rechts verschoben */
         bottom: 2px;
         background-color: white;
         transition: 0.4s;
@@ -1686,498 +1606,491 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        /* --- ANGEPASST: Slider Knob Translation --- */
-        /* 51px (Breite) - 27px (Knob) - 2px (linker Abstand) - 2px (rechter Abstand) = 20px */
-        /* Deine Anpassung: 30px */
-        transform: translateX(30px);
+        transform: translateX(29px); /* Alex' Wert */
       }
 
-      /* Farbige Werte */
-      .positive-value {
-        color: var(--system-blue-light);
+      /* Value Badges mit korrigierter Textfarbe */
+      .diff-badge {
+        padding: 3px 6px;
+        border-radius: 5px;
+        font-size: 14px;
         font-weight: 500;
+        display: inline-block;
+        vertical-align: middle;
+      }
+      .positive-value {
+        background-color: var(--positive-value-bg) !important;
+        color: var(--button-text-color) !important; /* Weiß auf Blau */
       }
       .negative-value {
-        color: var(--system-orange-light);
-        font-weight: 500;
+        background-color: var(--negative-value-bg) !important;
+        color: #000000 !important; /* Schwarz auf Orange */
       }
       .zero-value {
-        color: var(--system-green-light);
-        font-weight: 500;
-      }
-      @media (prefers-color-scheme: dark) {
-        .positive-value { color: var(--system-blue-dark); }
-        .negative-value { color: var(--system-orange-dark); }
-        .zero-value { color: var(--system-green-dark); }
-      }
-      /* Für Readonly-Felder */
-      input[readonly].positive-value { color: var(--system-blue-light); }
-      input[readonly].negative-value { color: var(--system-orange-light); }
-      input[readonly].zero-value { color: var(--system-green-light); }
-      @media (prefers-color-scheme: dark) {
-        input[readonly].positive-value { color: var(--system-blue-dark); }
-        input[readonly].negative-value { color: var(--system-orange-dark); }
-        input[readonly].zero-value { color: var(--system-green-dark); }
+        background-color: var(--zero-value-bg) !important;
+        color: #000000 !important; /* Schwarz auf Grün */
       }
 
-      /* Hinweis Box */
       #hinweis {
-        margin-top: 15px;
-        padding: 10px;
-        background-color: rgba(255, 59, 48, 0.1); /* Leicht roter Hintergrund */
-        border: 1px solid var(--hint-color);
         color: var(--hint-color);
-        border-radius: 8px;
+        font-weight: 500;
         font-size: 15px;
-        display: none; /* Standardmäßig ausblenden */
+        display: none;
+        margin-top: 10px;
+        padding: 10px;
+        background-color: rgba(255, 59, 48, 0.1);
+        border-radius: 8px;
       }
       .invalid-time {
         border-color: var(--hint-color) !important;
-        box-shadow: 0 0 0 1px var(--hint-color) !important;
+        background-color: rgba(255, 59, 48, 0.1) !important;
       }
 
-      /* Bottom Navigation */
+      #history-list {
+        list-style-type: none;
+        padding: 0;
+        margin: 0;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .history-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 15px;
+        min-height: 60px;
+        border-bottom: 1px solid var(--separator-color);
+        gap: 10px;
+      }
+      .history-item:last-child {
+        border-bottom: none;
+      }
+      .history-entry-content {
+        flex-grow: 1;
+        padding: 5px;
+        border-radius: 6px;
+        background-color: transparent;
+        border-left: 3px solid transparent;
+        transition: background-color 0.2s ease;
+      }
+      .history-entry-content.special-day {
+        color: var(--special-day-text);
+      }
+      .history-entry-content.violation-day {
+        border-left: 3px solid var(--hint-color);
+        background-color: rgba(255, 59, 48, 0.05);
+      }
+      .history-entry-content.no-data {
+        color: var(--secondary-text-color);
+      }
+      .history-entry-content div:first-child {
+        font-weight: 500;
+      }
+      .history-entry-content div:last-child {
+        font-size: 15px;
+        color: var(--secondary-text-color);
+      }
+      .history-entry-content.special-day div:last-child {
+        color: var(--special-day-text);
+      }
+      .violation-mark {
+        color: var(--hint-color);
+        font-weight: bold;
+      }
+      .history-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .history-actions .inline-button,
+      .history-actions .delete-button {
+        font-size: 20px;
+        padding: 5px 8px;
+      }
+
+      #weekly-summary,
+      #month-summary {
+        padding: 15px;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        margin-top: 20px;
+        text-align: center;
+        font-size: 17px;
+        font-weight: 500;
+      }
+      #pagination,
+      #month-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 20px 0;
+      }
+      #month-pagination button {
+        /* Style kommt von .inline-button */
+      }
+
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 9999;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.4);
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+      .modal-content {
+        background-color: var(--card-background-color);
+        border-radius: 14px;
+        padding: 20px;
+        max-width: 400px;
+        width: 90%;
+        margin: auto;
+        color: var(--text-color);
+        box-sizing: border-box;
+        position: relative;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      }
+      .modal-content h3 {
+        margin-top: 0;
+      }
+      .close-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: var(--system-gray2-light);
+        border: none;
+        color: var(--secondary-text-color);
+        font-size: 14px;
+        font-weight: bold;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        line-height: 1;
+        padding: 0;
+      }
+      @media (prefers-color-scheme: dark) {
+        .close-button {
+          background: var(--system-gray2-dark);
+        }
+      }
+      .close-button:active {
+        filter: brightness(0.85);
+      }
+
+      #calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 5px;
+        margin-top: 15px;
+      }
+      .calendar-header {
+        text-align: center;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--secondary-text-color);
+        padding-bottom: 10px;
+      }
+      .calendar-day {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        aspect-ratio: 1 / 1;
+        font-size: 16px;
+        position: relative;
+        cursor: default;
+      }
+      .calendar-day.empty {
+        visibility: hidden;
+      }
+      .calendar-day.weekend .calendar-day-content {
+        color: var(--secondary-text-color);
+      }
+      .calendar-day.no-entry {
+        cursor: pointer;
+      }
+      .calendar-day.has-entry {
+        cursor: pointer;
+      }
+      .calendar-day-content {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 85%;
+        height: 85%;
+        border-radius: 50%;
+        transition: transform 0.1s ease;
+      }
+      /* Kalender Textfarben korrigiert */
+      .calendar-day.has-entry .calendar-day-content.positive-value {
+        color: var(--button-text-color); /* Weiß auf Blau */
+      }
+      .calendar-day.has-entry .calendar-day-content.negative-value,
+      .calendar-day.has-entry .calendar-day-content.zero-value {
+        color: #000000; /* Schwarz auf Orange/Grün */
+      }
+      .calendar-day-content.special-day-krank-bg,
+      .calendar-day-content.special-day-urlaub-bg {
+        background-color: var(--special-day-krank-bg);
+        color: var(--special-day-text) !important; /* Schwarz auf Gelb/Teal */
+      }
+      .calendar-day-content.special-day-urlaub-bg {
+        background-color: var(--special-day-urlaub-bg);
+      }
+      .calendar-day-content.today {
+        font-weight: bold;
+        border: 2px solid var(--button-background-color);
+      }
+      .calendar-day.has-entry .calendar-day-content.today {
+        border: 2px solid var(--text-color);
+      }
+      .calendar-day:active .calendar-day-content {
+        transform: scale(0.95);
+      }
+
+      #stats-content {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      #stats-content li {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px 15px;
+        font-size: 17px;
+        border-bottom: 1px solid var(--separator-color);
+      }
+      #stats-content li:last-child {
+        border-bottom: none;
+      }
+      #stats-content li span:last-child {
+        font-weight: 500;
+        color: var(--secondary-text-color);
+      }
+      #stats-content li span.diff-badge {
+        /* Farben kommen von .positive/negative/zero-value */
+      }
+
+      .import-export-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      .import-export-buttons .button {
+        margin-bottom: 0;
+      }
+
+      /* Bottom Nav mit reduzierter Höhe */
       #bottom-nav {
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
-        /* --- ANGEPASST: Höhe der Navigationsleiste --- */
-        height: calc(30px + var(--safe-area-bottom)); /* Kleinere Basishöhe */
+        height: calc (30px + var(--safe-area-bottom)); /* NEUE Basishöhe */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
         justify-content: space-around;
-        align-items: flex-start; /* Icons obenbündig */
-        padding-top: 5px; /* Abstand Icons nach oben */
-        padding-bottom: var(--safe-area-bottom); /* Abstand für Home Bar */
+        align-items: flex-start;
+        padding-top: 5px;
+        padding-bottom: var(--safe-area-bottom);
         z-index: 1000;
       }
       .nav-item {
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: flex-start; /* Inhalt oben starten */
-        color: var(--nav-icon-color);
-        font-size: 10px;
-        text-decoration: none;
+        justify-content: center;
         flex: 1;
-        padding-top: 2px; /* Kleiner Abstand für Icon */
-        background: none;
-        border: none;
+        color: var(--nav-icon-color);
+        text-decoration: none;
+        font-size: 10px;
         cursor: pointer;
+        padding: 0 5px;
+        text-align: center;
       }
       .nav-item svg {
         width: 24px;
         height: 24px;
-        margin-bottom: 1px;
+        margin-bottom: 2px;
         fill: currentColor;
       }
       .nav-item.active {
         color: var(--nav-icon-active-color);
       }
-
-      /* History Page */
-      #history-list {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-      }
-      .history-item {
-        background-color: var(--card-background-color);
-        border-radius: 8px;
-        margin-bottom: 10px;
-        padding: 12px 15px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border: 1px solid var(--separator-color);
-      }
-      .history-entry-content {
-        flex-grow: 1;
-        margin-right: 10px;
-      }
-      .history-entry-content div:first-child {
-        font-weight: 500;
-        margin-bottom: 3px;
-      }
-      .history-entry-content div:last-child {
-        font-size: 15px;
-        color: var(--secondary-text-color);
-      }
-      .history-entry-content.no-data div:last-child {
-        font-style: italic;
-      }
-      .history-entry-content.special-day {
-        border-radius: 6px;
-        padding: 5px 8px;
-        margin: -5px 0; /* Adjust padding */
-      }
-      .history-entry-content.violation-day {
-         /* Optional: Add visual cue for violation days */
-         /* border-left: 3px solid var(--system-red-light); */
-      }
-      .violation-mark {
-          color: var(--system-red-light);
-          font-weight: bold;
-          font-size: 18px;
-          margin-left: 4px;
-      }
-      @media (prefers-color-scheme: dark) {
-        .violation-mark { color: var(--system-red-dark); }
-      }
-      .history-actions {
-        display: flex;
-        align-items: center;
-        flex-shrink: 0;
-      }
-      .diff-badge {
-        display: inline-block;
-        padding: 2px 6px;
-        border-radius: 5px;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--button-text-color); /* Weißer Text */
-        margin-left: 5px;
-        vertical-align: middle;
-      }
-      .diff-badge.positive-value { background-color: var(--positive-value-bg); }
-      .diff-badge.negative-value { background-color: var(--negative-value-bg); }
-      .diff-badge.zero-value { background-color: var(--zero-value-bg); }
-
-      #week-navigation, #month-navigation {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 15px;
-        padding: 10px;
-        background-color: var(--card-background-color);
-        border-radius: 8px;
-        border: 1px solid var(--separator-color);
-      }
-      #week-navigation > div, #month-navigation > div {
-        text-align: center;
-        flex-grow: 1;
-      }
-      #week-info, #month-year-display {
-        font-weight: 600;
-        font-size: 18px;
-      }
-      #week-range {
-        font-size: 14px;
-        color: var(--secondary-text-color);
-      }
-      #pagination button, #month-navigation button {
-         flex-grow: 0; /* Buttons nicht strecken */
-         width: auto;
-         padding: 8px 15px;
-         background-color: var(--input-background-color);
-         color: var(--system-blue-light);
-         border: 1px solid var(--separator-color);
-      }
-      @media (prefers-color-scheme: dark) {
-        #pagination button, #month-navigation button {
-          color: var(--system-blue-dark);
-        }
-      }
-
-      #weekly-summary, #month-summary {
-        margin-top: 15px;
-        padding: 10px 15px;
-        background-color: var(--card-background-color);
-        border-radius: 8px;
-        border: 1px solid var(--separator-color);
-        font-weight: 500;
-      }
-
-      /* Modal Styles */
-      .modal {
-        display: none; /* Hidden by default */
-        position: fixed; /* Stay in place */
-        z-index: 1500; /* Sit on top */
-        left: 0;
-        top: 0;
-        width: 100%; /* Full width */
-        height: 100%; /* Full height */
-        overflow: auto; /* Enable scroll if needed */
-        background-color: rgba(0, 0, 0, 0.5); /* Black w/ opacity */
-        justify-content: center;
-        align-items: center;
-        padding: 20px;
-      }
-      .modal-content {
-        background-color: var(--background-color);
-        padding: 25px;
-        border-radius: 14px;
-        width: 100%;
-        max-width: 400px;
-        position: relative;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-      }
-      .modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid var(--separator-color);
-      }
-      .modal-header h2 {
-        margin: 0;
-        font-size: 20px;
-        border-bottom: none;
-        padding-bottom: 0;
-      }
-      .close-button {
-        background: none;
-        border: none;
-        font-size: 28px;
-        font-weight: 300;
-        color: var(--secondary-text-color);
-        cursor: pointer;
-        padding: 0 5px;
-        line-height: 1;
-        position: absolute;
-        top: 15px;
-        right: 15px;
-      }
-      .modal-content label {
-        font-size: 16px;
-        margin-top: 10px;
-      }
-      .modal-content input[type="time"],
-      .modal-content input[type="text"] {
-        margin-bottom: 10px;
-      }
-      .modal-content .button-group {
-        margin-top: 25px;
-      }
-      #detail-content p {
-        margin-bottom: 8px;
-        font-size: 16px;
-      }
-      #detail-content strong {
-        color: var(--secondary-text-color);
-        margin-right: 5px;
-      }
-
-      /* Month View (Calendar) */
-      #calendar-grid {
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 5px;
-        margin-top: 10px;
-      }
-      .calendar-header {
-        text-align: center;
-        font-weight: 500;
-        font-size: 14px;
-        color: var(--secondary-text-color);
-        padding-bottom: 5px;
-      }
-      .calendar-day {
-        aspect-ratio: 1 / 1; /* Make cells square */
-        background-color: var(--card-background-color);
-        border-radius: 6px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        position: relative;
-        border: 1px solid var(--separator-color);
-        cursor: pointer;
-        transition: background-color 0.2s;
-      }
-      .calendar-day.empty {
-        background-color: transparent;
-        border: none;
-        cursor: default;
-      }
-      .calendar-day.weekend {
-         /* background-color: var(--system-tertiary-background-light); */
-         /* Optional: leicht anderer Hintergrund für Wochenende */
-      }
-      .calendar-day-content {
-        font-size: 15px;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        border-radius: 6px; /* Match parent */
-      }
-      .calendar-day-content.weekend-text {
-        color: var(--secondary-text-color);
-      }
-      .calendar-day.no-entry:hover {
-        background-color: var(--input-background-color);
-      }
-      .calendar-day-content.today {
-        border: 2px solid var(--system-red-light);
-      }
-      @media (prefers-color-scheme: dark) {
-        .calendar-day-content.today { border-color: var(--system-red-dark); }
-      }
-      /* Color classes for calendar days */
-      .calendar-day-content.positive-value { background-color: var(--positive-value-bg); color: var(--button-text-color); }
-      .calendar-day-content.negative-value { background-color: var(--negative-value-bg); color: var(--button-text-color); }
-      .calendar-day-content.zero-value { background-color: var(--zero-value-bg); color: var(--button-text-color); }
-      .calendar-day-content.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text); }
-      .calendar-day-content.special-day-krank-bg { background-color: var(--special-day-krank-bg); color: var(--special-day-text); }
-
-      /* Stats Page */
-      #stats-controls {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 20px;
-        align-items: center;
-      }
-      #stats-controls label {
-        margin-bottom: 0;
-        flex-shrink: 0;
-      }
-      #stats-controls select {
-        margin-bottom: 0;
-        flex-grow: 1;
-      }
-      #stats-content {
-        list-style: none;
-        padding: 15px;
-        margin: 0;
-        background-color: var(--card-background-color);
-        border-radius: 8px;
-        border: 1px solid var(--separator-color);
-      }
-      #stats-content li {
-        padding: 8px 0;
-        border-bottom: 1px solid var(--separator-color);
-        display: flex;
-        justify-content: space-between;
-        font-size: 16px;
-      }
-      #stats-content li:last-child {
-        border-bottom: none;
-      }
-      #stats-content li span {
-        font-weight: 500;
-        text-align: right;
-      }
-      #stats-actions {
-        margin-top: 20px;
-        display: flex;
-        gap: 10px;
-      }
-      #stats-actions button {
-        flex: 1;
-      }
-
     </style>
   </head>
   <body>
     <div id="app-container">
       <!-- Main Page -->
-      <div id="main-page" class="page">
+      <div id="main-page" class="page active">
         <div class="container">
-          <h1>Arbeitszeitrechner</h1>
+          <h1>Arbeitszeit</h1>
 
-          <div class="input-group">
-            <div>
-              <label for="kommen-display">Kommen:</label>
-              <input type="time" id="kommen-display" />
+          <div class="section">
+            <h3>Zeiterfassung</h3>
+            <div class="time-button-row">
+              <input type="time" id="kommen-display" oninput="onInputChange()" />
+              <button class="button" onclick="setZeit('kommen')">Kommen</button>
             </div>
-            <div>
-              <label for="gehen-display">Gehen:</label>
-              <input type="time" id="gehen-display" />
+            <div class="time-button-row">
+              <input type="time" id="gehen-display" oninput="onInputChange()" />
+              <button class="button" onclick="setZeit('gehen')">Gehen</button>
             </div>
+            <div class="switch-container" style="margin-top: 15px">
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  id="pc-buchung"
+                  onchange="onInputChange()"
+                />
+                <span class="slider"></span>
+              </label>
+              <span>PC-Buchung (-8 Min)</span>
+            </div>
+            <div class="switch-container">
+              <label class="switch">
+                <input
+                  type="checkbox"
+                  id="buero-toggle"
+                  onchange="onInputChange()"
+                />
+                <span class="slider"></span>
+              </label>
+              <span>Im Büro</span>
+            </div>
+            <p id="hinweis"></p>
           </div>
 
-          <div class="button-group">
-            <button onclick="setZeit('kommen')">Jetzt Kommen</button>
-            <button onclick="setZeit('gehen')">Jetzt Gehen</button>
-          </div>
-
-          <div class="switch-container" style="margin-top: 20px">
-            <label class="switch">
-              <input type="checkbox" id="pc-buchung" />
-              <span class="slider"></span>
-            </label>
-            <span>PC-Buchung (-8 Min)</span>
-          </div>
-
-          <div class="switch-container">
-            <label class="switch">
-              <input type="checkbox" id="buero-toggle" />
-              <span class="slider"></span>
-            </label>
-            <span>Im Büro (sonst Homeoffice)</span>
-          </div>
-
-          <h2>Einstellungen</h2>
-          <label for="wochenarbeitszeit">Wochenarbeitszeit (Std):</label>
-          <input
-            type="number"
-            id="wochenarbeitszeit"
-            value="38"
-            step="0.5"
-          />
-
-          <label for="zusatzliche-pause">Zus. Pause (hh:mm / h.hh):</label>
-          <input type="text" id="zusatzliche-pause" placeholder="z.B. 0:15 oder 0.25" />
-
-          <label for="aktuelles-konto">Aktuelles Stundenkonto (Dezimal):</label>
-          <input type="number" id="aktuelles-konto" value="0.00" step="0.01" />
-          <input type="text" id="aktuelles-konto-time" readonly />
-
-
-          <h2>Berechnung</h2>
-          <label>Anwesenheitszeit:</label>
-          <input type="text" id="anwesend-zeit" readonly />
-          <label>Pausenzeit (Gesetzlich + Zus.):</label>
-          <input type="text" id="pausenzeit" readonly />
-          <label>Netto-Arbeitszeit:</label>
-          <input type="text" id="arbeitszeit" readonly />
-          <label>Sollarbeitszeit (pro Tag):</label>
-          <input type="text" id="sollarbeitszeit-display" readonly />
-
-          <div class="input-group">
-            <div>
-              <label>Differenz (Dezimal):</label>
-              <input type="text" id="differenz" readonly />
+          <div class="section">
+            <h3>Einstellungen</h3>
+            <div class="row">
+              <div class="column">
+                <label for="wochenarbeitszeit">Wochen-AZ (Std):</label>
+                <input
+                  type="number"
+                  id="wochenarbeitszeit"
+                  value="38"
+                  step="0.5"
+                  onchange="onInputChange()"
+                />
+              </div>
+              <div class="column">
+                <label for="zusatzliche-pause"
+                  >Zus. Pause (hh:mm / h.hh):</label
+                >
+                <input
+                  type="text"
+                  id="zusatzliche-pause"
+                  placeholder="z.B. 0:15 oder 0.25"
+                  oninput="onInputChange()"
+                />
+              </div>
             </div>
-            <div>
-              <label>Differenz (Zeit):</label>
-              <input type="text" id="differenz-time" readonly />
-            </div>
-          </div>
-
-          <div class="input-group">
-            <div>
-              <label>Neues Stundenkonto (Dezimal):</label>
-              <input type="text" id="neues-konto" readonly />
-            </div>
-            <div>
-              <label>Neues Stundenkonto (Zeit):</label>
-              <input type="text" id="neues-konto-time" readonly />
+            <div class="row">
+              <div class="column">
+                <label for="aktuelles-konto">Aktuelles Konto (Std):</label>
+                <input
+                  type="number"
+                  id="aktuelles-konto"
+                  value="0"
+                  step="0.01"
+                  onchange="onInputChange()"
+                />
+              </div>
+              <div class="column">
+                <label>Konto (Zeit):</label>
+                <input type="text" id="aktuelles-konto-time" readonly />
+              </div>
             </div>
           </div>
 
-          <div id="hinweis"></div>
+          <div class="section">
+            <h3>Zeitenübersicht (Heute)</h3>
+            <div class="row">
+              <div class="column">
+                <label>Anwesenheit:</label>
+                <input type="text" id="anwesend-zeit" readonly />
+              </div>
+              <div class="column">
+                <label>Pause:</label>
+                <input type="text" id="pausenzeit" readonly />
+              </div>
+            </div>
+            <div class="row">
+              <div class="column">
+                <label>Netto-Arbeitszeit:</label>
+                <input type="text" id="arbeitszeit" readonly />
+              </div>
+              <div class="column">
+                <label>Soll-Arbeitszeit:</label>
+                <input type="text" id="sollarbeitszeit-display" readonly />
+              </div>
+            </div>
+            <div class="row">
+              <div class="column">
+                <label>Differenz (Std):</label>
+                <input type="text" id="differenz" readonly />
+              </div>
+              <div class="column">
+                <label>Differenz (Zeit):</label>
+                <input type="text" id="differenz-time" readonly />
+              </div>
+            </div>
+            <div class="row">
+              <div class="column">
+                <label>Neues Konto (Std):</label>
+                <input type="text" id="neues-konto" readonly />
+              </div>
+              <div class="column">
+                <label>Neues Konto (Zeit):</label>
+                <input type="text" id="neues-konto-time" readonly />
+              </div>
+            </div>
+            <button class="button" onclick="saveDay()">Tag speichern</button>
+          </div>
 
-          <button onclick="saveDay()" style="margin-top: 20px">
-            Heutigen Tag speichern
-          </button>
-
-          <h2>Voraussichtliche Endzeiten</h2>
-          <label>Für Soll-AZ:</label>
-          <input type="text" id="end-time-soll" readonly />
-          <label>Für 4 Stunden Netto:</label>
-          <input type="text" id="end-time-4h" readonly />
-          <label>Für 6 Stunden Netto:</label>
-          <input type="text" id="end-time-6h" readonly />
-          <label>Für 9 Stunden Netto:</label>
-          <input type="text" id="end-time-9h" readonly />
-          <label>Für 10 Stunden Netto:</label>
-          <input type="text" id="end-time-10h" readonly />
-
+          <div class="section">
+            <h3>Ausstempelzeiten</h3>
+            <div class="row">
+              <div class="column">
+                <label>Soll:</label>
+                <input type="text" id="end-time-soll" readonly />
+              </div>
+              <div class="column">
+                <label>10h (Max):</label>
+                <input type="text" id="end-time-10h" readonly />
+              </div>
+            </div>
+            <div class="row">
+              <div class="column">
+                <label>4h (Min):</label>
+                <input type="text" id="end-time-4h" readonly />
+              </div>
+              <div class="column">
+                <label>6h (+Pause):</label>
+                <input type="text" id="end-time-6h" readonly />
+              </div>
+              <div class="column">
+                <label>9h (+Pause):</label>
+                <input type="text" id="end-time-9h" readonly />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2185,22 +2098,20 @@
       <div id="history-page" class="page">
         <div class="container">
           <h1>Verlauf</h1>
-          <div id="week-navigation">
-             <button id="prev-week" class="inline-button">‹</button>
-             <div>
-                 <div id="week-info">KW XX / YYYY</div>
-                 <div id="week-range">TT.MM.YYYY - TT.MM.YYYY</div>
-             </div>
-             <button id="next-week" class="inline-button">›</button>
-          </div>
-          <div id="pagination" style="text-align: center; margin-bottom: 15px;">
-             <!-- Buttons werden per JS eingefügt -->
-          </div>
-          <ul id="history-list">
-            <!-- Einträge werden per JS geladen -->
-          </ul>
+          <h2 id="week-info"></h2>
+          <p
+            id="week-range"
+            style="
+              text-align: center;
+              color: var(--secondary-text-color);
+              margin-top: -10px;
+              margin-bottom: 15px;
+            "
+          ></p>
+          <div id="pagination"></div>
+          <ul id="history-list"></ul>
           <div id="weekly-summary">
-             <span id="weekly-summary-content">Gesamtdifferenz: 0:00 (0.00h)</span>
+            <span id="weekly-summary-content">Gesamtdifferenz: --</span>
           </div>
         </div>
       </div>
@@ -2209,16 +2120,17 @@
       <div id="month-page" class="page">
         <div class="container">
           <h1>Monatsübersicht</h1>
-          <div id="month-navigation">
+          <div id="month-pagination" style="align-items: center">
             <button id="prev-month" class="inline-button">‹</button>
-            <div id="month-year-display">Monat Jahr</div>
+            <h2
+              id="month-year-display"
+              style="margin: 0; border: none; text-align: center"
+            ></h2>
             <button id="next-month" class="inline-button">›</button>
           </div>
-          <div id="calendar-grid">
-            <!-- Kalender wird per JS gefüllt -->
-          </div>
-           <div id="month-summary">
-             <span id="month-summary-content">Monatsdifferenz: 0:00 (0.00h)</span>
+          <div id="calendar-grid"></div>
+          <div id="month-summary">
+            <span id="month-summary-content">Monatsdifferenz: --</span>
           </div>
         </div>
       </div>
@@ -2227,133 +2139,146 @@
       <div id="stats-page" class="page">
         <div class="container">
           <h1>Statistik</h1>
-          <div id="stats-controls">
-             <label for="stats-period">Zeitraum:</label>
-             <select id="stats-period">
-                 <option value="current_month">Aktueller Monat</option>
-                 <option value="last_month">Letzter Monat</option>
-                 <option value="current_year">Aktuelles Jahr</option>
-                 <option value="last_year">Letztes Jahr</option>
-                 <option value="all_time" selected>Gesamter Zeitraum</option>
-             </select>
+          <div class="section">
+            <label for="stats-period">Zeitraum:</label>
+            <select id="stats-period">
+              <option value="current_month">Aktueller Monat</option>
+              <option value="last_month">Letzter Monat</option>
+              <option value="current_year">Aktuelles Jahr</option>
+              <option value="last_year">Letztes Jahr</option>
+              <option value="all_time">Gesamter Zeitraum</option>
+            </select>
           </div>
           <ul id="stats-content">
-             <!-- Statistik wird per JS geladen -->
-             <li>Lädt...</li>
+            <li>Lade Statistik...</li>
           </ul>
-          <div id="stats-actions">
-              <button id="export-button">Verlauf exportieren (JSON)</button>
-              <button id="import-button">Verlauf importieren (JSON)</button>
+          <div class="import-export-buttons section">
+            <button id="export-button" class="button">
+              Verlauf exportieren (JSON)
+            </button>
+            <button id="import-button" class="button">
+              Verlauf importieren (JSON)
+            </button>
           </div>
         </div>
       </div>
 
-      <!-- Bottom Navigation Bar -->
-      <nav id="bottom-nav">
-        <button id="nav-main" class="nav-item">
-          <svg viewBox="0 0 24 24"><path d="M12 5.69l5 4.5V18h-2v-6H9v6H7v-7.81l5-4.5M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"/></svg>
-          <span>Rechner</span>
-        </button>
-        <button id="nav-history" class="nav-item">
-          <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 0 1 7-7 7 7 0 0 1 7 7 7 7 0 0 1-7 7v2a9 9 0 0 0 9-9 9 9 0 0 0-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg>
-          <span>Verlauf</span>
-        </button>
-         <button id="nav-month" class="nav-item">
-          <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM9 14H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zm-8 4H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zM5 8V6h14v2H5z"/></svg>
-          <span>Monat</span>
-        </button>
-        <button id="nav-stats" class="nav-item">
-           <svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg>
-          <span>Statistik</span>
-        </button>
-      </nav>
-    </div>
-
-    <!-- Add Day Modal -->
-    <div id="add-day-modal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 id="add-day-modal-title">Buchung hinzufügen</h2>
-          <button class="close-button">&times;</button>
+      <!-- Detail-Modal -->
+      <div id="detail-modal" class="modal" style="display: none">
+        <div class="modal-content">
+          <button class="close-button" onclick="closeDetailModal()">×</button>
+          <h3 id="detail-modal-title">Details</h3>
+          <div id="detail-content"></div>
         </div>
-        <label for="add-day-kommen">Kommen:</label>
-        <input type="time" id="add-day-kommen" />
-        <label for="add-day-gehen">Gehen:</label>
-        <input type="time" id="add-day-gehen" />
+      </div>
 
-        <div class="switch-container" style="margin-top: 15px">
-          <label class="switch">
-            <input type="checkbox" id="pc-buchung-add-day" />
-            <span class="slider"></span>
-          </label>
-          <span>PC-Buchung (-8 Min)</span>
-        </div>
-
-        <div class="switch-container">
-          <label class="switch">
-            <input type="checkbox" id="buero-add-day" />
-            <span class="slider"></span>
-          </label>
-          <span>Im Büro (sonst Homeoffice)</span>
-        </div>
-
-        <!-- Hinzugefügtes Pausenfeld -->
-        <div style="margin-top: 15px;">
-          <label for="add-day-zusatzliche-pause">Zus. Pause (hh:mm / h.hh):</label>
-          <input type="text" id="add-day-zusatzliche-pause" placeholder="z.B. 0:15 oder 0.25">
-        </div>
-        <!-- Ende Hinzufügung -->
-
-
-        <h3 style="margin-top: 20px;">Sondertag?</h3>
-        <div class="switch-container">
-          <label class="switch">
-            <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')" />
-            <span class="slider"></span>
-          </label>
-          <span>Urlaub</span>
-        </div>
-        <div class="switch-container">
-          <label class="switch">
-            <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')" />
-            <span class="slider"></span>
-          </label>
-          <span>Krank</span>
-        </div>
-         <div class="switch-container">
-          <label class="switch">
-            <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')" />
-            <span class="slider"></span>
-          </label>
-          <span>Schulung</span>
-        </div>
-
-        <div class="button-group">
-          <button onclick="addManualDay()">Speichern</button>
+      <!-- Add Day Modal -->
+      <div id="add-day-modal" class="modal" data-date="" style="display: none">
+        <div class="modal-content">
+          <button class="close-button" onclick="closeAddDayModal()">×</button>
+          <h3 id="add-day-modal-title">Manuelle Buchung</h3>
+          <div class="row">
+            <div class="column">
+              <label for="add-day-kommen">Kommen:</label>
+              <input type="time" id="add-day-kommen" />
+            </div>
+            <div class="column">
+              <label for="add-day-gehen">Gehen:</label>
+              <input type="time" id="add-day-gehen" />
+            </div>
+          </div>
+          <div class="switch-container" style="margin-top: 15px">
+            <label class="switch">
+              <input type="checkbox" id="pc-buchung-add-day" />
+              <span class="slider"></span>
+            </label>
+            <span>PC-Buchung (-8 Min)</span>
+          </div>
+          <div class="switch-container">
+            <label class="switch">
+              <input type="checkbox" id="buero-add-day" />
+              <span class="slider"></span>
+            </label>
+            <span>Im Büro</span>
+          </div>
+          <h3 style="margin-top: 20px">Sondertag?</h3>
+          <div class="switch-container">
+            <label class="switch">
+              <input
+                type="checkbox"
+                id="urlaub-toggle"
+                onchange="toggleSpecialDay('urlaub')"
+              />
+              <span class="slider"></span>
+            </label>
+            <span>Urlaub</span>
+          </div>
+          <div class="switch-container">
+            <label class="switch">
+              <input
+                type="checkbox"
+                id="krank-toggle"
+                onchange="toggleSpecialDay('krank')"
+              />
+              <span class="slider"></span>
+            </label>
+            <span>Krank</span>
+          </div>
+          <div class="switch-container">
+            <label class="switch">
+              <input
+                type="checkbox"
+                id="schulung-toggle"
+                onchange="toggleSpecialDay('schulung')"
+              />
+              <span class="slider"></span>
+            </label>
+            <span>Schulung</span>
+          </div>
           <button
-            onclick="closeAddDayModal()"
-            style="background-color: var(--system-gray-light)"
+            class="button"
+            onclick="addManualDay()"
+            style="margin-top: 20px"
           >
-            Abbrechen
+            Speichern
           </button>
         </div>
       </div>
-    </div>
 
-     <!-- Detail Modal -->
-    <div id="detail-modal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 id="detail-modal-title">Details</h2>
-          <button class="close-button">&times;</button>
-        </div>
-        <div id="detail-content">
-            <!-- Details werden per JS geladen -->
-        </div>
-         <div class="button-group">
-          <button onclick="closeDetailModal()">Schließen</button>
-        </div>
-      </div>
+      <!-- Bottom Navigation -->
+      <nav id="bottom-nav">
+        <a id="nav-main" class="nav-item active">
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M12 5.69l5 4.5V18h-2v-6H9v6H7v-7.81l5-4.5M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"
+            />
+          </svg>
+          <span>Rechner</span>
+        </a>
+        <a id="nav-history" class="nav-item">
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 0 1 7-7 7 7 0 0 1 7 7 7 7 0 0 1-7 7v2a9 9 0 0 0 9-9 9 9 0 0 0-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"
+            />
+          </svg>
+          <span>Verlauf</span>
+        </a>
+        <a id="nav-month" class="nav-item">
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM9 14H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zm-8 4H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2z"
+            />
+          </svg>
+          <span>Monat</span>
+        </a>
+        <a id="nav-stats" class="nav-item">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z" />
+          </svg>
+          <span>Statistik</span>
+        </a>
+      </nav>
     </div>
+    <!-- End #app-container -->
   </body>
 </html>
