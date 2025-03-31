@@ -14,6 +14,7 @@
   <!-- Icons -->
   <link rel="apple-touch-icon" href="https://NuclearMeltdown.github.io/apple-touch-icon.png"> <!-- 180x180 recommended -->
   <!-- Basic Splash Screen Image (iOS will use this or theme-color) -->
+  <!-- For perfect splash screens, provide specific sizes via media queries -->
   <link rel="apple-touch-startup-image" href="https://NuclearMeltdown.github.io/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon.png"> <!-- Favicon for browsers -->
   <meta name="application-name" content="Arbeitszeitrechner"/>
@@ -44,6 +45,7 @@
 
     function formatTime(date) {
       if (!date || isNaN(date.getTime())) return "--:--";
+      // Ensure time is formatted in local timezone
       return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
 
@@ -76,7 +78,7 @@
     }
 
     function getHistory() {
-        // Ensure history is sorted by date ascending before returning
+        // Ensure history is sorted by date ascending upon retrieval
         const history = JSON.parse(getFromLS('history', '[]'));
         history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
         return history;
@@ -90,17 +92,19 @@
       currentMonthYear = heute.getFullYear();
       currentMonth = heute.getMonth(); // 0-11
 
-      // Restore last known account balance
+      // Restore last known account balance from dedicated storage
       const lastKonto = getFromLS('aktuellesStundenkonto');
       if (lastKonto) {
         $('aktuelles-konto').value = parseFloat(lastKonto).toFixed(2);
       } else {
-         // Try to get from last history entry if available
+         // Fallback: Try to get from the latest history entry if storage is empty
          const history = getHistory(); // Already sorted
          if (history.length > 0) {
-            const lastEntry = history[history.length - 1]; // Get the latest entry
+            const lastEntry = history[history.length - 1];
             if (lastEntry.stundenkonto) {
                 $('aktuelles-konto').value = parseFloat(lastEntry.stundenkonto).toFixed(2);
+                // Store it for next time if found
+                storeToLS('aktuellesStundenkonto', lastEntry.stundenkonto);
             }
          }
       }
@@ -127,7 +131,7 @@
         $('buero-toggle').onchange = onInputChange;
         $('wochenarbeitszeit').onchange = onInputChange;
         $('zusatzliche-pause').oninput = onInputChange; // Use oninput for immediate update
-        $('aktuelles-konto').onchange = onInputChange;
+        $('aktuelles-konto').onchange = onInputChange; // Update konto time display on change
 
         // Modal close buttons
         document.querySelectorAll('.close-button').forEach(btn => {
@@ -228,8 +232,15 @@
       const ak = getAdjustedKommenZeit();
       if (!ak || !gehenZeit) return { hours: 0, minutes: 0, totalHours: 0 };
 
-      const diffMs = gehenZeit - ak;
-      if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 };
+      // Ensure gehenZeit is on the same day or later than ak
+      let gehenAdjusted = new Date(gehenZeit.getTime());
+      if (gehenAdjusted < ak) {
+          // Assume gehen is on the next day if time is earlier
+          gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
+      }
+
+      const diffMs = gehenAdjusted - ak;
+      if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 }; // Should not happen now
 
       const totalMinutes = Math.floor(diffMs / (1000 * 60));
       const hh = Math.floor(totalMinutes / 60);
@@ -241,20 +252,23 @@
     function calculatePausenForWorkTime(totalHours) {
         let net = totalHours;
         let pausen = 0;
-        // Iterative approach to find stable pause value
+        // Iterative approach to find stable pause value based on *presence* time
         for (let i = 0; i < 5; i++) { // Limit iterations
-            const prevNet = net;
+            const prevPresence = totalHours - pausen; // Estimate net time based on current pause
             pausen = parseAdditionalPause(); // Start with additional pause
-            if (prevNet > 9) pausen += 0.75; // 45 min
-            else if (prevNet > 6) pausen += 0.5; // 30 min
 
-            net = totalHours - pausen;
-            if (Math.abs(net - prevNet) < 1e-9) break; // Converged
+            // Statutory breaks depend on *presence* time (totalHours)
+            if (totalHours > 9) pausen += 0.75; // 45 min
+            else if (totalHours > 6) pausen += 0.5; // 30 min
+
+            const newNet = totalHours - pausen;
+            if (Math.abs(newNet - net) < 1e-9) break; // Converged
+            net = newNet; // Update net for next iteration (though not directly used in pause calc)
         }
-        // Ensure final pause calculation based on the *final* net time derived from presence
+         // Final calculation based on totalHours
         pausen = parseAdditionalPause();
-        if (net > 9) pausen += 0.75;
-        else if (net > 6) pausen += 0.5;
+        if (totalHours > 9) pausen += 0.75;
+        else if (totalHours > 6) pausen += 0.5;
 
         return pausen; // Return calculated pause in hours
     }
@@ -350,6 +364,7 @@
 
       fieldsToColor.forEach(item => {
           const el = $(item.id);
+          if (!el) return; // Safety check
           el.classList.remove('positive-value', 'negative-value', 'zero-value');
           if (item.value > 0.001) el.classList.add('positive-value');
           else if (item.value < -0.001) el.classList.add('negative-value');
@@ -379,7 +394,12 @@
       }
 
       if (gehenZeit) {
-        const gStunde = gehenZeit.getHours() + (gehenZeit.getMinutes() / 60);
+        // Use the potentially adjusted gehenZeit from calculateWorkingTime
+        let gehenAdjusted = new Date(gehenZeit.getTime());
+         if (ak && gehenAdjusted < ak) {
+             gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
+         }
+        const gStunde = gehenAdjusted.getHours() + (gehenAdjusted.getMinutes() / 60);
         if (gStunde > 20) {
           hinweisText += "Achtung: Gehen nach 20:00!<br>";
           gehenField.classList.add('invalid-time');
@@ -395,9 +415,17 @@
 
     // Tag speichern
     function checkViolations(kommenDate, gehenDate, arbeitszeit) {
-        if (!kommenDate || !gehenDate || isNaN(kommenDate.getTime()) || isNaN(gehenDate.getTime())) return false; // Cannot check if times are missing/invalid
+        if (!kommenDate || !gehenDate) return false; // Cannot check if times are missing
+
+        // Ensure gehenDate is on the same day or later than kommenDate
+        let gehenAdjusted = new Date(gehenDate.getTime());
+        if (gehenAdjusted < kommenDate) {
+            gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
+        }
+
         const kommenStunde = kommenDate.getHours() + (kommenDate.getMinutes() / 60);
-        const gehenStunde = gehenDate.getHours() + (gehenDate.getMinutes() / 60);
+        const gehenStunde = gehenAdjusted.getHours() + (gehenAdjusted.getMinutes() / 60);
+
         // Check: Kommen 6-16, Gehen <= 20, Arbeitszeit 4-10 (if > 0)
         return (kommenStunde < 6 || kommenStunde > 16 || gehenStunde > 20 || (arbeitszeit > 0 && arbeitszeit < 4) || arbeitszeit > 10);
     }
@@ -414,19 +442,26 @@
 
       const adjustedKommen = getAdjustedKommenZeit();
       const netArbeitszeit = calculateArbeitszeit();
+      const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null; // Use current gehenZeit
 
       // Check for violations before saving
-      if (adjustedKommen && gehenZeit) {
-          if (gehenZeit < adjustedKommen) {
+      if (adjustedKommen && currentGehen) {
+          // Use the same logic as checkViolations to handle potential day crossing for gehen
+          let gehenCheck = new Date(currentGehen.getTime());
+          if (gehenCheck < adjustedKommen) {
+              gehenCheck.setDate(gehenCheck.getDate() + 1);
+          }
+
+          if (gehenCheck < adjustedKommen) { // Check again after potential adjustment
               alert("Gehen-Zeit liegt vor der (ggf. angepassten) Kommen-Zeit!");
               return;
           }
-          if (checkViolations(adjustedKommen, gehenZeit, netArbeitszeit)) {
+          if (checkViolations(adjustedKommen, gehenCheck, netArbeitszeit)) {
               if (!confirm("Es liegt ein Verstoß gegen die Gleitzeitregeln vor (Zeiten außerhalb des Rahmens oder Arbeitszeit <4h/>10h). Trotzdem speichern?")) {
                   return;
               }
           }
-      } else if (!adjustedKommen || !gehenZeit) {
+      } else if (!adjustedKommen || !currentGehen) {
           alert("Bitte Kommen- und Gehen-Zeit für die Speicherung angeben.");
           return;
       }
@@ -436,13 +471,14 @@
       const diffTime = $('differenz-time').value || "0:00";
       const newVal = parseFloat($('neues-konto').value) || 0;
 
-      const datum = today.toISOString().split('T')[0]; // YYYY-MM-DD
+      const datum = today.toISOString().split('T')[0]; // Store as YYYY-MM-DD
+      // Store times as ISO strings to preserve timezone info
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
-      const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
+      const gehenStr = currentGehen ? currentGehen.toISOString() : null;
       const isBuero = $('buero-toggle').checked;
       const isPcBuchung = $('pc-buchung').checked;
 
-      let history = getHistory(); // Sorted history
+      let history = getHistory(); // Gets sorted history
       const displayDate = today.toLocaleDateString('de-DE');
       const existingIndex = history.findIndex(e => e.datum === datum);
 
@@ -469,10 +505,11 @@
         history.push(dayData);
       }
 
-      // Save sorted history
+      // Re-sort before saving (important if overwriting or adding)
       history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
       storeToLS('history', JSON.stringify(history));
 
+      // Update current account value in input and LS
       $('aktuelles-konto').value = newVal.toFixed(2);
       storeToLS('aktuellesStundenkonto', newVal.toFixed(2)); // Update persistent balance
 
@@ -485,27 +522,38 @@
 
     // KW-Funktionen
     function getWeekNumber(d) {
+      // Copy date to avoid modifying original
       d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      // Set to nearest Thursday: current date + 4 - current day number
+      // Make Sunday's day number 7
       d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      // Get first day of year
       const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      // Calculate full weeks to nearest Thursday
       const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      // Return array of year and week number
       return [d.getUTCFullYear(), weekNo];
     }
 
     function getDateOfISOWeek(w, y) {
+      // Start with Jan 4th of the year (always in week 1)
+      // Use UTC to avoid DST issues
       const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
-      const dow = simple.getUTCDay() || 7; // Make Sunday 7
-      const ISOweekStart = new Date(simple);
-      ISOweekStart.setUTCDate(simple.getUTCDate() - dow + 1); // Go back to Monday
-      return ISOweekStart;
+      const dow = simple.getUTCDay() || 7; // Get day of week (1=Mon..7=Sun)
+      const ISOweekStart = new Date(simple); // Create copy
+      // Go back to Monday (simple's date - day of week + 1)
+      ISOweekStart.setUTCDate(simple.getUTCDate() - dow + 1);
+      return ISOweekStart; // Returns the Date object for the Monday of the given week/year in UTC
     }
 
     // --- Navigation ---
     function switchView(viewId) {
         currentView = viewId;
         ['main', 'history', 'month', 'stats'].forEach(id => {
-            $(`${id}-page`).style.display = (id === viewId) ? 'block' : 'none';
-            $(`nav-${id}`).classList.toggle('active', id === viewId);
+            const page = $(`${id}-page`);
+            const navItem = $(`nav-${id}`);
+            if (page) page.style.display = (id === viewId) ? 'block' : 'none';
+            if (navItem) navItem.classList.toggle('active', id === viewId);
         });
 
         // Load data for the activated view
@@ -524,92 +572,106 @@
       const historyList = $('history-list');
       historyList.innerHTML = ''; // Clear previous list
 
-      let history = getHistory(); // Sorted history
+      let history = getHistory(); // Gets sorted history
 
-      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-      const weekEndDate = new Date(weekStartDate);
-      weekEndDate.setDate(weekStartDate.getDate() + 4); // Monday to Friday
-      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
+      // Get the Monday of the current week in UTC
+      const weekStartDateUTC = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+
+      // Format start/end dates for display using German locale and Berlin time
+      const weekEndDate = new Date(weekStartDateUTC);
+      weekEndDate.setUTCDate(weekStartDateUTC.getUTCDate() + 4); // Friday
+      const optionsDate = { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Europe/Berlin' };
+      const weekRange = `${weekStartDateUTC.toLocaleDateString('de-DE', optionsDate)} - ${weekEndDate.toLocaleDateString('de-DE', optionsDate)}`;
 
       $('week-info').textContent = `KW ${currentWeekNo} / ${currentWeekYear}`;
       $('week-range').textContent = weekRange;
 
-      const weekdays = [1, 2, 3, 4, 5]; // Monday to Friday
-      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+      const weekdays = [0, 1, 2, 3, 4]; // Monday (0) to Friday (4) offset from week start
+      const optionsWeekday = { weekday: 'long', timeZone: 'Europe/Berlin' };
 
       let weeklyTotalDiff = 0;
 
-      weekdays.forEach((wd, idx) => {
-        const currentDate = new Date(weekStartDate);
-        currentDate.setDate(weekStartDate.getDate() + idx);
-        const currentDateStr = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      weekdays.forEach((dayOffset) => {
+        // Calculate the specific date for this day of the week using UTC
+        const currentDateUTC = new Date(weekStartDateUTC.getTime());
+        currentDateUTC.setUTCDate(weekStartDateUTC.getUTCDate() + dayOffset);
+
+        // Format date string (YYYY-MM-DD) for matching with history data
+        const currentDateStr = currentDateUTC.toISOString().split('T')[0];
+
+        // Format date and weekday name for display in Berlin time
+        const displayDate = currentDateUTC.toLocaleDateString('de-DE', optionsDate);
+        const weekdayName = currentDateUTC.toLocaleDateString('de-DE', optionsWeekday);
 
         const entry = history.find(e => e.datum === currentDateStr);
 
         const li = document.createElement('li');
-        li.classList.add('history-item');
+        li.classList.add('history-item'); // Outer container for flex layout
 
-        let contentHTML = '';
-        let actionsHTML = '';
-        let entryDiv = document.createElement('div'); // Create div for content
-        entryDiv.classList.add('history-entry');
+        const entryContentDiv = document.createElement('div');
+        entryContentDiv.classList.add('history-entry-content'); // Inner container for content and styling
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.classList.add('history-actions');
 
         if (entry) {
           let locationEmoji = entry.buero ? "🏢" : "🏠";
           let specialDayText = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : (entry.schulung ? "Schulung" : ""));
 
           if (specialDayText) {
-              // Add specific class for background color, no inline style
-              entryDiv.classList.add(entry.krank ? 'history-entry-krank' : 'history-entry-urlaub');
-              entryDiv.innerHTML = `
-                  <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
-                  <div>${specialDayText} ${locationEmoji}</div>
+              let bgColor = entry.krank ? 'var(--special-day-krank-bg)' : 'var(--special-day-urlaub-bg)';
+              let textColor = 'var(--special-day-text)';
+              entryContentDiv.classList.add('special-day');
+              entryContentDiv.style.backgroundColor = bgColor;
+              entryContentDiv.style.color = textColor;
+              entryContentDiv.innerHTML = `
+                <div><strong>${weekdayName}</strong> (${displayDate})</div>
+                <div>${specialDayText} ${locationEmoji}</div>
               `;
           } else {
               const diffVal = parseFloat(entry.differenz) || 0;
               weeklyTotalDiff += diffVal;
               const diffClass = diffVal > 0.001 ? "positive-value" : (diffVal < -0.001 ? "negative-value" : "zero-value");
+              // Parse stored ISO strings back to Date objects to pass to checkViolations
               const kommen = entry.kommen ? new Date(entry.kommen) : null;
               const gehen = entry.gehen ? new Date(entry.gehen) : null;
               const netTime = calculateNetArbeitszeitFromEntry(entry);
               const isViolation = checkViolations(kommen, gehen, netTime);
               const violationMark = isViolation ? ' <span class="violation-mark">!</span>' : '';
-              // Add violation class to li for border styling
-              if (isViolation) li.classList.add('violation-entry');
 
-              entryDiv.innerHTML = `
-                  <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
-                  <div>
-                    ${formatTime(kommen)} - ${formatTime(gehen)} ${locationEmoji}
-                    <span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>
-                    ${violationMark}
-                  </div>
+              if (isViolation) {
+                  entryContentDiv.classList.add('violation-day');
+              }
+
+              entryContentDiv.innerHTML = `
+                <div><strong>${weekdayName}</strong> (${displayDate})</div>
+                <div>
+                  ${formatTime(kommen)} - ${formatTime(gehen)} ${locationEmoji}
+                  <span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>
+                  ${violationMark}
+                </div>
               `;
           }
-           actionsHTML = `
-            <div class="history-actions">
+           actionsDiv.innerHTML = `
               <button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button>
               <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>
-            </div>
-          `;
+            `;
 
         } else {
           // No entry for this day
-          entryDiv.classList.add('no-data');
-          entryDiv.innerHTML = `
-              <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
+          entryContentDiv.classList.add('no-data');
+          entryContentDiv.innerHTML = `
+              <div><strong>${weekdayName}</strong> (${displayDate})</div>
               <div>Kein Eintrag</div>
           `;
-          actionsHTML = `
-            <div class="history-actions">
+          actionsDiv.innerHTML = `
                <button class="inline-button add-button" onclick="showAddDayModal('${currentDateStr}')">+</button>
-            </div>
-          `;
+            `;
         }
 
-        li.appendChild(entryDiv); // Append the content div
-        li.insertAdjacentHTML('beforeend', actionsHTML); // Append actions HTML
-        historyList.appendChild(li);
+        li.appendChild(entryContentDiv); // Add content div
+        li.appendChild(actionsDiv); // Add actions div
+        historyList.appendChild(li); // Add list item to list
       });
 
       // Update weekly summary
@@ -627,26 +689,24 @@
         // Parse ISO strings back to Date objects
         const k = new Date(entry.kommen);
         const g = new Date(entry.gehen);
-        if (isNaN(k.getTime()) || isNaN(g.getTime())) return 0; // Invalid date strings
-
         const diffMs = g - k;
-        if (diffMs < 0) return 0;
+        if (diffMs < 0) return 0; // Should not happen if saved correctly
 
         const totalH = diffMs / (1000 * 60 * 60);
-        // Approximation: Use current additional pause setting
+        // Use the standard pause calculation based on presence time
         const pausen = calculatePausenForWorkTime(totalH);
         return Math.max(0, totalH - pausen);
     }
 
 
     function deleteEntryByDate(dateStr) {
-      let history = getHistory(); // Sorted history
+      let history = getHistory(); // Gets sorted history
       const index = history.findIndex(e => e.datum === dateStr);
       if (index !== -1) {
-        const displayDate = (new Date(dateStr + "T00:00:00")).toLocaleDateString('de-DE');
+        const displayDate = (new Date(dateStr + "T00:00:00")).toLocaleDateString('de-DE'); // Interpret locally for display
         if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
           history.splice(index, 1);
-          // Save the modified history (already sorted)
+          // History is already sorted, just save
           storeToLS('history', JSON.stringify(history));
           // Reload the current view if it depends on history
           if (currentView === 'history') loadHistory();
@@ -669,14 +729,14 @@
 
       const prevWeekBtn = createButton('‹ Vorige KW', () => {
           const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-          d.setDate(d.getDate() - 7);
+          d.setUTCDate(d.getUTCDate() - 7); // Go back 7 days in UTC
           [currentWeekYear, currentWeekNo] = getWeekNumber(d);
           loadHistory();
       });
 
       const nextWeekBtn = createButton('Nächste KW ›', () => {
           const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-          d.setDate(d.getDate() + 7);
+          d.setUTCDate(d.getUTCDate() + 7); // Go forward 7 days in UTC
           [currentWeekYear, currentWeekNo] = getWeekNumber(d);
           loadHistory();
       });
@@ -689,7 +749,8 @@
 
     // --- Manuelle Buchung / Add Day Modal ---
     function showAddDayModal(dateStr) {
-        const dateVal = new Date(dateStr + "T00:00:00"); // Interpret locally
+        // dateStr is YYYY-MM-DD
+        const dateVal = new Date(dateStr + "T00:00:00"); // Interpret as local date
         const displayDate = dateVal.toLocaleDateString('de-DE');
         const weekdayName = dateVal.toLocaleDateString('de-DE', { weekday: 'long' });
 
@@ -704,7 +765,7 @@
         $('schulung-toggle').checked = false;
         toggleTimeFieldsDisabled(false); // Enable time fields initially
 
-        $('add-day-modal').setAttribute('data-date', dateStr); // Store as YYYY-MM-DD
+        $('add-day-modal').setAttribute('data-date', dateStr); // Store YYYY-MM-DD
         $('add-day-modal').style.display = 'flex'; // Use flex for centering
     }
 
@@ -736,7 +797,7 @@
             return;
         }
 
-        const realDate = new Date(dateVal + "T00:00:00"); // Ensure local date interpretation
+        const realDate = new Date(dateVal + "T00:00:00"); // Interpret as local date
         const dayOfWeek = realDate.getDay();
         if (dayOfWeek === 0 || dayOfWeek === 6) {
             alert("Samstag und Sonntag sind nicht zulässig!");
@@ -749,7 +810,7 @@
         const isBueroAddDay = $('buero-add-day').checked;
         const isPcBuchungAddDay = $('pc-buchung-add-day').checked;
 
-        let history = getHistory(); // Sorted history
+        let history = getHistory(); // Gets sorted history
         const existingIndex = history.findIndex(e => e.datum === dateVal);
         const displayDate = realDate.toLocaleDateString('de-DE');
 
@@ -794,32 +855,32 @@
             return;
         }
 
-        const kommenDateManual = parseTime(kommenVal);
-        const gehenDateManual = parseTime(gehenVal);
+        const kommenDateManual = parseTime(kommenVal); // Creates Date object with today's date, given time
+        const gehenDateManual = parseTime(gehenVal);   // Creates Date object with today's date, given time
 
         if (!kommenDateManual || !gehenDateManual) {
             alert("Ungültige Zeitformate!");
             return;
         }
 
-        if (gehenDateManual < kommenDateManual) {
-            alert("Gehen-Zeit liegt vor Kommen-Zeit!");
-            return;
-        }
-
-        // Calculate times based on manual input
-        // Important: Set date part of manual times to the *actual* date being saved
+        // Set the date part of the manually entered times to the *actual* date being saved
         kommenDateManual.setFullYear(realDate.getFullYear(), realDate.getMonth(), realDate.getDate());
         gehenDateManual.setFullYear(realDate.getFullYear(), realDate.getMonth(), realDate.getDate());
+
+        // Handle potential overnight case for manual entry
+        if (gehenDateManual < kommenDateManual) {
+            gehenDateManual.setDate(gehenDateManual.getDate() + 1); // Assume next day
+        }
 
         let adjustedKommenManual = new Date(kommenDateManual.getTime());
         if (isPcBuchungAddDay) {
             adjustedKommenManual.setMinutes(adjustedKommenManual.getMinutes() - 8);
         }
 
-        // Recalculate diffMs with potentially adjusted Kommen time
+        // Recalculate diffMs with potentially adjusted Kommen time AND potentially next-day Gehen time
         const diffMsManual = gehenDateManual - adjustedKommenManual;
         if (diffMsManual < 0) {
+             // This should only happen if PC-Buchung adjustment makes Kommen later than Gehen on the same day
              alert("Angepasste Kommen-Zeit (PC-Buchung) liegt nach der Gehen-Zeit!");
              return;
         }
@@ -827,7 +888,7 @@
         const pausenManual = calculatePausenForWorkTime(totalHManual);
         const netManual = Math.max(0, totalHManual - pausenManual);
 
-        // Check violations for manual entry
+        // Check violations for manual entry using the final adjusted times
         if (checkViolations(adjustedKommenManual, gehenDateManual, netManual)) {
             if (!confirm("Die eingegebenen Zeiten verstoßen gegen die Gleitzeitregeln. Trotzdem speichern?")) {
                 return;
@@ -866,24 +927,22 @@
     }
 
     function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
-        // history is assumed to be sorted ascending by date
+        // dateStr is YYYY-MM-DD
         const targetDate = new Date(dateStr + "T00:00:00"); // Interpret date string locally
-        let lastKonto = parseFloat(getFromLS('aktuellesStundenkonto', '0')) || 0; // Default fallback
+        const relevantHistory = history
+            .filter((entry, index) => index !== excludeIndex && new Date(entry.datum + "T00:00:00") < targetDate)
+            .sort((a, b) => new Date(b.datum) - new Date(a.datum)); // Sort descending by date
 
-        for (let i = history.length - 1; i >= 0; i--) {
-            if (i === excludeIndex) continue; // Skip the entry we might be replacing
-            const entryDate = new Date(history[i].datum + "T00:00:00");
-            if (entryDate < targetDate) {
-                lastKonto = parseFloat(history[i].stundenkonto) || 0;
-                break; // Found the latest entry before the target date
-            }
+        if (relevantHistory.length > 0 && relevantHistory[0].stundenkonto !== undefined) {
+            return parseFloat(relevantHistory[0].stundenkonto) || 0;
         }
-        return lastKonto;
+        // If no previous entry, use the current value from LS (more reliable than input field)
+        return parseFloat(getFromLS('aktuellesStundenkonto', '0')) || 0;
     }
 
 
     function saveAndReload(history, newKontoValue) {
-        // Sort history before saving to ensure correct order
+        // Sort history before saving to ensure correct order for future calculations
         history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
         storeToLS('history', JSON.stringify(history));
 
@@ -892,8 +951,8 @@
         if (latestEntry && latestEntry.stundenkonto !== undefined) {
              const latestKonto = parseFloat(latestEntry.stundenkonto);
              // Only update main page display if this entry IS the latest overall
-             const allHistory = getHistory(); // Get potentially updated full history
-             const overallLatestDate = allHistory.length > 0 ? allHistory[allHistory.length - 1].datum : null; // Already sorted
+             const allHistory = getHistory(); // Get potentially updated full history (already sorted)
+             const overallLatestDate = allHistory.length > 0 ? allHistory[allHistory.length - 1].datum : null;
              if (latestEntry.datum === overallLatestDate) {
                  $('aktuelles-konto').value = latestKonto.toFixed(2);
                  storeToLS('aktuellesStundenkonto', latestKonto.toFixed(2)); // Persist latest balance
@@ -917,7 +976,8 @@
 
     // --- Detail-Anzeige Modal ---
     function showDayDetails(dateStr) {
-      const history = getHistory(); // Sorted history
+      // dateStr is YYYY-MM-DD
+      const history = getHistory(); // Gets sorted history
       const entry = history.find(e => e.datum === dateStr);
       if (!entry) return;
 
@@ -952,7 +1012,7 @@
         const diffVal = parseFloat(entry.differenz) || 0;
         const diffClass = diffVal > 0.001 ? "positive-value" : (diffVal < -0.001 ? "negative-value" : "zero-value");
 
-        if (kommen && gehen && !isNaN(kommen.getTime()) && !isNaN(gehen.getTime())) {
+        if (kommen && gehen) {
             // Calculate presence based on the *stored* (potentially adjusted) kommen time
             const diffMs = gehen - kommen;
             if (diffMs >= 0) {
@@ -992,7 +1052,7 @@
     const monthNames = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
     function getFirstDayOfMonth(year, month) {
-        // Returns 0 for Sunday, 1 for Monday, etc.
+        // Returns 0 for Sunday, 1 for Monday, etc. based on local time
         return new Date(year, month, 1).getDay();
     }
 
@@ -1002,7 +1062,7 @@
     }
 
     function loadMonthData() {
-        const history = getHistory(); // Sorted history
+        const history = getHistory(); // Gets sorted history
         const monthData = history.filter(entry => {
             // entry.datum is YYYY-MM-DD
             const entryDate = new Date(entry.datum + "T00:00:00"); // Interpret as local date
@@ -1044,7 +1104,12 @@
         for (let day = 1; day <= daysInMonth; day++) {
             const cell = document.createElement('div');
             cell.classList.add('calendar-day');
-            cell.textContent = day;
+
+            // Inner div for content and circle styling
+            const cellContent = document.createElement('div');
+            cellContent.classList.add('calendar-day-content');
+            cellContent.textContent = day;
+            cell.appendChild(cellContent); // Add content div to cell
 
             // Generate YYYY-MM-DD string directly for comparison
             const currentDateStr = `${currentMonthYear}-${pad(currentMonth + 1)}-${pad(day)}`;
@@ -1054,38 +1119,37 @@
             const entry = monthData.find(e => e.datum === currentDateStr);
 
             if (entry) {
-                cell.classList.add('has-entry');
+                cell.classList.add('has-entry'); // Mark cell as having an entry
                 const diffVal = parseFloat(entry.differenz) || 0;
                 monthlyTotalDiff += diffVal;
-
+                let diffClass = '';
                  if (entry.urlaub || entry.krank || entry.schulung) {
-                    // Use specific classes for special days (no padding)
-                    cell.classList.add(entry.krank ? 'calendar-day-krank' : 'calendar-day-urlaub');
-                    cell.title = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung");
+                    diffClass = entry.krank ? 'special-day-krank-bg' : 'special-day-urlaub-bg';
+                    cellContent.title = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung");
                  } else {
-                    // Use specific classes for normal entries (no padding)
-                    if (diffVal > 0.001) cell.classList.add('calendar-day-positive');
-                    else if (diffVal < -0.001) cell.classList.add('calendar-day-negative');
-                    else cell.classList.add('calendar-day-zero');
-                    cell.title = `Differenz: ${entry.differenzTime}`;
+                    if (diffVal > 0.001) diffClass = 'positive-value';
+                    else if (diffVal < -0.001) diffClass = 'negative-value';
+                    else diffClass = 'zero-value';
+                    cellContent.title = `Differenz: ${entry.differenzTime}`;
                  }
+                cellContent.classList.add(diffClass); // Apply color class to inner content div
                 cell.onclick = () => showDayDetails(currentDateStr);
             } else if (dayOfWeek === 0 || dayOfWeek === 6) {
                 cell.classList.add('weekend');
+                cellContent.classList.add('weekend-text'); // Style weekend text differently
             } else {
                  // Empty workday - allow adding entry
                  cell.classList.add('no-entry');
                  cell.onclick = () => showAddDayModal(currentDateStr);
-                 cell.title = "Klicken zum Hinzufügen";
+                 cellContent.title = "Klicken zum Hinzufügen";
             }
 
             // Highlight today
             const today = new Date();
-            // Compare date parts only, ignoring time
             if (currentDateObj.getFullYear() === today.getFullYear() &&
                 currentDateObj.getMonth() === today.getMonth() &&
                 currentDateObj.getDate() === today.getDate()) {
-                cell.classList.add('today');
+                cellContent.classList.add('today'); // Highlight inner content div
             }
 
             calendarGrid.appendChild(cell);
@@ -1121,47 +1185,48 @@
     // --- Statistics View ---
     function calculateAndDisplayStats() {
         const period = $('stats-period').value;
-        const history = getHistory(); // Sorted history
+        const history = getHistory(); // Gets sorted history
         const today = new Date();
         let startDate, endDate;
-        const currentYear = today.getFullYear();
-        const currentMonth = today.getMonth(); // 0-11
+
+        // Set hours to avoid timezone issues affecting date comparisons
+        today.setHours(12, 0, 0, 0);
 
         switch (period) {
             case 'current_month':
-                startDate = new Date(currentYear, currentMonth, 1);
-                endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999); // End of month
+                startDate = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0);
+                endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0, 0); // End of month
                 break;
             case 'last_month':
-                startDate = new Date(currentYear, currentMonth - 1, 1);
-                endDate = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999); // End of last month
+                startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1, 12, 0, 0, 0);
+                endDate = new Date(today.getFullYear(), today.getMonth(), 0, 12, 0, 0, 0); // End of last month
                 break;
             case 'current_year':
-                startDate = new Date(currentYear, 0, 1);
-                endDate = new Date(currentYear, 11, 31, 23, 59, 59, 999); // End of year
+                startDate = new Date(today.getFullYear(), 0, 1, 12, 0, 0, 0);
+                endDate = new Date(today.getFullYear(), 11, 31, 12, 0, 0, 0); // End of year
                 break;
-            case 'last_year': // Added case
-                startDate = new Date(currentYear - 1, 0, 1);
-                endDate = new Date(currentYear - 1, 11, 31, 23, 59, 59, 999); // End of last year
+            case 'last_year': // Added Last Year
+                startDate = new Date(today.getFullYear() - 1, 0, 1, 12, 0, 0, 0);
+                endDate = new Date(today.getFullYear() - 1, 11, 31, 12, 0, 0, 0); // End of last year
                 break;
             case 'all_time':
             default:
-                // Find earliest and latest date in history for a tighter 'all_time' range
                 if (history.length === 0) {
-                    startDate = new Date(); // No data, use today
-                    endDate = new Date();
+                    startDate = new Date(today); // No data, use today
+                    endDate = new Date(today);
                 } else {
                     // History is already sorted
-                    startDate = new Date(history[0].datum + "T00:00:00"); // Interpret locally
-                    endDate = new Date(history[history.length - 1].datum + "T00:00:00"); // Interpret locally
-                    endDate.setHours(23, 59, 59, 999); // Ensure end of day
+                    startDate = new Date(history[0].datum + "T12:00:00"); // Use noon to avoid TZ issues
+                    endDate = new Date(history[history.length - 1].datum + "T12:00:00");
                 }
                 break;
         }
 
         const filteredHistory = history.filter(entry => {
-            const entryDate = new Date(entry.datum + "T00:00:00"); // Interpret locally for comparison
-            return entryDate >= startDate && entryDate <= endDate;
+            const entryDate = new Date(entry.datum + "T12:00:00"); // Interpret locally at noon
+            // Compare dates only, ignoring time part effectively
+            return entryDate.setHours(0,0,0,0) >= startDate.setHours(0,0,0,0) &&
+                   entryDate.setHours(0,0,0,0) <= endDate.setHours(0,0,0,0);
         });
 
         let totalNetHours = 0;
@@ -1227,7 +1292,7 @@
       /* Light Mode iOS-like Colors */
       --system-background-light: #f2f2f7;
       --system-secondary-background-light: #ffffff;
-      --system-tertiary-background-light: #f2f2f7; /* For inputs etc. */
+      --system-tertiary-background-light: #e5e5ea; /* Slightly darker for inputs */
       --text-color-light: #000000;
       --secondary-text-color-light: rgba(60, 60, 67, 0.6);
       --separator-color-light: rgba(60, 60, 67, 0.29);
@@ -1238,6 +1303,7 @@
       --system-yellow-light: #ffcc00; /* Krank */
       --system-teal-light: #5ac8fa; /* Urlaub/Schulung */
       --system-gray-light: #8e8e93;
+      --system-gray2-light: #aeaeb2; /* Slider background */
 
       /* Dark Mode iOS-like Colors */
       --system-background-dark: #000000;
@@ -1253,6 +1319,7 @@
       --system-yellow-dark: #ffd60a; /* Krank */
       --system-teal-dark: #64d2ff; /* Urlaub/Schulung */
       --system-gray-dark: #8e8e93;
+      --system-gray2-dark: #3a3a3c; /* Slider background */
 
       /* Semantic Colors */
       --background-color: var(--system-background-light);
@@ -1273,6 +1340,8 @@
       --nav-background: var(--system-secondary-background-light);
       --nav-icon-color: var(--system-gray-light);
       --nav-icon-active-color: var(--system-blue-light);
+      --slider-bg-color: var(--system-gray2-light);
+      --slider-checked-bg-color: var(--system-green-light); /* Changed to green for better visibility */
 
       --safe-area-top: env(safe-area-inset-top, 0px);
       --safe-area-bottom: env(safe-area-inset-bottom, 0px);
@@ -1299,9 +1368,12 @@
         --nav-background: var(--system-secondary-background-dark);
         --nav-icon-color: var(--system-gray-dark);
         --nav-icon-active-color: var(--system-blue-dark);
+        --slider-bg-color: var(--system-gray2-dark);
+        --slider-checked-bg-color: var(--system-green-dark);
       }
     }
 
+    /* Base Styles */
     html, body {
       background-color: var(--background-color);
       color: var(--text-color);
@@ -1353,64 +1425,55 @@
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     @media (prefers-color-scheme: dark) {
-       .section { box-shadow: none; } /* Less shadow in dark mode */
+        .section { box-shadow: none; }
     }
 
     /* Buttons */
     .button, .inline-button, .delete-button, .add-button {
+      background-color: var(--button-background-color);
+      color: var(--button-text-color);
       border: none;
-      border-radius: 8px;
+      border-radius: 8px; /* Standard iOS corner radius */
       font-weight: 600;
       cursor: pointer;
-      text-align: center;
-      transition: background-color 0.15s ease, opacity 0.15s ease;
       box-sizing: border-box;
-      line-height: 1.2;
+      line-height: 1.2em;
+      text-align: center;
+      transition: background-color 0.1s ease-in-out;
       -webkit-appearance: none;
       appearance: none;
     }
 
     .button {
       width: 100%;
-      padding: 14px;
+      padding: 12px 15px; /* Adjusted padding */
       font-size: 17px;
-      background-color: var(--button-background-color);
-      color: var(--button-text-color);
-      margin-top: 10px; /* Space above main buttons */
+      min-height: 44px; /* iOS standard tap height */
+      margin-bottom: 10px;
     }
-    .button:active { background-color: color-mix(in srgb, var(--button-background-color) 80%, black); }
 
     .inline-button, .delete-button, .add-button {
       font-size: 15px;
-      padding: 8px 12px;
-      background-color: var(--input-background-color); /* Subtle background */
-      color: var(--system-blue-light);
-      min-width: 40px; /* Ensure tappable area */
+      padding: 8px 12px; /* Smaller padding for inline */
+      min-height: 36px;
     }
+
+    .delete-button { background-color: var(--hint-color); }
+    .add-button { background-color: var(--system-green-light); }
     @media (prefers-color-scheme: dark) {
-        .inline-button, .delete-button, .add-button { color: var(--system-blue-dark); }
+        .add-button { background-color: var(--system-green-dark); }
     }
 
-    .delete-button {
-      background-color: var(--hint-color);
-      color: var(--button-text-color);
+    .button:active, .inline-button:active, .delete-button:active, .add-button:active {
+      filter: brightness(0.85); /* Darken on tap */
     }
-    .delete-button:active { background-color: color-mix(in srgb, var(--hint-color) 80%, black); }
-
-    .add-button {
-        font-size: 20px; /* Make plus bigger */
-        padding: 5px 10px;
-    }
-
-    .inline-button:active, .add-button:active { opacity: 0.7; }
-
 
     /* Inputs & Selects */
     input[type="time"], input[type="number"], input[type="text"], select {
       width: 100%;
-      padding: 12px 15px;
+      padding: 12px 15px; /* Match button padding */
       font-size: 17px;
-      border: 1px solid var(--separator-color);
+      border: none; /* Remove default border */
       border-radius: 8px;
       margin-bottom: 10px;
       background-color: var(--input-background-color);
@@ -1418,135 +1481,112 @@
       box-sizing: border-box;
       -webkit-appearance: none;
       appearance: none;
-      height: 44px; /* Standard iOS input height */
-      line-height: 1.2;
+      line-height: 1.2em;
+      min-height: 44px; /* iOS standard tap height */
     }
-    input:focus, select:focus {
-        border-color: var(--system-blue-light);
-        outline: none;
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--system-blue-light) 30%, transparent);
+
+    input:read-only {
+      background-color: var(--card-background-color); /* Make readonly look less interactive */
+      color: var(--secondary-text-color);
     }
-     @media (prefers-color-scheme: dark) {
-        input:focus, select:focus {
-            border-color: var(--system-blue-dark);
-            box-shadow: 0 0 0 2px color-mix(in srgb, var(--system-blue-dark) 30%, transparent);
-        }
-     }
 
-    input:read-only, input:disabled {
-      background-color: var(--separator-color-light);
-      opacity: 0.7;
-      cursor: default;
-      border-color: transparent;
-    }
-     @media (prefers-color-scheme: dark) {
-        input:read-only, input:disabled {
-            background-color: var(--separator-color-dark);
-        }
-     }
+    input[type=time]::-webkit-calendar-picker-indicator { display: none; } /* Hide time picker icon */
 
-    input[type=time]::-webkit-calendar-picker-indicator { display: none; } /* Hide default time picker icon */
+    /* Specific Layouts */
+    .row { display: flex; gap: 10px; margin-bottom: 10px; }
+    .column { flex: 1; }
 
-    /* Layout Helpers */
-    .row {
+    /* Corrected Time Input Row */
+    .time-input-row {
       display: flex;
-      gap: 10px; /* Space between columns */
+      align-items: center; /* Vertically center items */
+      gap: 10px;
       margin-bottom: 10px;
-      align-items: baseline; /* Align items based on text baseline */
     }
-    .column { flex: 1; min-width: 0; /* Prevent overflow */ }
+    .time-input-row input[type="time"] {
+      flex-grow: 1; /* Input takes available space */
+      margin-bottom: 0; /* Remove bottom margin */
+    }
+    .time-input-row .button {
+      flex-shrink: 0; /* Prevent button from shrinking */
+      width: auto; /* Allow button to size based on content */
+      margin-bottom: 0; /* Remove bottom margin */
+      padding: 12px 20px; /* Adjust padding if needed */
+    }
 
-    /* Switches (iOS Style) - Adjusted */
+    /* Switch Toggle */
     .switch-container {
       display: flex;
       align-items: center;
-      margin: 15px 0;
-      justify-content: space-between; /* Space out label and switch */
-      min-height: 44px; /* Tappable height */
+      margin-bottom: 15px; /* Increased spacing */
+      min-height: 44px; /* Ensure tappable area */
     }
-    .switch-container span:first-of-type { /* Label text */
-        flex-grow: 1;
-        margin-right: 10px;
-        font-size: 17px;
+    .switch-container span { /* Label text */
+      margin-left: 10px;
+      font-size: 17px;
     }
     .switch {
       position: relative;
       display: inline-block;
-      width: 52px; /* Slightly wider track */
-      height: 31px;
-      flex-shrink: 0; /* Prevent switch from shrinking */
+      width: 52px; /* Increased width */
+      height: 30px; /* Slightly taller */
+      flex-shrink: 0; /* Prevent shrinking */
     }
     .switch input { opacity: 0; width: 0; height: 0; }
     .slider {
       position: absolute;
       cursor: pointer;
       top: 0; left: 0; right: 0; bottom: 0;
-      background-color: #e9e9eb; /* iOS off-grey */
+      background-color: var(--slider-bg-color);
       transition: .4s;
-      border-radius: 34px;
+      border-radius: 15px; /* Fully rounded */
     }
     .slider:before {
       position: absolute;
       content: "";
-      height: 27px; width: 27px;
-      left: 2px; bottom: 2px;
+      height: 26px; width: 26px; /* Slightly larger knob */
+      left: 2px; bottom: 2px; /* Positioned bottom-left */
       background-color: white;
       transition: .4s;
       border-radius: 50%;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
-    input:checked + .slider { background-color: var(--system-green-light); }
-    /* Adjusted translateX for better visual fit */
-    input:checked + .slider:before { transform: translateX(21px); }
-    @media (prefers-color-scheme: dark) {
-        .slider { background-color: #39393d; } /* iOS dark off-grey */
-        input:checked + .slider { background-color: var(--system-green-dark); }
+    input:checked + .slider { background-color: var(--slider-checked-bg-color); }
+    input:checked + .slider:before {
+      transform: translateX(20px); /* Reduced translation */
     }
-    input:disabled + .slider { opacity: 0.5; cursor: default; }
 
-
-    /* Value Badges (Positive/Negative/Zero) */
-    .diff-badge,
-    .positive-value, .negative-value, .zero-value {
-      padding: 3px 8px;
-      border-radius: 10px; /* Pill shape */
-      font-size: 14px;
+    /* Value Badges */
+    .diff-badge {
+      padding: 3px 6px;
+      border-radius: 5px;
+      color: var(--button-text-color) !important; /* Ensure white text */
+      font-size: 14px; /* Slightly smaller */
       font-weight: 500;
-      color: var(--button-text-color) !important; /* Ensure text is white/contrasting */
-      display: inline-block;
-      line-height: 1.1;
-      vertical-align: middle;
+      display: inline-block; /* Needed for padding */
+      vertical-align: middle; /* Align better with text */
     }
     .positive-value { background-color: var(--positive-value-bg) !important; }
     .negative-value { background-color: var(--negative-value-bg) !important; }
     .zero-value { background-color: var(--zero-value-bg) !important; }
 
-    /* Input field coloring for values */
-    input.positive-value, input.negative-value, input.zero-value {
-        color: var(--text-color) !important; /* Keep text readable */
-        font-weight: 600;
-    }
-
-    /* Invalid Time Input */
-    .invalid-time {
-      border-color: var(--hint-color) !important;
-      background-color: color-mix(in srgb, var(--hint-color) 10%, var(--input-background-color)) !important;
-    }
-
-    /* Hinweis Box */
+    /* Hint & Invalid Input */
     #hinweis {
       color: var(--hint-color);
       font-weight: 500;
-      font-size: 14px;
-      display: none; /* Hidden by default */
-      margin-top: 15px;
+      font-size: 15px;
+      display: none;
+      margin-top: 10px;
       padding: 10px;
-      background-color: color-mix(in srgb, var(--hint-color) 10%, var(--card-background-color));
+      background-color: rgba(255, 59, 48, 0.1); /* Light red background */
       border-radius: 8px;
-      border-left: 3px solid var(--hint-color);
+    }
+    .invalid-time {
+      background-color: rgba(255, 59, 48, 0.2) !important; /* More subtle invalid highlight */
+      border: 1px solid var(--hint-color);
     }
 
-    /* History List (iOS Style) */
+    /* History List */
     #history-list {
       list-style-type: none;
       padding: 0;
@@ -1556,90 +1596,85 @@
       overflow: hidden; /* Clip children to rounded corners */
     }
     .history-item {
-      display: flex;
+      display: flex; /* Use flex for layout */
       justify-content: space-between;
       align-items: center;
       padding: 12px 15px;
+      min-height: 60px; /* Consistent height */
       border-bottom: 1px solid var(--separator-color);
-      min-height: 60px; /* Good tappable height */
+      gap: 10px; /* Space between content and actions */
     }
     .history-item:last-child { border-bottom: none; }
-    /* Add left border for violation entries */
-    .history-item.violation-entry {
-        border-left: 3px solid var(--hint-color);
-        padding-left: 12px; /* Adjust padding to compensate for border */
-    }
-    .history-entry { flex-grow: 1; margin-right: 10px; }
-    .history-entry div { margin-bottom: 4px; font-size: 17px; }
-    .history-entry div:first-child { font-weight: 600; } /* Date/Day */
-    .history-entry div:not(:first-child) { font-size: 14px; color: var(--secondary-text-color); }
-    .history-entry.no-data div:not(:first-child) { font-style: italic; }
-    /* Specific background classes for special days */
-    .history-entry-urlaub, .history-entry-krank {
-        padding: 8px 12px; /* Keep padding consistent */
-        border-radius: 8px;
-        margin: -8px 5px -8px 0; /* Adjust padding slightly & add right margin */
-        color: var(--special-day-text);
-    }
-    .history-entry-urlaub { background-color: var(--special-day-urlaub-bg); }
-    .history-entry-krank { background-color: var(--special-day-krank-bg); }
 
-    .history-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-    .violation-mark {
-        color: var(--hint-color);
-        font-weight: bold;
-        display: inline-block;
-        margin-left: 4px;
+    /* Corrected History Entry Content Styling */
+    .history-entry-content {
+      flex-grow: 1; /* Take available space */
+      padding: 5px; /* Add some internal padding */
+      border-radius: 6px; /* Rounded corners for background/border */
+      /* Default transparent background and no border */
+      background-color: transparent;
+      border-left: 3px solid transparent;
+      transition: background-color 0.2s ease; /* Smooth transition */
     }
+    .history-entry-content.special-day {
+      color: var(--special-day-text);
+      /* Background color set via inline style in JS */
+    }
+    .history-entry-content.violation-day {
+      border-left: 3px solid var(--hint-color);
+      background-color: rgba(255, 59, 48, 0.05); /* Subtle red background */
+    }
+    .history-entry-content.no-data {
+      color: var(--secondary-text-color);
+    }
+    .history-entry-content div:first-child { font-weight: 500; } /* Date/Day */
+    .history-entry-content div:last-child { font-size: 15px; color: var(--secondary-text-color); } /* Time/Status */
+    .history-entry-content.special-day div:last-child { color: var(--special-day-text); } /* Ensure status text color matches */
+    .violation-mark { color: var(--hint-color); font-weight: bold; }
+
+    .history-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0; /* Prevent actions from shrinking */
+    }
+    .history-actions .inline-button { font-size: 20px; padding: 5px 8px; } /* Make info button just 'i' */
+    .history-actions .delete-button { font-size: 20px; padding: 5px 8px; } /* Make delete button just 'x' */
 
     /* Weekly Summary & Pagination */
     #weekly-summary, #month-summary {
-        margin-top: 20px;
         padding: 15px;
         background-color: var(--card-background-color);
         border-radius: 10px;
+        margin-top: 20px;
+        text-align: center;
         font-size: 17px;
+        font-weight: 500;
     }
-    #pagination, #month-navigation {
+    #pagination, #month-pagination {
       display: flex;
-      justify-content: space-between; /* Pushes buttons apart */
+      justify-content: space-between; /* Space out buttons */
       align-items: center;
       margin: 20px 0;
-      padding: 0 15px; /* Align with card padding */
     }
-    #pagination button, #month-navigation button {
-      background-color: transparent;
-      color: var(--system-blue-light);
-      border: none;
-      padding: 10px;
-      font-size: 17px;
-      font-weight: 400; /* Normal weight for nav text */
-      cursor: pointer;
-    }
-     @media (prefers-color-scheme: dark) {
-        #pagination button, #month-navigation button { color: var(--system-blue-dark); }
-     }
-    #month-year-display {
-        font-size: 17px;
-        font-weight: 600;
-        text-align: center;
+    #pagination button, #month-pagination button {
+      padding: 10px 20px;
+      font-size: 16px;
+      min-height: 40px;
     }
 
-
-    /* Modals (iOS Style) */
+    /* Modal Styles */
     .modal {
-      /* display: none; // Managed by JS and inline style initially */
+      display: none; /* Hidden by default */
       position: fixed;
-      z-index: 1000;
+      z-index: 9999;
       left: 0; top: 0;
       width: 100%; height: 100%;
       overflow: auto;
-      background-color: rgba(0,0,0,0.4); /* Dimming background */
-      /* Flexbox for centering */
-      display: flex;
+      background-color: rgba(0,0,0,0.4); /* Dimming overlay */
       justify-content: center;
       align-items: center;
-      padding: 20px;
+      padding: 20px; /* Padding for smaller screens */
       box-sizing: border-box;
     }
     .modal-content {
@@ -1648,124 +1683,107 @@
       padding: 20px;
       max-width: 400px;
       width: 90%; /* Responsive width */
+      margin: auto; /* Center horizontally */
       color: var(--text-color);
-      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      box-sizing: border-box;
       position: relative; /* For close button positioning */
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
     }
-    .modal-content h3 { margin-top: 0; text-align: center; color: var(--text-color); text-transform: none; }
+    .modal-content h3 { margin-top: 0; } /* Remove top margin from modal title */
     .close-button {
       position: absolute;
       top: 10px; right: 10px;
-      background: var(--separator-color); /* Subtle circle */
+      background: var(--system-gray2-light);
       border: none;
       color: var(--secondary-text-color);
-      font-size: 16px;
+      font-size: 14px; /* Smaller font size */
       font-weight: bold;
-      width: 28px; height: 28px;
+      width: 28px; height: 28px; /* Circular button */
       border-radius: 50%;
       cursor: pointer;
-      line-height: 26px; /* Center '×' */
-      text-align: center;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      line-height: 1;
       padding: 0;
     }
-    .close-button:active { opacity: 0.7; }
-
-    /* Detail Modal Specifics */
-    #detail-content p {
-        font-size: 16px;
-        margin-bottom: 12px;
-        border-bottom: 1px solid var(--separator-color);
-        padding-bottom: 8px;
+    @media (prefers-color-scheme: dark) {
+        .close-button { background: var(--system-gray2-dark); }
     }
-     #detail-content p:last-child { border-bottom: none; }
-    #detail-content strong {
-        color: var(--secondary-text-color);
-        display: inline-block;
-        width: 140px; /* Align labels */
-    }
-    #detail-content span { font-weight: 500; }
+    .close-button:active { filter: brightness(0.85); }
 
-
-    /* Month View Calendar */
+    /* Calendar (Month View) */
     #calendar-grid {
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 5px;
-        background-color: var(--card-background-color);
-        padding: 10px;
-        border-radius: 10px;
-        margin-top: 15px;
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 5px; /* Space between cells */
+      margin-top: 15px;
     }
     .calendar-header {
-        font-size: 12px;
-        font-weight: 600;
-        text-align: center;
-        color: var(--secondary-text-color);
-        padding-bottom: 5px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--secondary-text-color);
+      padding-bottom: 10px;
     }
     .calendar-day {
-        aspect-ratio: 1 / 1; /* Make cells square */
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        font-size: 15px;
-        border-radius: 50%; /* Circular days */
-        cursor: default;
-        border: 2px solid transparent; /* For today's highlight */
-        transition: background-color 0.2s ease, border-color 0.2s ease;
-        box-sizing: border-box; /* Ensure padding/border are included */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      aspect-ratio: 1 / 1; /* Ensure square cells */
+      font-size: 16px;
+      position: relative; /* For potential future markers */
+      cursor: default;
     }
-    .calendar-day.empty { background-color: transparent; }
-    .calendar-day.weekend { color: var(--secondary-text-color); }
-    .calendar-day.has-entry {
-        cursor: pointer;
-        color: var(--button-text-color); /* Default white text on colored background */
-    }
-    /* Specific background classes for calendar days (no padding) */
-    .calendar-day-positive { background-color: var(--positive-value-bg); }
-    .calendar-day-negative { background-color: var(--negative-value-bg); }
-    .calendar-day-zero { background-color: var(--zero-value-bg); }
-    .calendar-day-urlaub { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text); }
-    .calendar-day-krank { background-color: var(--special-day-krank-bg); color: var(--special-day-text); }
+    .calendar-day.empty { visibility: hidden; }
+    .calendar-day.weekend .calendar-day-content { color: var(--secondary-text-color); }
+    .calendar-day.no-entry { cursor: pointer; }
+    .calendar-day.has-entry { cursor: pointer; }
 
-    .calendar-day.no-entry {
-        color: var(--system-blue-light);
-        cursor: pointer;
-        font-weight: 500; /* Make addable days stand out slightly */
+    .calendar-day-content {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 85%; /* Make circle slightly smaller than cell */
+      height: 85%;
+      border-radius: 50%; /* Make it a circle */
+      transition: transform 0.1s ease;
     }
-     @media (prefers-color-scheme: dark) {
-        .calendar-day.no-entry { color: var(--system-blue-dark); }
-     }
-    .calendar-day.no-entry:hover { background-color: var(--separator-color); }
-
-    .calendar-day.today {
-        border: 2px solid var(--system-blue-light);
+    .calendar-day.has-entry .calendar-day-content { color: var(--button-text-color); } /* White text on colored bg */
+    .calendar-day.has-entry .calendar-day-content.special-day-krank-bg,
+    .calendar-day.has-entry .calendar-day-content.special-day-urlaub-bg {
+        color: var(--special-day-text); /* Black text on yellow/teal */
+    }
+    .calendar-day-content.today {
         font-weight: bold;
+        border: 2px solid var(--button-background-color); /* Circle outline for today */
     }
-     @media (prefers-color-scheme: dark) {
-        .calendar-day.today { border-color: var(--system-blue-dark); }
-     }
+    .calendar-day.has-entry .calendar-day-content.today {
+         border: 2px solid var(--text-color); /* Contrast border if filled */
+    }
+    .calendar-day:active .calendar-day-content {
+        transform: scale(0.95); /* Slight shrink on tap */
+    }
 
-    /* Statistics View */
+    /* Statistics List */
     #stats-content {
         list-style: none;
         padding: 0;
         margin: 0;
         background-color: var(--card-background-color);
         border-radius: 10px;
-        padding: 15px;
+        overflow: hidden;
     }
     #stats-content li {
-        font-size: 17px;
-        padding: 10px 0;
-        border-bottom: 1px solid var(--separator-color);
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        padding: 12px 15px;
+        font-size: 17px;
+        border-bottom: 1px solid var(--separator-color);
     }
-     #stats-content li:last-child { border-bottom: none; }
-    #stats-content span { font-weight: 600; } /* Highlight the value */
-
+    #stats-content li:last-child { border-bottom: none; }
+    #stats-content li span:last-child { font-weight: 500; color: var(--secondary-text-color); }
+    #stats-content li span.diff-badge { color: var(--button-text-color) !important; } /* Override secondary color */
 
     /* Bottom Navigation */
     #bottom-nav {
@@ -1773,36 +1791,34 @@
       bottom: 0;
       left: 0;
       right: 0;
-      height: calc(50px + var(--safe-area-bottom)); /* Standard height + safe area */
+      height: calc(50px + var(--safe-area-bottom));
       background-color: var(--nav-background);
-      border-top: 1px solid var(--separator-color);
+      border-top: 0.5px solid var(--separator-color);
       display: flex;
       justify-content: space-around;
-      align-items: flex-start; /* Align icons to top */
-      padding-top: 5px; /* Space above icons */
-      padding-bottom: var(--safe-area-bottom); /* Add padding for home indicator */
-      z-index: 100;
+      align-items: flex-start; /* Align icons to top within safe area */
+      padding-top: 5px; /* Padding above icons */
+      padding-bottom: var(--safe-area-bottom);
+      z-index: 1000;
     }
     .nav-item {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: none;
-      border: none;
+      flex: 1;
       color: var(--nav-icon-color);
-      font-size: 10px; /* Label size */
+      text-decoration: none;
+      font-size: 10px;
       cursor: pointer;
-      padding: 0 10px;
-      flex: 1; /* Distribute space evenly */
-      height: 100%; /* Fill nav height */
+      padding: 0 5px;
       text-align: center;
     }
     .nav-item svg {
       width: 24px;
       height: 24px;
       margin-bottom: 2px;
-      fill: currentColor; /* Use text color for SVG fill */
+      fill: currentColor;
     }
     .nav-item.active {
       color: var(--nav-icon-active-color);
@@ -1812,308 +1828,291 @@
 </head>
 <body>
 
-<div id="app-container">
+  <div id="app-container">
 
-  <!-- Main Calculator Page -->
-  <div id="main-page" class="page active"> <!-- Start with main page active -->
-    <div class="container">
-      <h1>Arbeitszeit</h1>
+    <!-- Main Page -->
+    <div id="main-page" class="page active">
+      <div class="container">
+        <h1>Arbeitszeit</h1>
 
-      <!-- Kommen / Gehen + PC + Büro -->
-      <div class="section">
-        <h3>Zeiterfassung</h3>
-        <!-- Use baseline alignment for the row -->
+        <!-- Kommen / Gehen + PC + Büro -->
+        <div class="section">
+          <h3>Zeiterfassung</h3>
+          <!-- Corrected Kommen Row -->
+          <div class="time-input-row">
+            <input type="time" id="kommen-display" oninput="onInputChange()">
+            <button class="button" onclick="setZeit('kommen')">Kommen</button>
+          </div>
+
+          <!-- Corrected Gehen Row -->
+          <div class="time-input-row">
+            <input type="time" id="gehen-display" oninput="onInputChange()">
+            <button class="button" onclick="setZeit('gehen')">Gehen</button>
+          </div>
+
+          <div class="switch-container">
+            <label class="switch">
+              <input type="checkbox" id="pc-buchung" onchange="onInputChange()">
+              <span class="slider"></span>
+            </label>
+            <span>PC-Buchung (-8 Min)</span>
+          </div>
+
+          <div class="switch-container">
+            <label class="switch">
+              <input type="checkbox" id="buero-toggle" onchange="onInputChange()">
+              <span class="slider"></span>
+            </label>
+            <span>Im Büro</span>
+          </div>
+          <p id="hinweis"></p>
+        </div>
+
+        <!-- Einstellungen -->
+        <div class="section">
+           <h3>Einstellungen</h3>
+           <div class="row">
+             <div class="column">
+               <label for="wochenarbeitszeit">Wochen-AZ (Std):</label>
+               <input type="number" id="wochenarbeitszeit" value="38" step="0.5" onchange="onInputChange()">
+             </div>
+             <div class="column">
+               <label for="zusatzliche-pause">Zus. Pause (hh:mm / h.hh):</label>
+               <input type="text" id="zusatzliche-pause" placeholder="z.B. 0:15 oder 0.25" oninput="onInputChange()">
+             </div>
+           </div>
+           <div class="row">
+                <div class="column">
+                    <label for="aktuelles-konto">Aktuelles Konto (Std):</label>
+                    <input type="number" id="aktuelles-konto" value="0" step="0.01" onchange="onInputChange()">
+                </div>
+                <div class="column">
+                    <label>Konto (Zeit):</label>
+                    <input type="text" id="aktuelles-konto-time" readonly>
+                </div>
+           </div>
+        </div>
+
+
+        <!-- Zeitenübersicht -->
+        <div class="section">
+          <h3>Zeitenübersicht (Heute)</h3>
+          <div class="row">
+            <div class="column">
+              <label>Anwesenheit:</label>
+              <input type="text" id="anwesend-zeit" readonly>
+            </div>
+            <div class="column">
+              <label>Pause:</label>
+              <input type="text" id="pausenzeit" readonly>
+            </div>
+          </div>
+          <div class="row">
+            <div class="column">
+              <label>Netto-Arbeitszeit:</label>
+              <input type="text" id="arbeitszeit" readonly>
+            </div>
+            <div class="column">
+              <label>Soll-Arbeitszeit:</label>
+              <input type="text" id="sollarbeitszeit-display" readonly>
+            </div>
+          </div>
+           <div class="row">
+            <div class="column">
+              <label>Differenz (Std):</label>
+              <input type="text" id="differenz" readonly>
+            </div>
+            <div class="column">
+              <label>Differenz (Zeit):</label>
+              <input type="text" id="differenz-time" readonly>
+            </div>
+          </div>
+          <div class="row">
+            <div class="column">
+              <label>Neues Konto (Std):</label>
+              <input type="text" id="neues-konto" readonly>
+            </div>
+            <div class="column">
+              <label>Neues Konto (Zeit):</label>
+              <input type="text" id="neues-konto-time" readonly>
+            </div>
+          </div>
+          <button class="button" onclick="saveDay()">Tag speichern</button>
+        </div>
+
+        <!-- Ausstempelzeiten -->
+        <div class="section">
+          <h3>Ausstempelzeiten</h3>
+          <div class="row">
+            <div class="column">
+              <label>Soll:</label>
+              <input type="text" id="end-time-soll" readonly>
+            </div>
+            <div class="column">
+              <label>10h (Max):</label>
+              <input type="text" id="end-time-10h" readonly>
+            </div>
+          </div>
+          <div class="row">
+            <div class="column">
+              <label>4h (Min):</label>
+              <input type="text" id="end-time-4h" readonly>
+            </div>
+             <div class="column">
+              <label>6h (+Pause):</label>
+              <input type="text" id="end-time-6h" readonly>
+            </div>
+            <div class="column">
+              <label>9h (+Pause):</label>
+              <input type="text" id="end-time-9h" readonly>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Page -->
+    <div id="history-page" class="page">
+      <div class="container">
+        <h1>Verlauf</h1>
+        <h2 id="week-info"></h2>
+        <p id="week-range" style="text-align: center; color: var(--secondary-text-color); margin-top: -10px; margin-bottom: 15px;"></p>
+        <div id="pagination"></div>
+        <ul id="history-list"></ul>
+        <div id="weekly-summary">
+            <span id="weekly-summary-content">Gesamtdifferenz: --</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Month Page -->
+    <div id="month-page" class="page">
+        <div class="container">
+            <h1>Monatsübersicht</h1>
+            <div id="month-pagination" style="align-items: center;">
+                <button id="prev-month" class="inline-button">‹</button>
+                <h2 id="month-year-display" style="margin: 0; border: none; text-align: center;"></h2>
+                <button id="next-month" class="inline-button">›</button>
+            </div>
+            <div id="calendar-grid"></div>
+            <div id="month-summary">
+                <span id="month-summary-content">Monatsdifferenz: --</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Page -->
+    <div id="stats-page" class="page">
+        <div class="container">
+            <h1>Statistik</h1>
+            <div class="section">
+                <label for="stats-period">Zeitraum:</label>
+                <select id="stats-period">
+                    <option value="current_month">Aktueller Monat</option>
+                    <option value="last_month">Letzter Monat</option>
+                    <option value="current_year">Aktuelles Jahr</option>
+                    <option value="last_year">Letztes Jahr</option>
+                    <option value="all_time">Gesamter Zeitraum</option>
+                </select>
+            </div>
+            <ul id="stats-content">
+                <!-- Stats werden hier per JS eingefügt -->
+                <li>Lade Statistik...</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Detail-Modal -->
+    <div id="detail-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <button class="close-button" onclick="closeDetailModal()">×</button>
+        <h3 id="detail-modal-title">Details</h3>
+        <div id="detail-content">
+            <!-- Details werden hier per JS eingefügt -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Day Modal -->
+    <div id="add-day-modal" class="modal" data-date="" style="display: none;">
+      <div class="modal-content">
+        <button class="close-button" onclick="closeAddDayModal()">×</button>
+        <h3 id="add-day-modal-title">Manuelle Buchung</h3>
         <div class="row">
           <div class="column">
-            <label for="kommen-display">Kommen</label>
-            <input type="time" id="kommen-display">
+            <label for="add-day-kommen">Kommen:</label>
+            <input type="time" id="add-day-kommen">
           </div>
           <div class="column">
-            <!-- Button label changed -->
-            <button class="button" onclick="setZeit('kommen')" style="height: 44px; padding: 10px; margin-bottom: 10px;">Kommen</button>
+            <label for="add-day-gehen">Gehen:</label>
+            <input type="time" id="add-day-gehen">
           </div>
+        </div>
+
+        <div class="switch-container" style="margin-top:15px;">
+          <label class="switch">
+            <input type="checkbox" id="pc-buchung-add-day">
+            <span class="slider"></span>
+          </label>
+          <span>PC-Buchung (-8 Min)</span>
         </div>
 
         <div class="switch-container">
-          <span>PC-Buchung (-8 Min)</span>
           <label class="switch">
-            <input type="checkbox" id="pc-buchung">
+            <input type="checkbox" id="buero-add-day">
             <span class="slider"></span>
           </label>
+          <span>Im Büro</span>
         </div>
-         <div class="switch-container">
-          <span>Anwesenheit im Büro</span>
+
+        <h3 style="margin-top: 20px;">Sondertag?</h3>
+        <div class="switch-container">
           <label class="switch">
-            <input type="checkbox" id="buero-toggle">
+            <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')">
             <span class="slider"></span>
           </label>
+          <span>Urlaub</span>
+        </div>
+        <div class="switch-container">
+          <label class="switch">
+            <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')">
+            <span class="slider"></span>
+          </label>
+          <span>Krank</span>
+        </div>
+        <div class="switch-container">
+          <label class="switch">
+            <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')">
+            <span class="slider"></span>
+          </label>
+          <span>Schulung</span>
         </div>
 
-        <!-- Use baseline alignment for the row -->
-        <div class="row">
-          <div class="column">
-            <label for="gehen-display">Gehen</label>
-            <input type="time" id="gehen-display">
-          </div>
-          <div class="column">
-             <!-- Button label changed -->
-            <button class="button" onclick="setZeit('gehen')" style="height: 44px; padding: 10px; margin-bottom: 10px;">Gehen</button>
-          </div>
-        </div>
-        <p id="hinweis"></p>
-      </div>
-
-      <!-- Einstellungen -->
-      <div class="section">
-         <h3>Einstellungen</h3>
-         <div class="row">
-          <div class="column">
-            <label for="wochenarbeitszeit">Wochen-AZ (Std.)</label>
-            <input type="number" id="wochenarbeitszeit" value="38" step="0.5">
-          </div>
-          <div class="column">
-            <label for="zusatzliche-pause">Zus. Pause (hh:mm / h.d)</label>
-            <input type="text" id="zusatzliche-pause" placeholder="z.B. 0:15 oder 0.5">
-          </div>
-        </div>
-         <div class="row">
-             <div class="column">
-                <label for="aktuelles-konto">Aktuelles Stundenkonto</label>
-                <input type="number" id="aktuelles-konto" value="0" step="0.01">
-             </div>
-             <div class="column">
-                <label>Akt. Konto (Zeit)</label>
-                <input type="text" id="aktuelles-konto-time" readonly>
-             </div>
-         </div>
-      </div>
-
-
-      <!-- Zeitenübersicht -->
-      <div class="section">
-        <h3>Übersicht Heute</h3>
-        <div class="row">
-          <div class="column">
-            <label>Anwesenheit</label>
-            <input type="text" id="anwesend-zeit" readonly>
-          </div>
-          <div class="column">
-            <label>Pause gesamt</label>
-            <input type="text" id="pausenzeit" readonly>
-          </div>
-        </div>
-        <div class="row">
-          <div class="column">
-            <label>Netto-Arbeitszeit</label>
-            <input type="text" id="arbeitszeit" readonly>
-          </div>
-          <div class="column">
-            <label>Soll pro Tag</label>
-            <input type="text" id="sollarbeitszeit-display" readonly>
-          </div>
-        </div>
-         <div class="row">
-          <div class="column">
-            <label>Differenz (Dezimal)</label>
-            <input type="text" id="differenz" readonly>
-          </div>
-          <div class="column">
-            <label>Differenz (Zeit)</label>
-            <input type="text" id="differenz-time" readonly>
-          </div>
-        </div>
-        <div class="row">
-          <div class="column">
-            <label>Neues Stundenkonto</label>
-            <input type="text" id="neues-konto" readonly>
-          </div>
-          <div class="column">
-            <label>Neues Konto (Zeit)</label>
-            <input type="text" id="neues-konto-time" readonly>
-          </div>
-        </div>
-        <button class="button" onclick="saveDay()">Tag speichern</button>
-      </div>
-
-      <!-- Ausstempelzeiten -->
-      <div class="section">
-        <h3>Gehen um (ca.)</h3>
-        <div class="row">
-          <div class="column">
-            <label>Soll erfüllt:</label>
-            <input type="text" id="end-time-soll" readonly>
-          </div>
-        </div>
-        <div class="row">
-          <div class="column">
-            <label>4h Netto:</label>
-            <input type="text" id="end-time-4h" readonly>
-          </div>
-          <div class="column">
-            <label>6h Netto:</label>
-            <input type="text" id="end-time-6h" readonly>
-          </div>
-        </div>
-        <div class="row">
-          <div class="column">
-            <label>9h Netto:</label>
-            <input type="text" id="end-time-9h" readonly>
-          </div>
-          <div class="column">
-            <label>10h Netto:</label>
-            <input type="text" id="end-time-10h" readonly>
-          </div>
-        </div>
+        <button class="button" onclick="addManualDay()" style="margin-top: 20px;">Speichern</button>
       </div>
     </div>
-  </div>
 
-  <!-- History Page (Weekly View) -->
-  <div id="history-page" class="page">
-    <div class="container">
-      <h1>Verlauf</h1>
-      <h2 id="week-info"></h2>
-      <p id="week-range" style="text-align: center; color: var(--secondary-text-color); margin-top: -10px; margin-bottom: 20px;"></p>
-      <ul id="history-list"></ul>
-      <div id="weekly-summary">
-          <h3 style="margin-top: 0;">Wochenübersicht</h3>
-          <p id="weekly-summary-content"></p>
-      </div>
-      <div id="pagination"></div>
-    </div>
-  </div>
+    <!-- Bottom Navigation -->
+    <nav id="bottom-nav">
+      <a id="nav-main" class="nav-item active">
+        <svg viewBox="0 0 24 24"><path d="M12 5.69l5 4.5V18h-2v-6H9v6H7v-7.81l5-4.5M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"/></svg>
+        <span>Rechner</span>
+      </a>
+      <a id="nav-history" class="nav-item">
+        <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 0 1 7-7 7 7 0 0 1 7 7 7 7 0 0 1-7 7v2a9 9 0 0 0 9-9 9 9 0 0 0-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg>
+        <span>Verlauf</span>
+      </a>
+      <a id="nav-month" class="nav-item">
+         <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM9 14H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zm-8 4H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2z"/></svg>
+        <span>Monat</span>
+      </a>
+      <a id="nav-stats" class="nav-item">
+        <svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg>
+        <span>Statistik</span>
+      </a>
+    </nav>
 
-  <!-- Month View Page -->
-  <div id="month-page" class="page">
-      <div class="container">
-          <h1>Monatsübersicht</h1>
-          <div id="month-navigation">
-              <button id="prev-month">‹ Voriger</button>
-              <span id="month-year-display"></span>
-              <button id="next-month">Nächster ›</button>
-          </div>
-          <div id="calendar-grid">
-              <!-- Calendar will be rendered here by JS -->
-          </div>
-           <div id="month-summary">
-              <h3 style="margin-top: 0;">Monatsübersicht</h3>
-              <p id="month-summary-content"></p>
-           </div>
-      </div>
-  </div>
-
-  <!-- Statistics Page -->
-  <div id="stats-page" class="page">
-      <div class="container">
-          <h1>Statistik</h1>
-          <div class="section">
-              <label for="stats-period">Zeitraum auswählen:</label>
-              <select id="stats-period">
-                  <option value="current_month">Aktueller Monat</option>
-                  <option value="last_month">Letzter Monat</option>
-                  <option value="current_year">Aktuelles Jahr</option>
-                  <option value="last_year">Letztes Jahr</option> <!-- Added Option -->
-                  <option value="all_time">Gesamt</option>
-              </select>
-          </div>
-          <ul id="stats-content">
-              <!-- Stats will be rendered here by JS -->
-              <li>Lade Statistiken...</li>
-          </ul>
-      </div>
-  </div>
-
-
-  <!-- Detail Modal - Added style="display: none;" -->
-  <div id="detail-modal" class="modal" style="display: none;">
-    <div class="modal-content">
-      <button class="close-button" onclick="closeDetailModal()">×</button>
-      <h3 id="detail-modal-title">Details</h3>
-      <div id="detail-content">
-          <!-- Details will be rendered here by JS -->
-      </div>
-    </div>
-  </div>
-
-  <!-- Add Day Modal - Added style="display: none;" -->
-  <div id="add-day-modal" class="modal" data-date="" style="display: none;">
-    <div class="modal-content">
-      <button class="close-button" onclick="closeAddDayModal()">×</button>
-      <h3 id="add-day-modal-title">Manuelle Buchung</h3>
-      <div class="row">
-        <div class="column">
-          <label for="add-day-kommen">Kommen</label>
-          <input type="time" id="add-day-kommen">
-        </div>
-        <div class="column">
-          <label for="add-day-gehen">Gehen</label>
-          <input type="time" id="add-day-gehen">
-        </div>
-      </div>
-
-      <div class="switch-container">
-        <span>PC-Buchung (-8 Min)</span>
-        <label class="switch">
-          <input type="checkbox" id="pc-buchung-add-day">
-          <span class="slider"></span>
-        </label>
-      </div>
-       <div class="switch-container">
-        <span>Anwesenheit im Büro</span>
-        <label class="switch">
-          <input type="checkbox" id="buero-add-day">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <h3 style="margin-top: 25px; margin-bottom: 5px; font-size: 15px;">Oder Abwesenheit:</h3>
-      <div class="switch-container">
-        <span>Urlaub</span>
-        <label class="switch">
-          <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="switch-container">
-        <span>Krank</span>
-        <label class="switch">
-          <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')">
-          <span class="slider"></span>
-        </label>
-      </div>
-      <div class="switch-container">
-        <span>Schulung</span>
-        <label class="switch">
-          <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <button class="button" onclick="addManualDay()">Speichern</button>
-    </div>
-  </div>
-
-  <!-- Bottom Navigation Bar -->
-  <nav id="bottom-nav">
-      <button id="nav-main" class="nav-item active">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.59L12 17.17l-1.41 1.42L9.17 17l1.41-1.41L9.17 14.17l1.42-1.41L12 14.17l1.41-1.41 1.42 1.41L13.41 15.59l1.42 1.41L13.41 18.41zM11 6h2v5h-2V6z"/></svg>
-          <span>Rechner</span>
-      </button>
-      <button id="nav-history" class="nav-item">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M15 2H9c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h6c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 18c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm3-4H9V4h6v12z"/></svg>
-          <span>Verlauf</span>
-      </button>
-      <button id="nav-month" class="nav-item">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM9 14H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zm-8 4H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zM5 8V6h14v2H5z"/></svg>
-          <span>Monat</span>
-      </button>
-      <button id="nav-stats" class="nav-item">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg>
-          <span>Statistik</span>
-      </button>
-  </nav>
-
-</div> <!-- End #app-container -->
+  </div> <!-- End #app-container -->
 
 </body>
 </html>
