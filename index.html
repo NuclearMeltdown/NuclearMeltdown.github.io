@@ -32,6 +32,7 @@
   <meta name="msapplication-square310x310logo" content="https://NuclearMeltdown.github.io/mstile-310x310.png" />
 
   <title>Arbeitszeitrechner</title>
+
   <script>
     console.log("Script geladen: Start.");
 
@@ -646,7 +647,7 @@
       }
       localStorage.setItem('history',JSON.stringify(history));
       document.getElementById('aktuelles-konto').value=newKto.toFixed(2);
-      localStorage.setItem('aktuellesStundenkonto', newKto.toFixed(2));
+      localStorage.setItem('aktuellesStundenkonto',newKto.toFixed(2));
       updateCalculations();
       closeAddDayModal();
       loadHistory();
@@ -1190,8 +1191,8 @@
       <div class="section">
         <div class="row">
           <div class="column">
-            <!-- onChange => update -->
-            <input type="time" id="kommen-display" onchange="onInputChange()">
+            <!-- Hier verwenden wir oninput="onInputChange()" -->
+            <input type="time" id="kommen-display" oninput="onInputChange()">
           </div>
           <div class="column">
             <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
@@ -1214,8 +1215,8 @@
 
         <div class="row">
           <div class="column">
-            <!-- onChange => update -->
-            <input type="time" id="gehen-display" onchange="onInputChange()">
+            <!-- Hier ebenfalls oninput="onInputChange()" -->
+            <input type="time" id="gehen-display" oninput="onInputChange()">
           </div>
           <div class="column">
             <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
