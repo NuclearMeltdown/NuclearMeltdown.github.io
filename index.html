@@ -167,7 +167,6 @@
 
         $("stats-period").onchange = () => calculateAndDisplayStats();
 
-        // --- Event Listener für Import/Export Buttons ---
         $("export-button").addEventListener("click", exportHistoryToJson);
         $("import-button").addEventListener("click", importHistoryFromJson);
       }
@@ -474,7 +473,7 @@
         } else {
           history.push(dayData);
         }
-        saveAndReload(history); // Lässt saveAndReload sortieren und speichern
+        saveAndReload(history);
         alert("Der Tag wurde gespeichert.");
       }
 
@@ -559,7 +558,7 @@
                 : "var(--special-day-urlaub-bg)";
               entryContentDiv.classList.add("special-day");
               entryContentDiv.style.backgroundColor = bgColor;
-              entryContentDiv.style.color = "var(--special-day-text)"; // Ensure black text
+              entryContentDiv.style.color = "var(--special-day-text)";
               entryContentDiv.innerHTML = `
                 <div><strong>${weekdayName}</strong> (${displayDate})</div>
                 <div>${specialDayText} ${locationEmoji}</div>`;
@@ -627,7 +626,6 @@
         const diffMs = gehenAdjusted - kommenLokal;
         if (diffMs < 0) return 0;
         const totalH = diffMs / (1000 * 60 * 60);
-        // Annahme: Die Pausenregeln waren zur Zeit des Eintrags dieselben wie jetzt
         const pausen = calculatePausenForWorkTime(totalH);
         return Math.max(0, totalH - pausen);
       }
@@ -645,7 +643,7 @@
             )
           ) {
             history.splice(index, 1);
-            saveAndReload(history); // Lässt saveAndReload sortieren und speichern
+            saveAndReload(history);
           }
         }
       }
@@ -657,6 +655,7 @@
           const btn = document.createElement("button");
           btn.textContent = text;
           btn.onclick = onClick;
+          btn.classList.add("inline-button"); // --- Einheitlicher Style ---
           return btn;
         };
         const prevWeekBtn = createButton("‹ Vorige KW", () => {
@@ -1198,14 +1197,13 @@
             <li>Schulungstage: <span>${trainingDays}</span></li>`;
       }
 
-      // --- Import/Export Funktionen ---
       function exportHistoryToJson() {
         const history = getHistory();
         if (history.length === 0) {
           alert("Keine Daten zum Exportieren vorhanden.");
           return;
         }
-        const jsonData = JSON.stringify(history, null, 2); // Mit Einrückung für Lesbarkeit
+        const jsonData = JSON.stringify(history, null, 2);
         const blob = new Blob([jsonData], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -1224,19 +1222,13 @@
         input.type = "file";
         input.accept = ".json";
         input.style.display = "none";
-
         input.onchange = (event) => {
           const file = event.target.files[0];
-          if (!file) {
-            return; // Keine Datei ausgewählt
-          }
-
+          if (!file) return;
           const reader = new FileReader();
           reader.onload = (e) => {
             try {
               const importedData = JSON.parse(e.target.result);
-
-              // Einfache Validierung
               if (!Array.isArray(importedData)) {
                 throw new Error("Importierte Datei ist kein gültiges JSON-Array.");
               }
@@ -1245,43 +1237,36 @@
                 (importedData[0].datum === undefined ||
                   importedData[0].stundenkonto === undefined)
               ) {
-                // Prüfe nur grundlegende Felder im ersten Eintrag
                 throw new Error(
-                  "Struktur der importierten Daten scheint ungültig zu sein (fehlende Felder)."
+                  "Struktur der importierten Daten scheint ungültig zu sein."
                 );
               }
-
               if (
                 confirm(
                   `Möchten Sie wirklich ${importedData.length} Einträge importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`
                 )
               ) {
-                // Überschreibe die History und speichere
-                saveAndReload(importedData); // saveAndReload sortiert und aktualisiert alles
+                saveAndReload(importedData);
                 alert("Verlauf erfolgreich importiert.");
               }
             } catch (error) {
               console.error("Fehler beim Importieren:", error);
               alert(`Import fehlgeschlagen: ${error.message}`);
             } finally {
-              document.body.removeChild(input); // Räume das Input-Element auf
+              document.body.removeChild(input);
             }
           };
-
           reader.onerror = (e) => {
             console.error("Fehler beim Lesen der Datei:", e);
             alert("Fehler beim Lesen der Datei.");
             document.body.removeChild(input);
           };
-
           reader.readAsText(file);
         };
-
         document.body.appendChild(input);
-        input.click(); // Öffne den Dateiauswahldialog
+        input.click();
       }
 
-      // --- Initial Load ---
       document.addEventListener("DOMContentLoaded", init);
     </script>
 
@@ -1293,9 +1278,9 @@
         --system-tertiary-background-light: #e5e5ea;
         --text-color-light: #000000;
         --secondary-text-color-light: rgba(60, 60, 67, 0.6);
-        --readonly-text-color-light: rgba(0, 0, 0, 0.75); /* Dunkleres Grau */
+        --readonly-text-color-light: rgba(0, 0, 0, 0.75);
         --separator-color-light: rgba(60, 60, 67, 0.29);
-        --input-border-color-light: rgba(60, 60, 67, 0.2); /* Dezente Border */
+        --input-border-color-light: rgba(60, 60, 67, 0.2);
         --system-blue-light: #007aff;
         --system-green-light: #34c759;
         --system-red-light: #ff3b30;
@@ -1311,9 +1296,9 @@
         --system-tertiary-background-dark: #2c2c2e;
         --text-color-dark: #ffffff;
         --secondary-text-color-dark: rgba(235, 235, 245, 0.6);
-        --readonly-text-color-dark: rgba(255, 255, 255, 0.75); /* Helleres Grau */
+        --readonly-text-color-dark: rgba(255, 255, 255, 0.75);
         --separator-color-dark: rgba(84, 84, 88, 0.65);
-        --input-border-color-dark: rgba(84, 84, 88, 0.5); /* Dezente Border */
+        --input-border-color-dark: rgba(84, 84, 88, 0.5);
         --system-blue-dark: #0a84ff;
         --system-green-dark: #30d158;
         --system-red-dark: #ff453a;
@@ -1340,7 +1325,7 @@
         --hint-color: var(--system-red-light);
         --special-day-urlaub-bg: var(--system-teal-light);
         --special-day-krank-bg: var(--system-yellow-light);
-        --special-day-text: #000000; /* Immer Schwarz für Urlaub/Krank */
+        --special-day-text: #000000;
         --nav-background: var(--system-secondary-background-light);
         --nav-icon-color: var(--system-gray-light);
         --nav-icon-active-color: var(--system-blue-light);
@@ -1370,7 +1355,6 @@
           --hint-color: var(--system-red-dark);
           --special-day-urlaub-bg: var(--system-teal-dark);
           --special-day-krank-bg: var(--system-yellow-dark);
-          /* --special-day-text bleibt #000000 */
           --nav-background: var(--system-secondary-background-dark);
           --nav-icon-color: var(--system-gray-dark);
           --nav-icon-active-color: var(--system-blue-dark);
@@ -1404,9 +1388,9 @@
         flex-grow: 1;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-        /* --- Padding oben nur Safe Area, Padding unten für Nav Bar + Safe Area --- */
+        /* Padding oben nur Safe Area, Padding unten für Nav Bar + Safe Area */
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(70px + var(--safe-area-bottom)) /* Platz für Nav + Safe Area */
+          calc(50px + var(--safe-area-bottom)) /* Höhe Nav Bar + Safe Area */
           calc(15px + var(--safe-area-right));
         display: none;
       }
@@ -1417,8 +1401,7 @@
       .container {
         max-width: 600px;
         margin: 0 auto;
-        /* --- Padding Bottom vom Container entfernt, ist jetzt im .page --- */
-        padding-bottom: 15px; /* Nur kleiner Abstand am Ende des Inhalts */
+        padding-bottom: 0; /* Kein Padding mehr hier */
       }
 
       h1 {
@@ -1515,7 +1498,7 @@
         filter: brightness(0.85);
       }
 
-      /* --- Inputs mit Border --- */
+      /* Inputs mit Border (auch readonly) */
       input[type="time"],
       input[type="number"],
       input[type="text"],
@@ -1523,7 +1506,7 @@
         width: 100%;
         padding: 12px 15px;
         font-size: 17px;
-        border: 1px solid var(--input-border-color); /* Border hinzugefügt */
+        border: 1px solid var(--input-border-color); /* Border für alle */
         border-radius: 8px;
         margin-bottom: 10px;
         background-color: var(--input-background-color);
@@ -1534,13 +1517,13 @@
         line-height: 1.2em;
         min-height: 44px;
       }
-      /* --- Readonly Inputs mit besserem Kontrast --- */
+      /* Readonly Inputs mit besserem Kontrast */
       input:read-only {
         background-color: var(
           --card-background-color
         ); /* Weniger interaktiv */
         color: var(--readonly-text-color); /* Besser lesbare Farbe */
-        border-color: transparent; /* Keine Border für readonly */
+        /* Keine spezielle Border-Regel mehr hier */
       }
       input[type="time"]::-webkit-calendar-picker-indicator {
         display: none;
@@ -1555,7 +1538,7 @@
         flex: 1;
       }
 
-      /* --- Layout Kommen/Gehen: Input/Button 50/50 --- */
+      /* Layout Kommen/Gehen: Input/Button 50/50 */
       .time-button-row {
         display: flex;
         gap: 10px;
@@ -1564,17 +1547,17 @@
       }
       .time-button-row input[type="time"],
       .time-button-row .button {
-        flex: 1; /* Beide nehmen gleichen Platz ein */
+        flex: 1;
         margin-bottom: 0;
       }
       .time-button-row input[type="time"] {
         text-align: center;
       }
       .time-button-row .button {
-        padding: 12px 15px; /* Standard Button Padding */
+        padding: 12px 15px;
       }
 
-      /* --- Korrigierter Switch Toggle --- */
+      /* Korrigierter Switch Toggle (breiter) */
       .switch-container {
         display: flex;
         align-items: center;
@@ -1588,8 +1571,8 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 51px; /* iOS Standardbreite */
-        height: 31px; /* iOS Standardhöhe */
+        width: 70px; /* Breiter gemacht */
+        height: 31px;
         flex-shrink: 0;
       }
       .switch input {
@@ -1606,14 +1589,14 @@
         bottom: 0;
         background-color: var(--slider-bg-color);
         transition: 0.4s;
-        border-radius: 15.5px; /* iOS Standardradius */
+        border-radius: 15.5px;
       }
       .slider:before {
         position: absolute;
         content: "";
-        height: 27px; /* Knob Größe */
+        height: 27px;
         width: 27px;
-        left: 2px; /* Knob Position */
+        left: 2px;
         bottom: 2px;
         background-color: white;
         transition: 0.4s;
@@ -1624,11 +1607,11 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        /* Width(51) - LeftPad(2) - RightPad(2) - Knob(27) = 20px travel */
-        transform: translateX(20px); /* Korrigierte Translation */
+        /* Width(70) - LeftPad(2) - RightPad(2) - Knob(27) = 39px travel */
+        transform: translateX(39px); /* Angepasste Translation */
       }
 
-      /* --- Value Badges mit korrigierter Textfarbe --- */
+      /* Value Badges mit korrigierter Textfarbe */
       .diff-badge {
         padding: 3px 6px;
         border-radius: 5px;
@@ -1657,16 +1640,11 @@
         display: none;
         margin-top: 10px;
         padding: 10px;
-        background-color: rgba(
-          255,
-          59,
-          48,
-          0.1
-        ); /* Light red background */
+        background-color: rgba(255, 59, 48, 0.1);
         border-radius: 8px;
       }
       .invalid-time {
-        border-color: var(--hint-color) !important; /* Rote Border für Invalid */
+        border-color: var(--hint-color) !important;
         background-color: rgba(255, 59, 48, 0.1) !important;
       }
 
@@ -1699,7 +1677,7 @@
         transition: background-color 0.2s ease;
       }
       .history-entry-content.special-day {
-        color: var(--special-day-text); /* Schwarz */
+        color: var(--special-day-text);
       }
       .history-entry-content.violation-day {
         border-left: 3px solid var(--hint-color);
@@ -1716,7 +1694,7 @@
         color: var(--secondary-text-color);
       }
       .history-entry-content.special-day div:last-child {
-        color: var(--special-day-text); /* Schwarz */
+        color: var(--special-day-text);
       }
       .violation-mark {
         color: var(--hint-color);
@@ -1751,11 +1729,9 @@
         align-items: center;
         margin: 20px 0;
       }
-      #pagination button,
+      /* --- Entfernt spezifisches Styling für #pagination button --- */
       #month-pagination button {
-        padding: 10px 20px;
-        font-size: 16px;
-        min-height: 40px;
+        /* Style kommt von .inline-button */
       }
 
       .modal {
@@ -1859,7 +1835,7 @@
         border-radius: 50%;
         transition: transform 0.1s ease;
       }
-      /* --- Kalender Textfarben korrigiert --- */
+      /* Kalender Textfarben korrigiert */
       .calendar-day.has-entry .calendar-day-content.positive-value {
         color: var(--button-text-color); /* Weiß auf Blau */
       }
@@ -1869,9 +1845,7 @@
       }
       .calendar-day-content.special-day-krank-bg,
       .calendar-day-content.special-day-urlaub-bg {
-        background-color: var(
-          --special-day-krank-bg
-        ); /* Wird überschrieben wenn Urlaub */
+        background-color: var(--special-day-krank-bg);
         color: var(--special-day-text) !important; /* Schwarz auf Gelb/Teal */
       }
       .calendar-day-content.special-day-urlaub-bg {
@@ -1911,17 +1885,16 @@
         color: var(--secondary-text-color);
       }
       #stats-content li span.diff-badge {
-        /* Farben werden durch .positive/negative/zero-value gesetzt */
+        /* Farben kommen von .positive/negative/zero-value */
       }
 
-      /* --- Import/Export Buttons --- */
       .import-export-buttons {
         display: flex;
         gap: 10px;
         margin-top: 20px;
       }
       .import-export-buttons .button {
-        margin-bottom: 0; /* Kein extra Margin unter den Buttons */
+        margin-bottom: 0;
       }
 
       #bottom-nav {
@@ -2181,7 +2154,6 @@
           <ul id="stats-content">
             <li>Lade Statistik...</li>
           </ul>
-          <!-- --- Import/Export Buttons hinzugefügt --- -->
           <div class="import-export-buttons section">
             <button id="export-button" class="button">
               Verlauf exportieren (JSON)
