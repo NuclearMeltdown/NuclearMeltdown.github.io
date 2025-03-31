@@ -3,15 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <!-- Theme Color for PWA frame and potentially splash screen background -->
   <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <!-- PWA Settings -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"> <!-- 'black-translucent' for content under status bar -->
   <meta name="apple-mobile-web-app-title" content="Arbeitszeit">
 
-  <!-- Icons optimiert -->
-  <link rel="apple-touch-icon" href="https://NuclearMeltdown.github.io/apple-touch-icon.png">
-  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon.png">
+  <!-- Icons -->
+  <link rel="apple-touch-icon" href="https://NuclearMeltdown.github.io/apple-touch-icon.png"> <!-- 180x180 recommended -->
+  <!-- Basic Splash Screen Image (iOS will use this or theme-color) -->
+  <!-- For perfect splash screens, provide specific sizes via media queries -->
+  <link rel="apple-touch-startup-image" href="https://NuclearMeltdown.github.io/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon.png"> <!-- Favicon for browsers -->
   <meta name="application-name" content="Arbeitszeitrechner"/>
   <meta name="msapplication-TileColor" content="#000000" />
   <meta name="msapplication-TileImage" content="https://NuclearMeltdown.github.io/mstile-144x144.png" />
@@ -72,7 +77,10 @@
     }
 
     function getHistory() {
-        return JSON.parse(getFromLS('history', '[]'));
+        // Ensure history is sorted by date ascending before returning
+        const history = JSON.parse(getFromLS('history', '[]'));
+        history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
+        return history;
     }
 
     // Init beim Laden
@@ -89,9 +97,9 @@
         $('aktuelles-konto').value = parseFloat(lastKonto).toFixed(2);
       } else {
          // Try to get from last history entry if available
-         const history = getHistory();
+         const history = getHistory(); // Already sorted
          if (history.length > 0) {
-            const lastEntry = history.sort((a,b) => new Date(b.datum) - new Date(a.datum))[0];
+            const lastEntry = history[history.length - 1]; // Get the latest entry
             if (lastEntry.stundenkonto) {
                 $('aktuelles-konto').value = parseFloat(lastEntry.stundenkonto).toFixed(2);
             }
@@ -101,6 +109,9 @@
       updateCalculations();
       switchView('main'); // Start on main page
       setupEventListeners();
+      // Ensure modals are hidden initially after setup
+      closeAddDayModal();
+      closeDetailModal();
     }
 
     function setupEventListeners() {
@@ -110,13 +121,13 @@
         $('nav-month').addEventListener('click', () => switchView('month'));
         $('nav-stats').addEventListener('click', () => switchView('stats'));
 
-        // Existing listeners (ensure they are only added once if init is called again)
+        // Existing listeners
         $('kommen-display').oninput = onInputChange;
         $('gehen-display').oninput = onInputChange;
         $('pc-buchung').onchange = onInputChange;
         $('buero-toggle').onchange = onInputChange;
         $('wochenarbeitszeit').onchange = onInputChange;
-        $('zusatzliche-pause').onchange = onInputChange;
+        $('zusatzliche-pause').oninput = onInputChange; // Use oninput for immediate update
         $('aktuelles-konto').onchange = onInputChange;
 
         // Modal close buttons
@@ -187,15 +198,17 @@
       updateCalculations();
     }
 
-    // Arbeitszeit-Berechnungen (weitgehend unverändert)
+    // Arbeitszeit-Berechnungen
     function parseAdditionalPause() {
       const val = $('zusatzliche-pause').value;
       if (!val) return 0;
       // Allow comma as decimal separator
       const cleanedVal = val.replace(',', '.');
       if (cleanedVal.includes(':')) {
-          const [hh, mm] = cleanedVal.split(":").map(Number);
-          return (hh || 0) + ((mm || 0) / 60);
+          const parts = cleanedVal.split(":");
+          const hh = parseInt(parts[0], 10) || 0; // Handle potential NaN
+          const mm = parseInt(parts[1], 10) || 0; // Handle potential NaN
+          return hh + (mm / 60);
       } else {
           // Interpret as decimal hours if no colon
           const decimalHours = parseFloat(cleanedVal);
@@ -345,7 +358,7 @@
       });
 
 
-      // Hinweis Logik (leicht angepasst)
+      // Hinweis Logik
       let hinweisText = "";
       const ak = getAdjustedKommenZeit();
       const kommenField = $('kommen-display');
@@ -381,7 +394,7 @@
       updateEndTimes();
     }
 
-    // Tag speichern (angepasst für Violations Check)
+    // Tag speichern
     function checkViolations(kommenDate, gehenDate, arbeitszeit) {
         if (!kommenDate || !gehenDate) return false; // Cannot check if times are missing
         const kommenStunde = kommenDate.getHours() + (kommenDate.getMinutes() / 60);
@@ -424,13 +437,13 @@
       const diffTime = $('differenz-time').value || "0:00";
       const newVal = parseFloat($('neues-konto').value) || 0;
 
-      const datum = today.toISOString().split('T')[0];
+      const datum = today.toISOString().split('T')[0]; // YYYY-MM-DD
       const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
       const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
       const isBuero = $('buero-toggle').checked;
       const isPcBuchung = $('pc-buchung').checked;
 
-      let history = getHistory();
+      let history = getHistory(); // Sorted history
       const displayDate = today.toLocaleDateString('de-DE');
       const existingIndex = history.findIndex(e => e.datum === datum);
 
@@ -457,24 +470,21 @@
         history.push(dayData);
       }
 
+      // Save sorted history
+      history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
       storeToLS('history', JSON.stringify(history));
+
       $('aktuelles-konto').value = newVal.toFixed(2);
       storeToLS('aktuellesStundenkonto', newVal.toFixed(2)); // Update persistent balance
 
-      // Optional: Clear inputs after saving?
-      // $('kommen-display').value = ''; kommenZeit = null;
-      // $('gehen-display').value = ''; gehenZeit = null;
-      // storeInputsToLocalStorage(); // Save cleared state
-      // updateCalculations();
-
       alert("Der Tag wurde gespeichert.");
-      // Optionally switch to history view or update other views
+      // Optionally update other views if they are currently active
       if (currentView === 'history') loadHistory();
       if (currentView === 'month') loadMonthData();
       if (currentView === 'stats') calculateAndDisplayStats();
     }
 
-    // KW-Funktionen (unverändert)
+    // KW-Funktionen
     function getWeekNumber(d) {
       d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
       d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -515,7 +525,7 @@
       const historyList = $('history-list');
       historyList.innerHTML = ''; // Clear previous list
 
-      let history = getHistory();
+      let history = getHistory(); // Sorted history
 
       const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
       const weekEndDate = new Date(weekStartDate);
@@ -533,7 +543,7 @@
       weekdays.forEach((wd, idx) => {
         const currentDate = new Date(weekStartDate);
         currentDate.setDate(weekStartDate.getDate() + idx);
-        const currentDateStr = currentDate.toISOString().split('T')[0];
+        const currentDateStr = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
 
         const entry = history.find(e => e.datum === currentDateStr);
 
@@ -546,14 +556,13 @@
         if (entry) {
           let locationEmoji = entry.buero ? "🏢" : "🏠";
           let specialDayText = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : (entry.schulung ? "Schulung" : ""));
-          let bgColor = 'transparent';
-          let textColor = 'var(--text-color)';
 
           if (specialDayText) {
-              bgColor = entry.krank ? 'var(--special-day-krank-bg)' : 'var(--special-day-urlaub-bg)';
-              textColor = 'var(--special-day-text)';
+              let bgColor = entry.krank ? 'var(--special-day-krank-bg)' : 'var(--special-day-urlaub-bg)';
+              let textColor = 'var(--special-day-text)';
+              // Added margin-right to special-day entry for spacing from buttons
               contentHTML = `
-                <div class="history-entry special-day" style="background-color:${bgColor}; color:${textColor};">
+                <div class="history-entry special-day" style="background-color:${bgColor}; color:${textColor}; margin-right: 5px;">
                   <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
                   <div>${specialDayText} ${locationEmoji}</div>
                 </div>
@@ -567,13 +576,18 @@
               const netTime = calculateNetArbeitszeitFromEntry(entry); // Recalculate net time for violation check
               const isViolation = checkViolations(kommen, gehen, netTime);
               const violationMark = isViolation ? ' <span class="violation-mark">!</span>' : '';
-              const entryStyle = isViolation ? 'style="border-left: 3px solid var(--hint-color); padding-left: 5px;"' : '';
+              // Add violation class to li for border styling
+              if (isViolation) li.classList.add('violation-entry');
 
+              // Moved Differenz inline with time range
               contentHTML = `
-                <div class="history-entry" ${entryStyle}>
+                <div class="history-entry">
                   <div><strong>${weekdayNames[idx]}</strong> (${currentDate.toLocaleDateString('de-DE')})</div>
-                  <div>${formatTime(kommen)} - ${formatTime(gehen)} ${locationEmoji}</div>
-                  <div>Differenz: <span class="diff-badge ${diffClass}">${entry.differenzTime}</span>${violationMark}</div>
+                  <div>
+                    ${formatTime(kommen)} - ${formatTime(gehen)} ${locationEmoji}
+                    <span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>
+                    ${violationMark}
+                  </div>
                 </div>
               `;
           }
@@ -615,24 +629,31 @@
 
     function calculateNetArbeitszeitFromEntry(entry) {
         if (!entry.kommen || !entry.gehen || entry.urlaub || entry.krank || entry.schulung) return 0;
+        // Parse ISO strings back to Date objects
         const k = new Date(entry.kommen);
         const g = new Date(entry.gehen);
+        if (isNaN(k.getTime()) || isNaN(g.getTime())) return 0; // Invalid date strings
+
         const diffMs = g - k;
         if (diffMs < 0) return 0;
 
         const totalH = diffMs / (1000 * 60 * 60);
-        const pausen = calculatePausenForWorkTime(totalH); // Use the same pause logic
+        // IMPORTANT: Need to know the 'additional pause' setting *at the time of saving*
+        // This info isn't stored. We'll use the *current* setting as an approximation.
+        // For perfect accuracy, additional pause should be stored with the entry.
+        const pausen = calculatePausenForWorkTime(totalH);
         return Math.max(0, totalH - pausen);
     }
 
 
     function deleteEntryByDate(dateStr) {
-      let history = getHistory();
+      let history = getHistory(); // Sorted history
       const index = history.findIndex(e => e.datum === dateStr);
       if (index !== -1) {
-        const displayDate = (new Date(dateStr)).toLocaleDateString('de-DE');
+        const displayDate = (new Date(dateStr + "T00:00:00")).toLocaleDateString('de-DE');
         if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
           history.splice(index, 1);
+          // Save the modified history (already sorted)
           storeToLS('history', JSON.stringify(history));
           // Reload the current view if it depends on history
           if (currentView === 'history') loadHistory();
@@ -675,7 +696,7 @@
 
     // --- Manuelle Buchung / Add Day Modal ---
     function showAddDayModal(dateStr) {
-        const dateVal = new Date(dateStr);
+        const dateVal = new Date(dateStr + "T00:00:00"); // Interpret locally
         const displayDate = dateVal.toLocaleDateString('de-DE');
         const weekdayName = dateVal.toLocaleDateString('de-DE', { weekday: 'long' });
 
@@ -690,7 +711,7 @@
         $('schulung-toggle').checked = false;
         toggleTimeFieldsDisabled(false); // Enable time fields initially
 
-        $('add-day-modal').setAttribute('data-date', dateStr);
+        $('add-day-modal').setAttribute('data-date', dateStr); // Store as YYYY-MM-DD
         $('add-day-modal').style.display = 'flex'; // Use flex for centering
     }
 
@@ -699,11 +720,12 @@
         const isChecked = $(type + '-toggle').checked;
 
         types.forEach(t => {
-            if (t !== type) $(t + '-toggle').checked = false;
+            // Uncheck others only if the current one is being checked
+            if (t !== type && isChecked) $(t + '-toggle').checked = false;
         });
 
-        // Disable time fields if any special day is checked
-        toggleTimeFieldsDisabled(isChecked);
+        // Disable time fields if *any* special day is checked
+        toggleTimeFieldsDisabled($('urlaub-toggle').checked || $('krank-toggle').checked || $('schulung-toggle').checked);
     }
 
     function toggleTimeFieldsDisabled(disabled) {
@@ -715,13 +737,13 @@
 
 
     function addManualDay() {
-        const dateVal = $('add-day-modal').getAttribute('data-date');
+        const dateVal = $('add-day-modal').getAttribute('data-date'); // YYYY-MM-DD
         if (!dateVal) {
             alert("Kein gültiges Datum für die Buchung!");
             return;
         }
 
-        const realDate = new Date(dateVal);
+        const realDate = new Date(dateVal + "T00:00:00"); // Ensure local date interpretation
         const dayOfWeek = realDate.getDay();
         if (dayOfWeek === 0 || dayOfWeek === 6) {
             alert("Samstag und Sonntag sind nicht zulässig!");
@@ -734,12 +756,12 @@
         const isBueroAddDay = $('buero-add-day').checked;
         const isPcBuchungAddDay = $('pc-buchung-add-day').checked;
 
-        let history = getHistory();
+        let history = getHistory(); // Sorted history
         const existingIndex = history.findIndex(e => e.datum === dateVal);
         const displayDate = realDate.toLocaleDateString('de-DE');
 
         let dayData = {
-            datum: dateVal,
+            datum: dateVal, // Store as YYYY-MM-DD string
             differenz: "0.00",
             differenzTime: "0:00",
             stundenkonto: "0.00", // Will be updated later
@@ -755,7 +777,7 @@
         // --- Special Day Handling ---
         if (isUrlaub || isKrank || isSchulung) {
             // For special days, difference is 0, konto remains unchanged from previous day
-            const lastKonto = findLastKontoBeforeDate(history, dateVal);
+            const lastKonto = findLastKontoBeforeDate(history, dateVal, existingIndex);
             dayData.stundenkonto = lastKonto.toFixed(2);
             let label = isUrlaub ? "Urlaub" : (isKrank ? "Krank" : "Schulung");
 
@@ -793,12 +815,21 @@
         }
 
         // Calculate times based on manual input
+        // Important: Set date part of manual times to the *actual* date being saved
+        kommenDateManual.setFullYear(realDate.getFullYear(), realDate.getMonth(), realDate.getDate());
+        gehenDateManual.setFullYear(realDate.getFullYear(), realDate.getMonth(), realDate.getDate());
+
         let adjustedKommenManual = new Date(kommenDateManual.getTime());
         if (isPcBuchungAddDay) {
             adjustedKommenManual.setMinutes(adjustedKommenManual.getMinutes() - 8);
         }
 
+        // Recalculate diffMs with potentially adjusted Kommen time
         const diffMsManual = gehenDateManual - adjustedKommenManual;
+        if (diffMsManual < 0) {
+             alert("Angepasste Kommen-Zeit (PC-Buchung) liegt nach der Gehen-Zeit!");
+             return;
+        }
         const totalHManual = diffMsManual / (1000 * 60 * 60);
         const pausenManual = calculatePausenForWorkTime(totalHManual);
         const netManual = Math.max(0, totalHManual - pausenManual);
@@ -821,6 +852,7 @@
         dayData.differenz = diffValManual.toFixed(2);
         dayData.differenzTime = diffTimeManual;
         dayData.stundenkonto = newKtoManual.toFixed(2);
+        // Store times as ISO strings, preserving timezone info from the Date objects
         dayData.kommen = adjustedKommenManual.toISOString();
         dayData.gehen = gehenDateManual.toISOString();
         dayData.pcBuchung = isPcBuchungAddDay;
@@ -841,21 +873,24 @@
     }
 
     function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
-        const targetDate = new Date(dateStr);
-        const relevantHistory = history
-            .filter((entry, index) => index !== excludeIndex && new Date(entry.datum) < targetDate)
-            .sort((a, b) => new Date(b.datum) - new Date(a.datum)); // Sort descending by date
+        // history is assumed to be sorted ascending by date
+        const targetDate = new Date(dateStr + "T00:00:00"); // Interpret date string locally
+        let lastKonto = parseFloat(getFromLS('aktuellesStundenkonto', '0')) || 0; // Default fallback
 
-        if (relevantHistory.length > 0 && relevantHistory[0].stundenkonto !== undefined) {
-            return parseFloat(relevantHistory[0].stundenkonto) || 0;
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (i === excludeIndex) continue; // Skip the entry we might be replacing
+            const entryDate = new Date(history[i].datum + "T00:00:00");
+            if (entryDate < targetDate) {
+                lastKonto = parseFloat(history[i].stundenkonto) || 0;
+                break; // Found the latest entry before the target date
+            }
         }
-        // If no previous entry, use the current value from the main page input
-        return parseFloat($('aktuelles-konto').value) || 0;
+        return lastKonto;
     }
 
 
     function saveAndReload(history, newKontoValue) {
-        // Sort history before saving to ensure correct order for future calculations
+        // Sort history before saving to ensure correct order
         history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
         storeToLS('history', JSON.stringify(history));
 
@@ -863,9 +898,14 @@
         const latestEntry = history[history.length - 1];
         if (latestEntry && latestEntry.stundenkonto !== undefined) {
              const latestKonto = parseFloat(latestEntry.stundenkonto);
-             $('aktuelles-konto').value = latestKonto.toFixed(2);
-             storeToLS('aktuellesStundenkonto', latestKonto.toFixed(2)); // Persist latest balance
-             updateCalculations(); // Update dependent fields on main page
+             // Only update main page display if this entry IS the latest overall
+             const allHistory = getHistory(); // Get potentially updated full history
+             const overallLatestDate = allHistory.length > 0 ? allHistory[allHistory.length - 1].datum : null; // Already sorted
+             if (latestEntry.datum === overallLatestDate) {
+                 $('aktuelles-konto').value = latestKonto.toFixed(2);
+                 storeToLS('aktuellesStundenkonto', latestKonto.toFixed(2)); // Persist latest balance
+                 updateCalculations(); // Update dependent fields on main page
+             }
         }
 
 
@@ -878,17 +918,19 @@
 
 
     function closeAddDayModal() {
-      $('add-day-modal').style.display = 'none';
+      const modal = $('add-day-modal');
+      if (modal) modal.style.display = 'none';
     }
 
     // --- Detail-Anzeige Modal ---
     function showDayDetails(dateStr) {
-      const history = getHistory();
+      const history = getHistory(); // Sorted history
       const entry = history.find(e => e.datum === dateStr);
       if (!entry) return;
 
-      const dispDate = (new Date(dateStr)).toLocaleDateString('de-DE');
-      const weekdayName = (new Date(dateStr)).toLocaleDateString('de-DE', { weekday: 'long' });
+      const entryDate = new Date(dateStr + "T00:00:00"); // Interpret locally
+      const dispDate = entryDate.toLocaleDateString('de-DE');
+      const weekdayName = entryDate.toLocaleDateString('de-DE', { weekday: 'long' });
 
       $('detail-modal-title').textContent = `Details: ${weekdayName}, ${dispDate}`;
 
@@ -909,6 +951,7 @@
         `;
         pcBuchungChecked = false; // No PC booking for special days
       } else {
+        // Parse stored ISO strings back to Date objects
         const kommen = entry.kommen ? new Date(entry.kommen) : null;
         const gehen = entry.gehen ? new Date(entry.gehen) : null;
         const kommenFormatted = formatTime(kommen);
@@ -916,7 +959,8 @@
         const diffVal = parseFloat(entry.differenz) || 0;
         const diffClass = diffVal > 0.001 ? "positive-value" : (diffVal < -0.001 ? "negative-value" : "zero-value");
 
-        if (kommen && gehen) {
+        if (kommen && gehen && !isNaN(kommen.getTime()) && !isNaN(gehen.getTime())) {
+            // Calculate presence based on the *stored* (potentially adjusted) kommen time
             const diffMs = gehen - kommen;
             if (diffMs >= 0) {
                 const totalH = diffMs / (1000 * 60 * 60);
@@ -947,24 +991,28 @@
     }
 
     function closeDetailModal() {
-      $('detail-modal').style.display = 'none';
+      const modal = $('detail-modal');
+      if (modal) modal.style.display = 'none';
     }
 
     // --- Month View ---
     const monthNames = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 
     function getFirstDayOfMonth(year, month) {
-        return new Date(year, month, 1).getDay(); // 0=Sun, 1=Mon,...
+        // Returns 0 for Sunday, 1 for Monday, etc.
+        return new Date(year, month, 1).getDay();
     }
 
     function getDaysInMonth(year, month) {
+        // month is 0-indexed, day 0 of next month gives last day of current month
         return new Date(year, month + 1, 0).getDate();
     }
 
     function loadMonthData() {
-        const history = getHistory();
+        const history = getHistory(); // Sorted history
         const monthData = history.filter(entry => {
-            const entryDate = new Date(entry.datum);
+            // entry.datum is YYYY-MM-DD
+            const entryDate = new Date(entry.datum + "T00:00:00"); // Interpret as local date
             return entryDate.getFullYear() === currentMonthYear && entryDate.getMonth() === currentMonth;
         });
         renderCalendar(monthData);
@@ -977,8 +1025,8 @@
         $('month-year-display').textContent = `${monthNames[currentMonth]} ${currentMonthYear}`;
 
         const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
-        let firstDay = getFirstDayOfMonth(currentMonthYear, currentMonth);
-        firstDay = (firstDay === 0) ? 6 : firstDay - 1; // Adjust Sunday (0) to be 6, shift others Mon(1)->0 etc.
+        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth); // 0=Sun, 1=Mon
+        firstDayIndex = (firstDayIndex === 0) ? 6 : firstDayIndex - 1; // Adjust to 0=Mon, 6=Sun
 
         // Add weekday headers
         const weekdays = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -991,7 +1039,7 @@
 
 
         // Add empty cells for the first days offset
-        for (let i = 0; i < firstDay; i++) {
+        for (let i = 0; i < firstDayIndex; i++) {
             const emptyCell = document.createElement('div');
             emptyCell.classList.add('calendar-day', 'empty');
             calendarGrid.appendChild(emptyCell);
@@ -1005,9 +1053,10 @@
             cell.classList.add('calendar-day');
             cell.textContent = day;
 
-            const currentDate = new Date(currentMonthYear, currentMonth, day);
-            const currentDateStr = currentDate.toISOString().split('T')[0];
-            const dayOfWeek = currentDate.getDay(); // 0=Sun, 6=Sat
+            // Generate YYYY-MM-DD string directly for comparison
+            const currentDateStr = `${currentMonthYear}-${pad(currentMonth + 1)}-${pad(day)}`;
+            const currentDateObj = new Date(currentMonthYear, currentMonth, day); // For weekday check
+            const dayOfWeek = currentDateObj.getDay(); // 0=Sun, 6=Sat
 
             const entry = monthData.find(e => e.datum === currentDateStr);
 
@@ -1038,7 +1087,10 @@
 
             // Highlight today
             const today = new Date();
-            if (currentDate.toDateString() === today.toDateString()) {
+            // Compare date parts only, ignoring time
+            if (currentDateObj.getFullYear() === today.getFullYear() &&
+                currentDateObj.getMonth() === today.getMonth() &&
+                currentDateObj.getDate() === today.getDate()) {
                 cell.classList.add('today');
             }
 
@@ -1075,32 +1127,46 @@
     // --- Statistics View ---
     function calculateAndDisplayStats() {
         const period = $('stats-period').value;
-        const history = getHistory();
+        const history = getHistory(); // Sorted history
         const today = new Date();
         let startDate, endDate;
+        const currentYear = today.getFullYear();
+        const currentMonth = today.getMonth(); // 0-11
 
         switch (period) {
             case 'current_month':
-                startDate = new Date(today.getFullYear(), today.getMonth(), 1);
-                endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999); // End of month
+                startDate = new Date(currentYear, currentMonth, 1);
+                endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999); // End of month
                 break;
             case 'last_month':
-                startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-                endDate = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999); // End of last month
+                startDate = new Date(currentYear, currentMonth - 1, 1);
+                endDate = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999); // End of last month
                 break;
             case 'current_year':
-                startDate = new Date(today.getFullYear(), 0, 1);
-                endDate = new Date(today.getFullYear(), 11, 31, 23, 59, 59, 999); // End of year
+                startDate = new Date(currentYear, 0, 1);
+                endDate = new Date(currentYear, 11, 31, 23, 59, 59, 999); // End of year
+                break;
+            case 'last_year': // Added case
+                startDate = new Date(currentYear - 1, 0, 1);
+                endDate = new Date(currentYear - 1, 11, 31, 23, 59, 59, 999); // End of last year
                 break;
             case 'all_time':
             default:
-                startDate = new Date(1970, 0, 1); // Far past
-                endDate = new Date(2100, 0, 1); // Far future
+                // Find earliest and latest date in history for a tighter 'all_time' range
+                if (history.length === 0) {
+                    startDate = new Date(); // No data, use today
+                    endDate = new Date();
+                } else {
+                    // History is already sorted
+                    startDate = new Date(history[0].datum + "T00:00:00"); // Interpret locally
+                    endDate = new Date(history[history.length - 1].datum + "T00:00:00"); // Interpret locally
+                    endDate.setHours(23, 59, 59, 999); // Ensure end of day
+                }
                 break;
         }
 
         const filteredHistory = history.filter(entry => {
-            const entryDate = new Date(entry.datum);
+            const entryDate = new Date(entry.datum + "T00:00:00"); // Interpret locally for comparison
             return entryDate >= startDate && entryDate <= endDate;
         });
 
@@ -1138,6 +1204,11 @@
 
         // Display Stats
         const statsContent = $('stats-content');
+        if (filteredHistory.length === 0) {
+             statsContent.innerHTML = `<li>Keine Daten für den ausgewählten Zeitraum vorhanden.</li>`;
+             return;
+        }
+
         statsContent.innerHTML = `
             <li>Gesamt Netto-Arbeitszeit: <span>${formatDecimalToTime(totalNetHours)} (${totalNetHours.toFixed(2)}h)</span></li>
             <li>Durchschnittl. tägl. Arbeitszeit: <span>${formatDecimalToTime(avgDailyHours)} (${avgDailyHours.toFixed(2)}h)</span></li>
@@ -1387,7 +1458,11 @@
       display: flex;
       gap: 10px; /* Space between columns */
       margin-bottom: 10px;
-      align-items: flex-end; /* Align items based on their bottom edge */
+      align-items: flex-end; /* Default alignment */
+    }
+    /* Specific alignment for time input rows */
+    .time-input-row {
+        align-items: center; /* Vertically center items in these rows */
     }
     .column { flex: 1; min-width: 0; /* Prevent overflow */ }
 
@@ -1431,6 +1506,7 @@
       box-shadow: 0 1px 3px rgba(0,0,0,0.15);
     }
     input:checked + .slider { background-color: var(--system-green-light); }
+    /* Corrected translateX for proper fit */
     input:checked + .slider:before { transform: translateX(20px); }
     @media (prefers-color-scheme: dark) {
         .slider { background-color: #39393d; } /* iOS dark off-grey */
@@ -1500,6 +1576,11 @@
       min-height: 60px; /* Good tappable height */
     }
     .history-item:last-child { border-bottom: none; }
+    /* Add left border for violation entries */
+    .history-item.violation-entry {
+        border-left: 3px solid var(--hint-color);
+        padding-left: 12px; /* Adjust padding to compensate for border */
+    }
     .history-entry { flex-grow: 1; margin-right: 10px; }
     .history-entry div { margin-bottom: 4px; font-size: 17px; }
     .history-entry div:first-child { font-weight: 600; } /* Date/Day */
@@ -1508,9 +1589,9 @@
     .history-entry.special-day {
         padding: 8px 12px;
         border-radius: 8px;
-        margin: -8px 0; /* Adjust padding slightly */
+        margin: -8px 5px -8px 0; /* Adjust padding slightly & add right margin */
     }
-    .history-actions { display: flex; gap: 8px; align-items: center; }
+    .history-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
     .violation-mark {
         color: var(--hint-color);
         font-weight: bold;
@@ -1554,7 +1635,7 @@
 
     /* Modals (iOS Style) */
     .modal {
-      display: none; /* Hidden by default */
+      /* display: none; // Managed by JS and inline style initially */
       position: fixed;
       z-index: 1000;
       left: 0; top: 0;
@@ -1746,13 +1827,14 @@
       <!-- Kommen / Gehen + PC + Büro -->
       <div class="section">
         <h3>Zeiterfassung</h3>
-        <div class="row">
+        <!-- Added class 'time-input-row' for vertical alignment -->
+        <div class="row time-input-row">
           <div class="column">
             <label for="kommen-display">Kommen</label>
             <input type="time" id="kommen-display">
           </div>
           <div class="column">
-            <label>&nbsp;</label> <!-- Spacer for alignment -->
+            <!-- Removed spacer label, alignment handled by row class -->
             <button class="button" onclick="setZeit('kommen')" style="margin-top:0; height: 44px; padding: 10px;">Jetzt</button>
           </div>
         </div>
@@ -1772,13 +1854,14 @@
           </label>
         </div>
 
-        <div class="row">
+        <!-- Added class 'time-input-row' for vertical alignment -->
+        <div class="row time-input-row">
           <div class="column">
             <label for="gehen-display">Gehen</label>
             <input type="time" id="gehen-display">
           </div>
           <div class="column">
-             <label>&nbsp;</label>
+             <!-- Removed spacer label -->
             <button class="button" onclick="setZeit('gehen')" style="margin-top:0; height: 44px; padding: 10px;">Jetzt</button>
           </div>
         </div>
@@ -1934,6 +2017,7 @@
                   <option value="current_month">Aktueller Monat</option>
                   <option value="last_month">Letzter Monat</option>
                   <option value="current_year">Aktuelles Jahr</option>
+                  <option value="last_year">Letztes Jahr</option> <!-- Added Option -->
                   <option value="all_time">Gesamt</option>
               </select>
           </div>
@@ -1945,8 +2029,8 @@
   </div>
 
 
-  <!-- Detail Modal -->
-  <div id="detail-modal" class="modal">
+  <!-- Detail Modal - Added style="display: none;" -->
+  <div id="detail-modal" class="modal" style="display: none;">
     <div class="modal-content">
       <button class="close-button" onclick="closeDetailModal()">×</button>
       <h3 id="detail-modal-title">Details</h3>
@@ -1956,8 +2040,8 @@
     </div>
   </div>
 
-  <!-- Add Day Modal -->
-  <div id="add-day-modal" class="modal" data-date="">
+  <!-- Add Day Modal - Added style="display: none;" -->
+  <div id="add-day-modal" class="modal" data-date="" style="display: none;">
     <div class="modal-content">
       <button class="close-button" onclick="closeAddDayModal()">×</button>
       <h3 id="add-day-modal-title">Manuelle Buchung</h3>
