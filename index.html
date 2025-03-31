@@ -9,996 +9,874 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Arbeitszeitrechner">
 
-  <!-- Gewünschter Icon-Block -->
-  <link rel="apple-touch-icon-precomposed" sizes="57x57" href="https://NuclearMeltdown.github.io/apple-touch-icon-57x57.png" />
-  <link rel="apple-touch-icon-precomposed" sizes="114x114" href="https://NuclearMeltdown.github.io/apple-touch-icon-114x114.png" />
-  <link rel="apple-touch-icon-precomposed" sizes="72x72" href="https://NuclearMeltdown.github.io/apple-touch-icon-72x72.png" />
-  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="https://NuclearMeltdown.github.io/apple-touch-icon-144x144.png" />
-  <link rel="apple-touch-icon-precomposed" sizes="60x60" href="https://NuclearMeltdown.github.io/apple-touch-icon-60x60.png" />
-  <link rel="apple-touch-icon-precomposed" sizes="120x120" href="https://NuclearMeltdown.github.io/apple-touch-icon-120x120.png" />
-  <link rel="apple-touch-icon-precomposed" sizes="76x76" href="https://NuclearMeltdown.github.io/apple-touch-icon-76x76.png" />
-  <link rel="apple-touch-icon-precomposed" sizes="152x152" href="https://NuclearMeltdown.github.io/apple-touch-icon-152x152.png" />
-  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon-196x196.png" sizes="196x196" />
-  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon-96x96.png" sizes="96x96" />
-  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon-32x32.png" sizes="32x32" />
-  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon-16x16.png" sizes="16x16" />
-  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon-128.png" sizes="128x128" />
+  <!-- Icons optimiert -->
+  <link rel="apple-touch-icon" href="https://NuclearMeltdown.github.io/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon.png">
   <meta name="application-name" content="Arbeitszeitrechner"/>
   <meta name="msapplication-TileColor" content="#000000" />
   <meta name="msapplication-TileImage" content="https://NuclearMeltdown.github.io/mstile-144x144.png" />
-  <meta name="msapplication-square70x70logo" content="https://NuclearMeltdown.github.io/mstile-70x70.png" />
-  <meta name="msapplication-square150x150logo" content="https://NuclearMeltdown.github.io/mstile-150x150.png" />
-  <meta name="msapplication-wide310x150logo" content="https://NuclearMeltdown.github.io/mstile-310x150.png" />
-  <meta name="msapplication-square310x310logo" content="https://NuclearMeltdown.github.io/mstile-310x310.png" />
-
+  
   <title>Arbeitszeitrechner</title>
 
   <script>
-    console.log("Script geladen: Start.");
-
     // Globale Variablen
-    let kommenZeit = null;
-    let gehenZeit = null;
-    let currentWeekYear = null;
-    let currentWeekNo = null;
+    let kommenZeit = null, gehenZeit = null, currentWeekYear = null, currentWeekNo = null;
+
+    // Hilfsfunktionen
+    const $ = id => document.getElementById(id);
+    const pad = num => num.toString().padStart(2, "0");
+    
+    function parseTime(str) {
+      if (!str) return null;
+      const [hh, mm] = str.split(":").map(Number);
+      const now = new Date();
+      now.setHours(hh, mm, 0, 0);
+      return now;
+    }
+    
+    function formatTime(date) {
+      if (!date) return "--:--";
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+    
+    function formatDecimalToTime(decimalH) {
+      const absVal = Math.abs(decimalH);
+      const hh = Math.floor(absVal);
+      const mm = Math.round((absVal - hh) * 60);
+      return `${decimalH < 0 ? "-" : ""}${hh}:${pad(mm)}`;
+    }
+
+    // LocalStorage Funktionen
+    function storeToLS(key, value) {
+      localStorage.setItem(key, value);
+    }
+    
+    function getFromLS(key, defaultVal = null) {
+      const val = localStorage.getItem(key);
+      return val !== null ? val : defaultVal;
+    }
 
     // Init beim Laden
-    function init(){
-      console.log("init() aufgerufen");
+    function init() {
       restoreInputsFromLocalStorage();
-
       const heute = new Date();
       [currentWeekYear, currentWeekNo] = getWeekNumber(heute);
       updateCalculations();
     }
-
-    // Kommen/Gehen Buttons
-    function setKommen(){
-      console.log("setKommen() geklickt");
-      const now = new Date();
-      kommenZeit = now;
-      document.getElementById("kommen-display").value = formatTime(kommenZeit);
-      storeInputsToLocalStorage();
-      updateCalculations();
-    }
-    function setGehen(){
-      console.log("setGehen() geklickt");
-      const now = new Date();
-      gehenZeit = now;
-      document.getElementById("gehen-display").value = formatTime(gehenZeit);
-      storeInputsToLocalStorage();
-      updateCalculations();
-    }
-
-    // LocalStorage
-    function restoreInputsFromLocalStorage(){
-      console.log("restoreInputsFromLocalStorage()");
-      const storedKommen = localStorage.getItem('kommenZeitValue');
-      const storedGehen  = localStorage.getItem('gehenZeitValue');
-      if(storedKommen){
-        document.getElementById('kommen-display').value = storedKommen;
+    
+    function restoreInputsFromLocalStorage() {
+      const storedKommen = getFromLS('kommenZeitValue');
+      const storedGehen = getFromLS('gehenZeitValue');
+      
+      if (storedKommen) {
+        $('kommen-display').value = storedKommen;
         kommenZeit = parseTime(storedKommen);
       }
-      if(storedGehen){
-        document.getElementById('gehen-display').value = storedGehen;
+      
+      if (storedGehen) {
+        $('gehen-display').value = storedGehen;
         gehenZeit = parseTime(storedGehen);
       }
-
-      const pcBuchungStored = localStorage.getItem('pcBuchungChecked');
-      document.getElementById('pc-buchung').checked = (pcBuchungStored === 'true');
-
-      const bueroStored = localStorage.getItem('bueroChecked');
-      document.getElementById('buero-toggle').checked = (bueroStored === 'true');
-
-      const storedPause = localStorage.getItem('zusatzlichePauseValue');
-      if(storedPause){
-        document.getElementById('zusatzliche-pause').value = storedPause;
-      }
-
-      const storedWochenAZ = localStorage.getItem('wochenarbeitszeitValue');
-      if(storedWochenAZ){
-        document.getElementById('wochenarbeitszeit').value = storedWochenAZ;
-      }
-
-      const storedAktKonto = localStorage.getItem('aktuellesKontoValue');
-      if(storedAktKonto){
-        document.getElementById('aktuelles-konto').value = storedAktKonto;
-      }
+      
+      $('pc-buchung').checked = getFromLS('pcBuchungChecked') === 'true';
+      $('buero-toggle').checked = getFromLS('bueroChecked') === 'true';
+      
+      const storedPause = getFromLS('zusatzlichePauseValue');
+      if (storedPause) $('zusatzliche-pause').value = storedPause;
+      
+      const storedWochenAZ = getFromLS('wochenarbeitszeitValue');
+      if (storedWochenAZ) $('wochenarbeitszeit').value = storedWochenAZ;
+      
+      const storedAktKonto = getFromLS('aktuellesKontoValue');
+      if (storedAktKonto) $('aktuelles-konto').value = storedAktKonto;
+    }
+    
+    function storeInputsToLocalStorage() {
+      storeToLS('kommenZeitValue', $('kommen-display').value);
+      storeToLS('gehenZeitValue', $('gehen-display').value);
+      storeToLS('pcBuchungChecked', $('pc-buchung').checked ? 'true' : 'false');
+      storeToLS('bueroChecked', $('buero-toggle').checked ? 'true' : 'false');
+      storeToLS('zusatzlichePauseValue', $('zusatzliche-pause').value);
+      storeToLS('wochenarbeitszeitValue', $('wochenarbeitszeit').value);
+      storeToLS('aktuellesKontoValue', $('aktuelles-konto').value);
     }
 
-    function storeInputsToLocalStorage(){
-      console.log("storeInputsToLocalStorage()");
-      const kommenVal = document.getElementById('kommen-display').value;
-      const gehenVal  = document.getElementById('gehen-display').value;
-      localStorage.setItem('kommenZeitValue', kommenVal);
-      localStorage.setItem('gehenZeitValue', gehenVal);
-
-      const pcBuchungChecked = document.getElementById('pc-buchung').checked;
-      localStorage.setItem('pcBuchungChecked', pcBuchungChecked?'true':'false');
-
-      const bueroChecked = document.getElementById('buero-toggle').checked;
-      localStorage.setItem('bueroChecked', bueroChecked?'true':'false');
-
-      const pauseVal = document.getElementById('zusatzliche-pause').value;
-      localStorage.setItem('zusatzlichePauseValue', pauseVal);
-
-      const wVal = document.getElementById('wochenarbeitszeit').value;
-      localStorage.setItem('wochenarbeitszeitValue', wVal);
-
-      const kontoVal = document.getElementById('aktuelles-konto').value;
-      localStorage.setItem('aktuellesKontoValue', kontoVal);
-    }
-
-    // Input- und Toggle-Events
-    function onInputChange(){
-      console.log("onInputChange() – Eingaben geändert");
-      
-      // Diese Zeilen hinzufügen, um die globalen Variablen zu aktualisieren
-      const kommenVal = document.getElementById('kommen-display').value;
-      const gehenVal = document.getElementById('gehen-display').value;
-      
-      kommenZeit = parseTime(kommenVal);
-      gehenZeit = parseTime(gehenVal);
-      
-      storeInputsToLocalStorage();
-      updateCalculations();
-    }
-    function onBueroToggle(){
-      console.log("onBueroToggle() – Büro toggled");
+    // Kommen/Gehen Buttons
+    function setZeit(type) {
+      const now = new Date();
+      if (type === 'kommen') {
+        kommenZeit = now;
+        $('kommen-display').value = formatTime(kommenZeit);
+      } else {
+        gehenZeit = now;
+        $('gehen-display').value = formatTime(gehenZeit);
+      }
       storeInputsToLocalStorage();
       updateCalculations();
     }
 
-    // parseTime / formatTime
-    function parseTime(str){
-      if(!str)return null;
-      const [hh,mm] = str.split(":").map(Number);
-      const now=new Date();
-      now.setHours(hh,mm,0,0);
-      return now;
-    }
-    function formatTime(date){
-      if(!date)return "--:--";
-      const hh = pad(date.getHours());
-      const mm = pad(date.getMinutes());
-      return `${hh}:${mm}`;
-    }
-    function pad(num){
-      return num.toString().padStart(2,"0");
-    }
-    function formatDecimalToTime(decimalH){
-      const absVal = Math.abs(decimalH);
-      const hh=Math.floor(absVal);
-      const mm=Math.round((absVal-hh)*60);
-      const sign= decimalH<0?"-":"";
-      return `${sign}${hh}:${pad(mm)}`;
+    // Input-Events
+    function onInputChange() {
+      kommenZeit = parseTime($('kommen-display').value);
+      gehenZeit = parseTime($('gehen-display').value);
+      storeInputsToLocalStorage();
+      updateCalculations();
     }
 
-    // Fixpunkt
-    function parseAdditionalPause(){
-      const val=document.getElementById('zusatzliche-pause').value;
-      if(!val)return 0;
-      const [hh,mm]= val.split(":").map(Number);
-      return (hh||0)+((mm||0)/60);
+    // Arbeitszeit-Berechnungen
+    function parseAdditionalPause() {
+      const val = $('zusatzliche-pause').value;
+      if (!val) return 0;
+      const [hh, mm] = val.split(":").map(Number);
+      return (hh || 0) + ((mm || 0) / 60);
     }
-    function getAdjustedKommenZeit(){
-      if(!kommenZeit)return null;
-      const isPc=document.getElementById('pc-buchung').checked;
-      const adjusted=new Date(kommenZeit.getTime());
-      if(isPc){
-        adjusted.setMinutes(adjusted.getMinutes()-8);
+    
+    function getAdjustedKommenZeit() {
+      if (!kommenZeit) return null;
+      const adjusted = new Date(kommenZeit.getTime());
+      if ($('pc-buchung').checked) {
+        adjusted.setMinutes(adjusted.getMinutes() - 8);
       }
       return adjusted;
     }
-    function calculateWorkingTime(){
-      const ak=getAdjustedKommenZeit();
-      if(!ak||!gehenZeit)return {hours:0,minutes:0};
-      const diffMs=gehenZeit-ak;
-      if(diffMs<0)return {hours:0,minutes:0};
-      const hh=Math.floor(diffMs/(1000*60*60));
-      const mm=Math.floor((diffMs%(1000*60*60))/(1000*60));
-      return {hours:hh,minutes:mm};
+    
+    function calculateWorkingTime() {
+      const ak = getAdjustedKommenZeit();
+      if (!ak || !gehenZeit) return { hours: 0, minutes: 0 };
+      
+      const diffMs = gehenZeit - ak;
+      if (diffMs < 0) return { hours: 0, minutes: 0 };
+      
+      const hh = Math.floor(diffMs / (1000 * 60 * 60));
+      const mm = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      return { hours: hh, minutes: mm };
     }
-    function calculateArbeitszeit(){
-      const wTime=calculateWorkingTime();
-      const totalH=wTime.hours + (wTime.minutes/60);
-
-      let net=totalH;
-      for(let i=0;i<100;i++){
-        const prev=net;
-        let pausen=parseAdditionalPause();
-        if(prev>9)      pausen+=0.5+0.25;
-        else if(prev>6) pausen+=0.5;
-        const neu= totalH - pausen;
-        if(Math.abs(neu-net)<1e-9){
-          net=neu;
+    
+    function calculateArbeitszeit() {
+      const wTime = calculateWorkingTime();
+      const totalH = wTime.hours + (wTime.minutes / 60);
+      
+      let net = totalH;
+      for (let i = 0; i < 20; i++) {
+        const prev = net;
+        let pausen = parseAdditionalPause();
+        if (prev > 9) pausen += 0.75;
+        else if (prev > 6) pausen += 0.5;
+        
+        const neu = totalH - pausen;
+        if (Math.abs(neu - net) < 1e-9) {
+          net = neu;
           break;
         }
-        net=neu;
+        net = neu;
       }
       return net;
     }
-
-    // Ausstempeln
-    function calculateEndTimeFixpoint(desiredNet){
-      const ak=getAdjustedKommenZeit();
-      if(!ak)return "--:--";
-      let presence=desiredNet;
-      for(let i=0;i<100;i++){
-        const prev=presence;
-        let pausen=parseAdditionalPause();
-        if(prev>9)      pausen+=0.5+0.25;
-        else if(prev>6) pausen+=0.5;
-        const presenceNeu= desiredNet+pausen;
-        if(Math.abs(presenceNeu-presence)<1e-9){
-          presence=presenceNeu;
-          break;
-        }
-        presence=presenceNeu;
+    
+    function calculatePausenForWorkTime(totalHours) {
+      let net = totalHours;
+      for (let i = 0; i < 20; i++) {
+        const prev = net;
+        let pausen = parseAdditionalPause();
+        if (prev > 9) pausen += 0.75;
+        else if (prev > 6) pausen += 0.5;
+        
+        const neu = totalHours - pausen;
+        if (Math.abs(neu - net) < 1e-9) return pausen;
+        net = neu;
       }
-      const endTime=new Date(ak.getTime());
-      endTime.setMinutes(endTime.getMinutes()+(presence*60));
-      return formatTime(endTime);
-    }
-
-    function updateEndTimes(){
-      console.log("updateEndTimes() aufgerufen");
-      if(!kommenZeit){
-        // Kommen noch nicht gesetzt => leeren
-        document.getElementById('end-time-soll').value="";
-        document.getElementById('end-time-4h').value="";
-        document.getElementById('end-time-6h').value="";
-        document.getElementById('end-time-9h').value="";
-        document.getElementById('end-time-10h').value="";
-        return;
-      }
-      const durations=[4,6,9,10];
-      durations.forEach(d=>{
-        const out=calculateEndTimeFixpoint(d);
-        document.getElementById(`end-time-${d}h`).value = out;
-      });
-      const wAZ=parseFloat(document.getElementById("wochenarbeitszeit").value)||38;
-      const sollProTag=wAZ/5;
-      const outS=calculateEndTimeFixpoint(sollProTag);
-      document.getElementById("end-time-soll").value = `(${sollProTag.toFixed(2)}h): ${outS}`;
-    }
-
-    function updateCalculations(){
-      console.log("updateCalculations() aufgerufen");
-      const netArbeitszeit=calculateArbeitszeit();
-      const wAZ=parseFloat(document.getElementById('wochenarbeitszeit').value)||38;
-      const sollProTag=wAZ/5;
-
-      let diff= netArbeitszeit - sollProTag;
-      diff=parseFloat(diff.toFixed(2));
-      const aktKontoVal=parseFloat(document.getElementById('aktuelles-konto').value)||0;
-      let newKto= aktKontoVal + diff;
-      newKto=parseFloat(newKto.toFixed(2));
-
-      // Anwesenheitszeit
-      const wTime=calculateWorkingTime();
-      const totalH= wTime.hours+(wTime.minutes/60);
-
-      let pausen=parseAdditionalPause();
-      if(netArbeitszeit>9)      pausen+=0.5+0.25;
-      else if(netArbeitszeit>6) pausen+=0.5;
-      const pausenMin= Math.round(pausen*60);
-
-      document.getElementById("anwesend-zeit").value = `${wTime.hours}:${pad(wTime.minutes)} (${totalH.toFixed(2)}h)`;
-      document.getElementById("pausenzeit").value=`${pausenMin} Min`;
-      document.getElementById("arbeitszeit").value=`${formatDecimalToTime(netArbeitszeit)} (${netArbeitszeit.toFixed(2)}h)`;
-      document.getElementById("sollarbeitszeit-display").value=`${formatDecimalToTime(sollProTag)} (${sollProTag.toFixed(2)}h)`;
-
-      document.getElementById("differenz").value=diff.toFixed(2);
-      document.getElementById("differenz-time").value=formatDecimalToTime(diff);
-      document.getElementById("neues-konto").value=newKto.toFixed(2);
-      document.getElementById("neues-konto-time").value=formatDecimalToTime(newKto);
-
-      document.getElementById("aktuelles-konto-time").value= formatDecimalToTime(aktKontoVal);
-
-      // Einfärben
-      const diffF=document.getElementById("differenz");
-      const diffT=document.getElementById("differenz-time");
-      const neuF=document.getElementById("neues-konto");
-      const neuT=document.getElementById("neues-konto-time");
-
-      diffF.classList.remove('positive-value','negative-value','zero-value');
-      diffT.classList.remove('positive-value','negative-value','zero-value');
-      neuF.classList.remove('positive-value','negative-value','zero-value');
-      neuT.classList.remove('positive-value','negative-value','zero-value');
-
-      if(diff>0){
-        diffF.classList.add('positive-value');
-        diffT.classList.add('positive-value');
-        neuF.classList.add('positive-value');
-        neuT.classList.add('positive-value');
-      } else if(diff<0){
-        diffF.classList.add('negative-value');
-        diffT.classList.add('negative-value');
-        neuF.classList.add('negative-value');
-        neuT.classList.add('negative-value');
-      } else {
-        diffF.classList.add('zero-value');
-        diffT.classList.add('zero-value');
-        neuF.classList.add('zero-value');
-        neuT.classList.add('zero-value');
-      }
-
-      // Hinweis
-      let hinweisText="";
-      const ak=getAdjustedKommenZeit();
-      if(netArbeitszeit<4||netArbeitszeit>10){
-        hinweisText+="Achtung: Arbeitszeit außerhalb 4-10h!<br>";
-      }
-      const kommenField=document.getElementById('kommen-display');
-      kommenField.classList.remove('invalid-time');
-      if(ak){
-        const kStunde= ak.getHours()+(ak.getMinutes()/60);
-        if(kStunde<6||kStunde>16){
-          hinweisText+="Achtung: Kommen vor 06:00 oder nach 16:00!<br>";
-          kommenField.classList.add('invalid-time');
-        }
-        if(netArbeitszeit>=4 && kStunde>16){
-          hinweisText+="Achtung: 4h-Mindestzeit => Kommen nicht nach 16:00!<br>";
-          kommenField.classList.add('invalid-time');
-        }
-      }
-      const gehenField=document.getElementById('gehen-display');
-      gehenField.classList.remove('invalid-time');
-      if(gehenZeit){
-        const gStunde= gehenZeit.getHours()+(gehenZeit.getMinutes()/60);
-        if(gStunde>20){
-          hinweisText+="Achtung: Gehen nach 20:00!<br>";
-          gehenField.classList.add('invalid-time');
-        }
-      }
-
-      const hinweis=document.getElementById('hinweis');
-      if(hinweisText){
-        hinweis.innerHTML=hinweisText;
-        hinweis.style.display='block';
-      } else {
-        hinweis.style.display='none';
-      }
-
-      // EndTimes
-      updateEndTimes();
-    }
-
-    function calculatePausenForWorkTime(totalHours){
-      let net= totalHours;
-      for(let i=0;i<100;i++){
-        const prev=net;
-        let pausen=parseAdditionalPause();
-        if(prev>9){
-          pausen+=0.5+0.25;
-        } else if(prev>6){
-          pausen+=0.5;
-        }
-        const neu= totalHours - pausen;
-        if(Math.abs(neu-net)<1e-9){
-          return pausen;
-        }
-        net=neu;
-      }
+      
       // Falls nicht konvergiert
-      let pausen=parseAdditionalPause();
-      if(net>9) pausen+=0.5+0.25;
-      else if(net>6) pausen+=0.5;
+      let pausen = parseAdditionalPause();
+      if (net > 9) pausen += 0.75;
+      else if (net > 6) pausen += 0.5;
       return pausen;
     }
 
-    function checkViolations(kommenDate, gehenDate, arbeitszeit){
-      const kommenStunde= kommenDate.getHours()+(kommenDate.getMinutes()/60);
-      const gehenStunde= gehenDate.getHours()+(gehenDate.getMinutes()/60);
-      if(kommenStunde<6 || kommenStunde>16) return true;
-      if(gehenStunde>20) return true;
-      if(arbeitszeit<4) return true;
-      return false;
+    // Ausstempeln
+    function calculateEndTimeFixpoint(desiredNet) {
+      const ak = getAdjustedKommenZeit();
+      if (!ak) return "--:--";
+      
+      let presence = desiredNet;
+      for (let i = 0; i < 20; i++) {
+        const prev = presence;
+        let pausen = parseAdditionalPause();
+        if (prev > 9) pausen += 0.75;
+        else if (prev > 6) pausen += 0.5;
+        
+        const presenceNeu = desiredNet + pausen;
+        if (Math.abs(presenceNeu - presence) < 1e-9) {
+          presence = presenceNeu;
+          break;
+        }
+        presence = presenceNeu;
+      }
+      
+      const endTime = new Date(ak.getTime());
+      endTime.setMinutes(endTime.getMinutes() + (presence * 60));
+      return formatTime(endTime);
+    }
+    
+    function updateEndTimes() {
+      if (!kommenZeit) {
+        ['soll', '4h', '6h', '9h', '10h'].forEach(id => {
+          $(`end-time-${id}`).value = "";
+        });
+        return;
+      }
+      
+      [4, 6, 9, 10].forEach(d => {
+        $(`end-time-${d}h`).value = calculateEndTimeFixpoint(d);
+      });
+      
+      const wAZ = parseFloat($('wochenarbeitszeit').value) || 38;
+      const sollProTag = wAZ / 5;
+      const outS = calculateEndTimeFixpoint(sollProTag);
+      $('end-time-soll').value = `(${sollProTag.toFixed(2)}h): ${outS}`;
     }
 
-    function saveDay(){
-      console.log("saveDay() geklickt");
-      updateCalculations();
+    // UI-Updates
+    function updateCalculations() {
+      const netArbeitszeit = calculateArbeitszeit();
+      const wAZ = parseFloat($('wochenarbeitszeit').value) || 38;
+      const sollProTag = wAZ / 5;
+      
+      let diff = parseFloat((netArbeitszeit - sollProTag).toFixed(2));
+      const aktKontoVal = parseFloat($('aktuelles-konto').value) || 0;
+      let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
+      
+      // Anwesenheitszeit
+      const wTime = calculateWorkingTime();
+      const totalH = wTime.hours + (wTime.minutes / 60);
+      
+      let pausen = parseAdditionalPause();
+      if (netArbeitszeit > 9) pausen += 0.75;
+      else if (netArbeitszeit > 6) pausen += 0.5;
+      const pausenMin = Math.round(pausen * 60);
+      
+      // UI-Aktualisierung
+      $('anwesend-zeit').value = `${wTime.hours}:${pad(wTime.minutes)} (${totalH.toFixed(2)}h)`;
+      $('pausenzeit').value = `${pausenMin} Min`;
+      $('arbeitszeit').value = `${formatDecimalToTime(netArbeitszeit)} (${netArbeitszeit.toFixed(2)}h)`;
+      $('sollarbeitszeit-display').value = `${formatDecimalToTime(sollProTag)} (${sollProTag.toFixed(2)}h)`;
+      
+      $('differenz').value = diff.toFixed(2);
+      $('differenz-time').value = formatDecimalToTime(diff);
+      $('neues-konto').value = newKto.toFixed(2);
+      $('neues-konto-time').value = formatDecimalToTime(newKto);
+      $('aktuelles-konto-time').value = formatDecimalToTime(aktKontoVal);
+      
+      // Einfärben
+      const fields = ['differenz', 'differenz-time', 'neues-konto', 'neues-konto-time'];
+      fields.forEach(id => {
+        const el = $(id);
+        el.classList.remove('positive-value', 'negative-value', 'zero-value');
+        
+        if (diff > 0) el.classList.add('positive-value');
+        else if (diff < 0) el.classList.add('negative-value');
+        else el.classList.add('zero-value');
+      });
+      
+      // Hinweis
+      let hinweisText = "";
+      const ak = getAdjustedKommenZeit();
+      const kommenField = $('kommen-display');
+      const gehenField = $('gehen-display');
+      
+      kommenField.classList.remove('invalid-time');
+      gehenField.classList.remove('invalid-time');
+      
+      if (netArbeitszeit < 4 || netArbeitszeit > 10) {
+        hinweisText += "Achtung: Arbeitszeit außerhalb 4-10h!<br>";
+      }
+      
+      if (ak) {
+        const kStunde = ak.getHours() + (ak.getMinutes() / 60);
+        if (kStunde < 6 || kStunde > 16) {
+          hinweisText += "Achtung: Kommen vor 06:00 oder nach 16:00!<br>";
+          kommenField.classList.add('invalid-time');
+        }
+        if (netArbeitszeit >= 4 && kStunde > 16) {
+          hinweisText += "Achtung: 4h-Mindestzeit => Kommen nicht nach 16:00!<br>";
+          kommenField.classList.add('invalid-time');
+        }
+      }
+      
+      if (gehenZeit) {
+        const gStunde = gehenZeit.getHours() + (gehenZeit.getMinutes() / 60);
+        if (gStunde > 20) {
+          hinweisText += "Achtung: Gehen nach 20:00!<br>";
+          gehenField.classList.add('invalid-time');
+        }
+      }
+      
+      const hinweis = $('hinweis');
+      hinweis.innerHTML = hinweisText;
+      hinweis.style.display = hinweisText ? 'block' : 'none';
+      
+      updateEndTimes();
+    }
 
-      const today=new Date();
-      const dayOfWeek=today.getDay(); //0=So,6=Sa
-      if(dayOfWeek===0||dayOfWeek===6){
+    // Tag speichern
+    function checkViolations(kommenDate, gehenDate, arbeitszeit) {
+      const kommenStunde = kommenDate.getHours() + (kommenDate.getMinutes() / 60);
+      const gehenStunde = gehenDate.getHours() + (gehenDate.getMinutes() / 60);
+      return (kommenStunde < 6 || kommenStunde > 16 || gehenStunde > 20 || arbeitszeit < 4);
+    }
+    
+    function saveDay() {
+      updateCalculations();
+      
+      const today = new Date();
+      const dayOfWeek = today.getDay(); // 0=So,6=Sa
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
         alert("Samstag und Sonntag sind nicht zulässig!");
         return;
       }
-      const adjustedKommen=getAdjustedKommenZeit();
-      if(adjustedKommen&&gehenZeit){
-        const diffMs=gehenZeit-adjustedKommen;
-        if(diffMs<0){
+      
+      const adjustedKommen = getAdjustedKommenZeit();
+      if (adjustedKommen && gehenZeit) {
+        const diffMs = gehenZeit - adjustedKommen;
+        if (diffMs < 0) {
           alert("Gehen vor Kommen!");
           return;
         }
-        const hourMs=3600000;
-        const totalH=Math.floor(diffMs/hourMs)+((Math.floor(diffMs%hourMs/(1000*60)))/60);
-        const pausen=calculatePausenForWorkTime(totalH);
-        const net= totalH - pausen;
-        if(checkViolations(adjustedKommen,gehenZeit,net)){
-          if(!confirm("Verstoß gegen Gleitzeit. Trotzdem speichern?")){
+        
+        const hourMs = 3600000;
+        const totalH = Math.floor(diffMs / hourMs) + ((Math.floor(diffMs % hourMs / (1000 * 60))) / 60);
+        const pausen = calculatePausenForWorkTime(totalH);
+        const net = totalH - pausen;
+        
+        if (checkViolations(adjustedKommen, gehenZeit, net)) {
+          if (!confirm("Verstoß gegen Gleitzeit. Trotzdem speichern?")) {
             return;
           }
         }
       }
-
-      const diffVal=parseFloat(document.getElementById('differenz').value)||0;
-      const diffTime=document.getElementById('differenz-time').value||"0:00";
-      const newVal=parseFloat(document.getElementById('neues-konto').value)||0;
-
-      const datum=today.toISOString().split('T')[0];
-      const kommenStr= adjustedKommen?adjustedKommen.toISOString():null;
-      const gehenStr= gehenZeit?gehenZeit.toISOString():null;
-      const isBuero=document.getElementById('buero-toggle').checked;
-
-      let history= JSON.parse(localStorage.getItem('history'))||[];
-      const displayDate=(new Date(datum)).toLocaleDateString('de-DE');
-      const existingIndex= history.findIndex(e=>e.datum===datum);
-
-      const dayData={
-        datum:datum,
+      
+      const diffVal = parseFloat($('differenz').value) || 0;
+      const diffTime = $('differenz-time').value || "0:00";
+      const newVal = parseFloat($('neues-konto').value) || 0;
+      
+      const datum = today.toISOString().split('T')[0];
+      const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
+      const gehenStr = gehenZeit ? gehenZeit.toISOString() : null;
+      const isBuero = $('buero-toggle').checked;
+      
+      let history = JSON.parse(getFromLS('history', '[]'));
+      const displayDate = (new Date(datum)).toLocaleDateString('de-DE');
+      const existingIndex = history.findIndex(e => e.datum === datum);
+      
+      const dayData = {
+        datum: datum,
         differenz: diffVal.toFixed(2),
         differenzTime: diffTime,
         stundenkonto: newVal.toFixed(2),
-        kommen:kommenStr,
-        gehen:gehenStr,
-        urlaub:false,
-        krank:false,
-        schulung:false,
-        pcBuchung: document.getElementById('pc-buchung').checked,
+        kommen: kommenStr,
+        gehen: gehenStr,
+        urlaub: false,
+        krank: false,
+        schulung: false,
+        pcBuchung: $('pc-buchung').checked,
         buero: isBuero
       };
-
-      if(existingIndex!==-1){
-        if(!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)){
+      
+      if (existingIndex !== -1) {
+        if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)) {
           return;
         }
-        history[existingIndex]=dayData;
+        history[existingIndex] = dayData;
       } else {
         history.push(dayData);
       }
-      localStorage.setItem('history',JSON.stringify(history));
-
-      document.getElementById('aktuelles-konto').value=newVal.toFixed(2);
-      localStorage.setItem('aktuellesStundenkonto', newVal.toFixed(2));
-
+      
+      storeToLS('history', JSON.stringify(history));
+      $('aktuelles-konto').value = newVal.toFixed(2);
+      storeToLS('aktuellesStundenkonto', newVal.toFixed(2));
+      
       storeInputsToLocalStorage();
       updateCalculations();
       alert("Der Tag wurde gespeichert.");
     }
 
+    // KW-Funktionen
+    function getWeekNumber(d) {
+      d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      return [d.getUTCFullYear(), weekNo];
+    }
+    
+    function getDateOfISOWeek(w, y) {
+      const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
+      const dow = simple.getDay();
+      const ISOweekStart = new Date(simple);
+      ISOweekStart.setDate(simple.getDate() - ((dow + 6) % 7));
+      return ISOweekStart;
+    }
+
+    // Verlauf-Funktionen
+    function showHistory() {
+      $('main-page').style.display = 'none';
+      $('history-page').style.display = 'block';
+      loadHistory();
+    }
+    
+    function showMainPage() {
+      $('history-page').style.display = 'none';
+      $('main-page').style.display = 'block';
+    }
+    
+    function calcArbeitszeitFromEntry(entry) {
+      if (!entry.kommen || !entry.gehen) return 0;
+      const k = new Date(entry.kommen);
+      const g = new Date(entry.gehen);
+      const diffMs = g - k;
+      if (diffMs < 0) return 0;
+      
+      const hourMs = 3600000;
+      const hh = Math.floor(diffMs / hourMs);
+      const mm = Math.floor((diffMs % hourMs) / (1000 * 60));
+      const total = hh + (mm / 60);
+      
+      let net = total;
+      for (let i = 0; i < 20; i++) {
+        const prev = net;
+        let pausen = parseAdditionalPause();
+        if (prev > 9) pausen += 0.75;
+        else if (prev > 6) pausen += 0.5;
+        
+        const neu = total - pausen;
+        if (Math.abs(neu - net) < 1e-9) {
+          net = neu;
+          break;
+        }
+        net = neu;
+      }
+      return net;
+    }
+    
+    function checkEntryViolationsForHistory(entry) {
+      if (!entry.kommen || !entry.gehen) return false;
+      const k = new Date(entry.kommen);
+      const g = new Date(entry.gehen);
+      const net = calcArbeitszeitFromEntry(entry);
+      return checkViolations(k, g, net);
+    }
+    
+    function deleteEntryByDate(dateStr) {
+      let history = JSON.parse(getFromLS('history', '[]'));
+      const index = history.findIndex(e => e.datum === dateStr);
+      if (index !== -1) {
+        const displayDate = (new Date(dateStr)).toLocaleDateString('de-DE');
+        if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
+          history.splice(index, 1);
+          storeToLS('history', JSON.stringify(history));
+          loadHistory();
+        }
+      }
+    }
+    
+    function loadHistory() {
+      const historyList = $('history-list');
+      historyList.innerHTML = '';
+      
+      let history = JSON.parse(getFromLS('history', '[]'));
+      
+      const weekStartDate = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+      const weekEndDate = new Date(weekStartDate);
+      weekEndDate.setDate(weekStartDate.getDate() + 4);
+      const weekRange = `${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
+      
+      $('week-info').textContent = `KW ${currentWeekNo} (${weekRange})`;
+      
+      const weekdays = [1, 2, 3, 4, 5];
+      const weekdayNames = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+      
+      let totalDiff = 0;
+      
+      weekdays.forEach((wd, idx) => {
+        const entry = history.find(e => {
+          const d = new Date(e.datum);
+          const [y2, w2] = getWeekNumber(d);
+          return y2 === currentWeekYear && w2 === currentWeekNo && d.getDay() === wd;
+        });
+        
+        const li = document.createElement('li');
+        li.classList.add('history-item');
+        
+        if (entry) {
+          let locationEmoji = entry.buero ? "🏢" : "🏠";
+          let bgColor, textColor, content;
+          
+          if (entry.urlaub || entry.krank || entry.schulung) {
+            bgColor = entry.krank ? "#ffd900" : "#30d158";
+            textColor = "#000";
+            content = `
+              <div class="history-entry" style="flex:1; background-color:${bgColor};color:${textColor};border-radius:8px;padding:5px;">
+                <div><strong>${weekdayNames[idx]}</strong> (${(new Date(entry.datum)).toLocaleDateString('de-DE')})</div>
+                <div>${entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung")} ${locationEmoji}</div>
+              </div>
+            `;
+          } else {
+            const diffVal = parseFloat(entry.differenz) || 0;
+            totalDiff += diffVal;
+            const diffClass = diffVal > 0 ? "positive-value" : (diffVal < 0 ? "negative-value" : "zero-value");
+            const dispDate = (new Date(entry.datum)).toLocaleDateString('de-DE');
+            const viol = checkEntryViolationsForHistory(entry);
+            
+            let style = "flex:1;";
+            if (viol) {
+              style += "background-color:#ff3b30;color:#fff;border-radius:8px;padding:5px;";
+            }
+            const violMarks = viol ? " !!!" : "";
+            const diffSpan = viol ? "" : diffClass;
+            
+            content = `
+              <div class="history-entry" style="${style}">
+                <div><strong>${weekdayNames[idx]}</strong> (${dispDate})</div>
+                <div>Differenz: <span class="${diffSpan}">${entry.differenz}h (${entry.differenzTime})${violMarks} ${locationEmoji}</span></div>
+              </div>
+            `;
+          }
+          
+          li.innerHTML = `
+            ${content}
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+              <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
+              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
+            </div>
+          `;
+        } else {
+          // Kein Eintrag
+          li.innerHTML = `
+            <div class="history-entry" style="flex:1;">
+              <div><strong>${weekdayNames[idx]}</strong></div>
+              <div>Keine Daten vorhanden</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
+              <button class="inline-button" onclick="showAddDayModal(${wd},${idx})">Manuelle Buchung</button>
+            </div>
+          `;
+        }
+        historyList.appendChild(li);
+      });
+      
+      const diffClass = totalDiff > 0 ? "positive-value" : (totalDiff < 0 ? "negative-value" : "zero-value");
+      $('weekly-summary').innerHTML = `
+        <h3>Wöchentliche Zusammenfassung</h3>
+        <p>Gesamte Differenz:
+           <span class="${diffClass}">${totalDiff.toFixed(2)}h (${formatDecimalToTime(totalDiff)})</span>
+        </p>
+      `;
+      
+      updateWeekNavigation();
+    }
+    
+    function updateWeekNavigation() {
+      const pagination = $('pagination');
+      pagination.innerHTML = '';
+      
+      const navContainer = document.createElement('div');
+      navContainer.classList.add('nav-container');
+      
+      // Year Navigation
+      const prevYearBtn = document.createElement('button');
+      prevYearBtn.textContent = '«';
+      prevYearBtn.onclick = () => {
+        currentWeekYear--;
+        loadHistory();
+      };
+      
+      // Week Navigation
+      const prevBtn = document.createElement('button');
+      prevBtn.textContent = '‹';
+      prevBtn.onclick = () => {
+        const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+        d.setDate(d.getDate() - 7);
+        [currentWeekYear, currentWeekNo] = getWeekNumber(d);
+        loadHistory();
+      };
+      
+      // Week Select
+      const weekSelect = document.createElement('select');
+      weekSelect.id = 'week-select';
+      for (let i = 1; i <= 53; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        const st = getDateOfISOWeek(i, currentWeekYear);
+        opt.textContent = `KW ${i} (${st.toLocaleDateString('de-DE')})`;
+        if (i === currentWeekNo) {
+          opt.selected = true;
+        }
+        weekSelect.appendChild(opt);
+      }
+      weekSelect.onchange = () => {
+        currentWeekNo = parseInt(weekSelect.value);
+        loadHistory();
+      };
+      
+      // Next buttons
+      const nextBtn = document.createElement('button');
+      nextBtn.textContent = '›';
+      nextBtn.onclick = () => {
+        const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+        d.setDate(d.getDate() + 7);
+        [currentWeekYear, currentWeekNo] = getWeekNumber(d);
+        loadHistory();
+      };
+      
+      const nextYearBtn = document.createElement('button');
+      nextYearBtn.textContent = '»';
+      nextYearBtn.onclick = () => {
+        currentWeekYear++;
+        loadHistory();
+      };
+      
+      [prevYearBtn, prevBtn, weekSelect, nextBtn, nextYearBtn].forEach(el => navContainer.appendChild(el));
+      pagination.appendChild(navContainer);
+    }
+
     // Manuelle Buchung
-    function showAddDayModal(weekday,index){
-      console.log("showAddDayModal() geklickt, weekday:", weekday);
-      const dateVal=new Date(getDateOfISOWeek(currentWeekNo,currentWeekYear));
-      dateVal.setDate(dateVal.getDate()+(weekday-1));
-      const displayDate=dateVal.toLocaleDateString('de-DE');
-
-      document.getElementById('add-day-modal-title').textContent=`Manuelle Buchung für ${displayDate}`;
-      document.getElementById('add-day-kommen').value="";
-      document.getElementById('add-day-gehen').value="";
-      document.getElementById('pc-buchung-add-day').checked=false;
-      document.getElementById('buero-add-day').checked=false;
-
-      document.getElementById('urlaub-toggle').checked=false;
-      document.getElementById('krank-toggle').checked=false;
-      document.getElementById('schulung-toggle').checked=false;
-
-      document.getElementById('add-day-modal').setAttribute('data-date', dateVal.toISOString().split('T')[0]);
-      document.getElementById('add-day-modal').style.display='block';
+    function showAddDayModal(weekday, index) {
+      const dateVal = new Date(getDateOfISOWeek(currentWeekNo, currentWeekYear));
+      dateVal.setDate(dateVal.getDate() + (weekday - 1));
+      const displayDate = dateVal.toLocaleDateString('de-DE');
+      
+      $('add-day-modal-title').textContent = `Manuelle Buchung für ${displayDate}`;
+      $('add-day-kommen').value = "";
+      $('add-day-gehen').value = "";
+      $('pc-buchung-add-day').checked = false;
+      $('buero-add-day').checked = false;
+      
+      $('urlaub-toggle').checked = false;
+      $('krank-toggle').checked = false;
+      $('schulung-toggle').checked = false;
+      
+      $('add-day-modal').setAttribute('data-date', dateVal.toISOString().split('T')[0]);
+      $('add-day-modal').style.display = 'block';
     }
-
-    function onUrlaubToggleAddDay(){
-      document.getElementById('krank-toggle').checked=false;
-      document.getElementById('schulung-toggle').checked=false;
+    
+    function toggleSpecialDay(type) {
+      const types = ['urlaub', 'krank', 'schulung'];
+      types.forEach(t => {
+        if (t !== type) $(t + '-toggle').checked = false;
+      });
     }
-    function onKrankToggleAddDay(){
-      document.getElementById('urlaub-toggle').checked=false;
-      document.getElementById('schulung-toggle').checked=false;
-    }
-    function onSchulungToggleAddDay(){
-      document.getElementById('urlaub-toggle').checked=false;
-      document.getElementById('krank-toggle').checked=false;
-    }
-
-    function addManualDay(){
-      console.log("addManualDay() geklickt");
-      const dateVal=document.getElementById('add-day-modal').getAttribute('data-date');
-      if(!dateVal){
+    
+    function addManualDay() {
+      const dateVal = $('add-day-modal').getAttribute('data-date');
+      if (!dateVal) {
         alert("Kein gültiges Datum für die Buchung!");
         return;
       }
-      const realDate=new Date(dateVal);
-      const dayOfWeek= realDate.getDay();
-      if(dayOfWeek===0||dayOfWeek===6){
+      
+      const realDate = new Date(dateVal);
+      const dayOfWeek = realDate.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
         alert("Samstag und Sonntag sind nicht zulässig!");
         return;
       }
-
-      const kommenVal=document.getElementById('add-day-kommen').value;
-      const gehenVal=document.getElementById('add-day-gehen').value;
-      const isPcBuchungAddDay=document.getElementById('pc-buchung-add-day').checked;
-      const isBueroAddDay=document.getElementById('buero-add-day').checked;
-
-      const isUrlaub   = document.getElementById('urlaub-toggle').checked;
-      const isKrank    = document.getElementById('krank-toggle').checked;
-      const isSchulung = document.getElementById('schulung-toggle').checked;
-
-      let history=JSON.parse(localStorage.getItem('history'))||[];
-      const existingIndex= history.findIndex(e=>e.datum===dateVal);
-      const displayDate=(new Date(dateVal)).toLocaleDateString('de-DE');
-
+      
+      const isUrlaub = $('urlaub-toggle').checked;
+      const isKrank = $('krank-toggle').checked;
+      const isSchulung = $('schulung-toggle').checked;
+      const isBueroAddDay = $('buero-add-day').checked;
+      
+      let history = JSON.parse(getFromLS('history', '[]'));
+      const existingIndex = history.findIndex(e => e.datum === dateVal);
+      const displayDate = (new Date(dateVal)).toLocaleDateString('de-DE');
+      
       // Urlaub / Krank / Schulung => Zeit ignorieren
-      if(isUrlaub||isKrank||isSchulung){
-        const aktKto = parseFloat(document.getElementById('aktuelles-konto').value)||0;
-        const differenz=0;
-        const differenzTime="0:00";
-        const neuesStundenkonto=aktKto;
-        let label="Unbekannt";
-        if(isUrlaub)   label="Urlaub";
-        if(isKrank)    label="Krank";
-        if(isSchulung) label="Schulung";
-
-        const dayData={
+      if (isUrlaub || isKrank || isSchulung) {
+        const aktKto = parseFloat($('aktuelles-konto').value) || 0;
+        let label = isUrlaub ? "Urlaub" : (isKrank ? "Krank" : "Schulung");
+        
+        const dayData = {
           datum: dateVal,
-          differenz: differenz.toFixed(2),
-          differenzTime,
-          stundenkonto: neuesStundenkonto.toFixed(2),
-          kommen:null,
-          gehen:null,
-          urlaub:isUrlaub,
-          krank:isKrank,
-          schulung:isSchulung,
-          pcBuchung:false,
-          buero:isBueroAddDay
+          differenz: "0.00",
+          differenzTime: "0:00",
+          stundenkonto: aktKto.toFixed(2),
+          kommen: null,
+          gehen: null,
+          urlaub: isUrlaub,
+          krank: isKrank,
+          schulung: isSchulung,
+          pcBuchung: false,
+          buero: isBueroAddDay
         };
-        if(existingIndex!==-1){
-          if(!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)){
+        
+        if (existingIndex !== -1) {
+          if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)) {
             return;
           }
-          history[existingIndex]=dayData;
+          history[existingIndex] = dayData;
         } else {
           history.push(dayData);
         }
-
-        localStorage.setItem('history',JSON.stringify(history));
-        document.getElementById('aktuelles-konto').value=neuesStundenkonto.toFixed(2);
-        localStorage.setItem('aktuellesStundenkonto',neuesStundenkonto.toFixed(2));
+        
+        storeToLS('history', JSON.stringify(history));
+        storeToLS('aktuellesStundenkonto', aktKto.toFixed(2));
         updateCalculations();
         closeAddDayModal();
         loadHistory();
         alert(`${label} eingetragen.`);
         return;
       }
-
+      
       // Normale Buchung
-      if(!kommenVal||!gehenVal){
+      const kommenVal = $('add-day-kommen').value;
+      const gehenVal = $('add-day-gehen').value;
+      
+      if (!kommenVal || !gehenVal) {
         alert("Bitte Kommen- und Gehen-Zeit angeben oder Urlaub/Krank/Schulung wählen!");
         return;
       }
-
-      const wAZ=parseFloat(document.getElementById('wochenarbeitszeit').value)||38;
-      const sollProTag=wAZ/5;
-      const aktKto=parseFloat(document.getElementById('aktuelles-konto').value)||0;
-
-      const kommenDate=parseTime(kommenVal);
-      const gehenDate=parseTime(gehenVal);
-      if(!kommenDate||!gehenDate){
+      
+      const isPcBuchungAddDay = $('pc-buchung-add-day').checked;
+      const wAZ = parseFloat($('wochenarbeitszeit').value) || 38;
+      const sollProTag = wAZ / 5;
+      const aktKto = parseFloat($('aktuelles-konto').value) || 0;
+      
+      const kommenDate = parseTime(kommenVal);
+      const gehenDate = parseTime(gehenVal);
+      
+      if (!kommenDate || !gehenDate) {
         alert("Ungültige Zeiten!");
         return;
       }
-      if(gehenDate<kommenDate){
+      
+      if (gehenDate < kommenDate) {
         alert("Gehen-Zeit liegt vor Kommen-Zeit!");
         return;
       }
-
-      const diffMs=gehenDate-kommenDate;
-      const hourMs=3600000;
-      const totalH=Math.floor(diffMs/hourMs)+((Math.floor(diffMs%hourMs/(1000*60)))/60);
-
-      let adjustedKommen=new Date(kommenDate.getTime());
-      if(isPcBuchungAddDay){
-        adjustedKommen.setMinutes(adjustedKommen.getMinutes()-8);
+      
+      const diffMs = gehenDate - kommenDate;
+      const hourMs = 3600000;
+      const totalH = Math.floor(diffMs / hourMs) + ((Math.floor(diffMs % hourMs / (1000 * 60))) / 60);
+      
+      let adjustedKommen = new Date(kommenDate.getTime());
+      if (isPcBuchungAddDay) {
+        adjustedKommen.setMinutes(adjustedKommen.getMinutes() - 8);
       }
-
+      
       // Fixpunkt Netto
-      let net=totalH;
-      for(let i=0;i<100;i++){
-        const prev=net;
-        let pausen=parseAdditionalPause();
-        if(prev>9)      pausen+=0.5+0.25;
-        else if(prev>6) pausen+=0.5;
-        const neu=totalH-pausen;
-        if(Math.abs(neu-net)<1e-9){
-          net=neu;
+      let net = totalH;
+      for (let i = 0; i < 20; i++) {
+        const prev = net;
+        let pausen = parseAdditionalPause();
+        if (prev > 9) pausen += 0.75;
+        else if (prev > 6) pausen += 0.5;
+        
+        const neu = totalH - pausen;
+        if (Math.abs(neu - net) < 1e-9) {
+          net = neu;
           break;
         }
-        net=neu;
+        net = neu;
       }
-
+      
       // Gleitzeit check
-      if(checkViolations(adjustedKommen,gehenDate,net)){
-        if(!confirm("Verstoß gegen Gleitzeitregeln. Trotzdem speichern?")){
+      if (checkViolations(adjustedKommen, gehenDate, net)) {
+        if (!confirm("Verstoß gegen Gleitzeitregeln. Trotzdem speichern?")) {
           return;
         }
       }
-      let diffVal= net - sollProTag;
-      diffVal=parseFloat(diffVal.toFixed(2));
-      let newKto= aktKto + diffVal;
-      newKto=parseFloat(newKto.toFixed(2));
-      const diffTime=formatDecimalToTime(diffVal);
-
-      const dayData={
+      
+      let diffVal = parseFloat((net - sollProTag).toFixed(2));
+      let newKto = parseFloat((aktKto + diffVal).toFixed(2));
+      const diffTime = formatDecimalToTime(diffVal);
+      
+      const dayData = {
         datum: dateVal,
         differenz: diffVal.toFixed(2),
         differenzTime: diffTime,
         stundenkonto: newKto.toFixed(2),
         kommen: adjustedKommen.toISOString(),
-        gehen:  gehenDate.toISOString(),
-        urlaub:false,
-        krank:false,
-        schulung:false,
+        gehen: gehenDate.toISOString(),
+        urlaub: false,
+        krank: false,
+        schulung: false,
         pcBuchung: isPcBuchungAddDay,
         buero: isBueroAddDay
       };
-
-      if(existingIndex!==-1){
-        if(!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)){
+      
+      if (existingIndex !== -1) {
+        if (!confirm(`Für den Tag ${displayDate} existiert bereits ein Eintrag. Ersetzen?`)) {
           return;
         }
-        history[existingIndex]=dayData;
+        history[existingIndex] = dayData;
       } else {
         history.push(dayData);
       }
-      localStorage.setItem('history',JSON.stringify(history));
-      document.getElementById('aktuelles-konto').value=newKto.toFixed(2);
-      localStorage.setItem('aktuellesStundenkonto',newKto.toFixed(2));
+      
+      storeToLS('history', JSON.stringify(history));
+      $('aktuelles-konto').value = newKto.toFixed(2);
+      storeToLS('aktuellesStundenkonto', newKto.toFixed(2));
+      
       updateCalculations();
       closeAddDayModal();
       loadHistory();
       alert("Der Tag wurde nachgetragen.");
     }
-
-    function closeAddDayModal(){
-      console.log("closeAddDayModal() geklickt");
-      document.getElementById('add-day-modal').style.display='none';
-    }
-
-    // Verlauf
-    function showHistory(){
-      console.log("showHistory() geklickt");
-      document.getElementById('main-page').style.display='none';
-      document.getElementById('history-page').style.display='block';
-      loadHistory();
-    }
-    function showMainPage(){
-      console.log("showMainPage() geklickt");
-      document.getElementById('history-page').style.display='none';
-      document.getElementById('main-page').style.display='block';
-    }
-
-    // KW
-    function getWeekNumber(d){
-      d=new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-      d.setUTCDate(d.getUTCDate()+4-(d.getUTCDay()||7));
-      const yearStart=new Date(Date.UTC(d.getUTCFullYear(),0,1));
-      const weekNo=Math.ceil((((d-yearStart)/86400000)+1)/7);
-      return [d.getUTCFullYear(),weekNo];
-    }
-    function getDateOfISOWeek(w,y){
-      const simple=new Date(Date.UTC(y,0,4+(w-1)*7));
-      const dow=simple.getDay();
-      const ISOweekStart=new Date(simple);
-      ISOweekStart.setDate(simple.getDate()-((dow+6)%7));
-      return ISOweekStart;
-    }
-
-    // Verlaufs-Berechnungen
-    function calcArbeitszeitFromEntry(entry){
-      if(!entry.kommen||!entry.gehen)return 0;
-      const k=new Date(entry.kommen);
-      const g=new Date(entry.gehen);
-      const diffMs=g-k;
-      if(diffMs<0)return 0;
-      const hourMs=3600000;
-      const hh=Math.floor(diffMs/hourMs);
-      const mm=Math.floor((diffMs%hourMs)/(1000*60));
-      const total=hh+(mm/60);
-
-      let net=total;
-      for(let i=0;i<100;i++){
-        const prev=net;
-        let pausen=parseAdditionalPause();
-        if(prev>9) pausen+=0.5+0.25;
-        else if(prev>6)pausen+=0.5;
-        const neu= total - pausen;
-        if(Math.abs(neu-net)<1e-9){
-          net=neu;
-          break;
-        }
-        net=neu;
-      }
-      return net;
-    }
-    function checkEntryViolationsForHistory(entry){
-      if(!entry.kommen||!entry.gehen)return false;
-      const k=new Date(entry.kommen);
-      const g=new Date(entry.gehen);
-      const net= calcArbeitszeitFromEntry(entry);
-      return checkViolations(k,g,net);
-    }
-
-    function deleteEntryByDate(dateStr){
-      console.log("deleteEntryByDate() –", dateStr);
-      let history=JSON.parse(localStorage.getItem('history'))||[];
-      const index=history.findIndex(e=>e.datum===dateStr);
-      if(index!==-1){
-        const displayDate=(new Date(dateStr)).toLocaleDateString('de-DE');
-        if(confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)){
-          history.splice(index,1);
-          localStorage.setItem('history',JSON.stringify(history));
-          loadHistory();
-        }
-      }
-    }
-
-    function loadHistory(){
-      console.log("loadHistory() aufgerufen");
-      const historyList=document.getElementById('history-list');
-      historyList.innerHTML='';
-
-      let history=JSON.parse(localStorage.getItem('history'))||[];
-
-      const [year,week]=[currentWeekYear,currentWeekNo];
-      const weekStartDate=getDateOfISOWeek(week,year);
-      const weekEndDate=new Date(weekStartDate);
-      weekEndDate.setDate(weekStartDate.getDate()+4);
-      const weekRange=`${weekStartDate.toLocaleDateString('de-DE')} - ${weekEndDate.toLocaleDateString('de-DE')}`;
-
-      const weekInfo=document.getElementById('week-info');
-      weekInfo.textContent=`KW ${week} (${weekRange})`;
-
-      const weekdays=[1,2,3,4,5];
-      const weekdayNames=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag'];
-
-      let totalDiff=0;
-
-      weekdays.forEach((wd,idx)=>{
-        const entry= history.find(e=>{
-          const d=new Date(e.datum);
-          const [y2,w2]=getWeekNumber(d);
-          return y2===year&&w2===week&& d.getDay()===wd;
-        });
-
-        const li=document.createElement('li');
-        li.classList.add('history-item');
-
-        if(entry){
-          let locationEmoji= entry.buero?"🏢":"🏠";
-          if(entry.urlaub){
-            li.innerHTML=`
-              <div class="history-entry" style="flex:1; background-color:#30d158;color:#000;border-radius:8px;padding:5px;">
-                <div><strong>${weekdayNames[idx]}</strong> (${(new Date(entry.datum)).toLocaleDateString('de-DE')})</div>
-                <div>Urlaub ${locationEmoji}</div>
-              </div>
-              <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-                <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
-                <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
-              </div>
-            `;
-          }
-          else if(entry.krank){
-            li.innerHTML=`
-              <div class="history-entry" style="flex:1; background-color:#ffd900;color:#000;border-radius:8px;padding:5px;">
-                <div><strong>${weekdayNames[idx]}</strong> (${(new Date(entry.datum)).toLocaleDateString('de-DE')})</div>
-                <div>Krank ${locationEmoji}</div>
-              </div>
-              <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-                <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
-                <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
-              </div>
-            `;
-          }
-          else if(entry.schulung){
-            li.innerHTML=`
-              <div class="history-entry" style="flex:1; background-color:#30d158;color:#000;border-radius:8px;padding:5px;">
-                <div><strong>${weekdayNames[idx]}</strong> (${(new Date(entry.datum)).toLocaleDateString('de-DE')})</div>
-                <div>Schulung ${locationEmoji}</div>
-              </div>
-              <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-                <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
-                <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
-              </div>
-            `;
-          }
-          else {
-            const diffVal=parseFloat(entry.differenz)||0;
-            totalDiff+=diffVal;
-            const diffClass= diffVal>0?"positive-value":(diffVal<0?"negative-value":"zero-value");
-            const dispDate=(new Date(entry.datum)).toLocaleDateString('de-DE');
-            const viol= checkEntryViolationsForHistory(entry);
-
-            let style="flex:1;";
-            if(viol){
-              style+="background-color:#ff3b30;color:#fff;border-radius:8px;padding:5px;";
-            }
-            const violMarks= viol?" !!!":"";
-            const diffSpan= viol? "" : diffClass;
-
-            li.innerHTML=`
-              <div class="history-entry" style="${style}">
-                <div><strong>${weekdayNames[idx]}</strong> (${dispDate})</div>
-                <div>Differenz: <span class="${diffSpan}">${entry.differenz}h (${entry.differenzTime})${violMarks} ${locationEmoji}</span></div>
-              </div>
-              <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-                <button class="inline-button" onclick="showDayDetails('${entry.datum}')">Details</button>
-                <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">Löschen</button>
-              </div>
-            `;
-          }
-        } else {
-          // Kein Eintrag
-          li.innerHTML=`
-            <div class="history-entry" style="flex:1;">
-              <div><strong>${weekdayNames[idx]}</strong></div>
-              <div>Keine Daten vorhanden</div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:flex-end;gap:5px;">
-              <button class="inline-button" onclick="showAddDayModal('${wd}','${idx}')">Manuelle Buchung</button>
-            </div>
-          `;
-        }
-        historyList.appendChild(li);
-      });
-
-      const weeklySummary=document.getElementById('weekly-summary');
-      const diffClass= totalDiff>0?"positive-value":(totalDiff<0?"negative-value":"zero-value");
-      weeklySummary.innerHTML=`
-        <h3>Wöchentliche Zusammenfassung</h3>
-        <p>Gesamte Differenz:
-           <span class="${diffClass}">${totalDiff.toFixed(2)}h (${formatDecimalToTime(totalDiff)})</span>
-        </p>
-      `;
-
-      updateWeekNavigation();
-    }
-
-    function updateWeekNavigation(){
-      console.log("updateWeekNavigation() aufgerufen");
-      const pagination=document.getElementById('pagination');
-      pagination.innerHTML='';
-
-      const navContainer=document.createElement('div');
-      navContainer.classList.add('nav-container');
-
-      const prevYearButton=document.createElement('button');
-      prevYearButton.textContent='«';
-      prevYearButton.onclick=()=>{
-        currentWeekYear--;
-        loadHistory();
-      };
-      navContainer.appendChild(prevYearButton);
-
-      const prevButton=document.createElement('button');
-      prevButton.textContent='‹';
-      prevButton.onclick=()=>{
-        const d=getDateOfISOWeek(currentWeekNo,currentWeekYear);
-        d.setDate(d.getDate()-7);
-        [currentWeekYear,currentWeekNo]=getWeekNumber(d);
-        loadHistory();
-      };
-      navContainer.appendChild(prevButton);
-
-      const weekSelect=document.createElement('select');
-      weekSelect.id='week-select';
-      for(let i=1;i<=53;i++){
-        const opt=document.createElement('option');
-        opt.value=i;
-        const st=getDateOfISOWeek(i,currentWeekYear);
-        opt.textContent=`KW ${i} (${st.toLocaleDateString('de-DE')})`;
-        if(i===currentWeekNo){
-          opt.selected=true;
-        }
-        weekSelect.appendChild(opt);
-      }
-      weekSelect.onchange=()=>{
-        currentWeekNo=parseInt(weekSelect.value);
-        loadHistory();
-      };
-      navContainer.appendChild(weekSelect);
-
-      const nextButton=document.createElement('button');
-      nextButton.textContent='›';
-      nextButton.onclick=()=>{
-        const d=getDateOfISOWeek(currentWeekNo,currentWeekYear);
-        d.setDate(d.getDate()+7);
-        [currentWeekYear,currentWeekNo]=getWeekNumber(d);
-        loadHistory();
-      };
-      navContainer.appendChild(nextButton);
-
-      const nextYearButton=document.createElement('button');
-      nextYearButton.textContent='»';
-      nextYearButton.onclick=()=>{
-        currentWeekYear++;
-        loadHistory();
-      };
-      navContainer.appendChild(nextYearButton);
-
-      pagination.appendChild(navContainer);
+    
+    function closeAddDayModal() {
+      $('add-day-modal').style.display = 'none';
     }
 
     // Detail-Anzeige
-    function showDayDetails(dateStr){
-      console.log("showDayDetails() geklickt, Datum:", dateStr);
-      const history=JSON.parse(localStorage.getItem('history'))||[];
-      const entry=history.find(e=>e.datum===dateStr);
-      if(!entry)return;
-      const dispDate=(new Date(dateStr)).toLocaleDateString('de-DE');
-
-      const pcSwitch=document.getElementById('detail-pc-buchung');
-      pcSwitch.checked=!!entry.pcBuchung;
-      pcSwitch.disabled=true;
-
-      let pausenLabel="--";
-      if(entry.urlaub){
-        document.getElementById('detail-date').textContent=dispDate;
-        document.getElementById('detail-kommen').textContent="--:--";
-        document.getElementById('detail-gehen').textContent="--:--";
-        document.getElementById('detail-differenz').textContent="Urlaub";
-        pausenLabel="n/a";
-      }
-      else if(entry.krank){
-        document.getElementById('detail-date').textContent=dispDate;
-        document.getElementById('detail-kommen').textContent="--:--";
-        document.getElementById('detail-gehen').textContent="--:--";
-        document.getElementById('detail-differenz').textContent="Krank";
-        pausenLabel="n/a";
-      }
-      else if(entry.schulung){
-        document.getElementById('detail-date').textContent=dispDate;
-        document.getElementById('detail-kommen').textContent="--:--";
-        document.getElementById('detail-gehen').textContent="--:--";
-        document.getElementById('detail-differenz').textContent="Schulung";
-        pausenLabel="n/a";
-      }
-      else {
-        const kommen=entry.kommen?new Date(entry.kommen):null;
-        const gehen=entry.gehen?new Date(entry.gehen):null;
-
-        document.getElementById('detail-date').textContent=dispDate;
-        document.getElementById('detail-kommen').textContent= kommen?formatTime(kommen):"--:--";
-        document.getElementById('detail-gehen').textContent= gehen?formatTime(gehen):"--:--";
-        document.getElementById('detail-differenz').textContent= `${entry.differenz}h (${entry.differenzTime})`;
-
-        if(kommen&&gehen){
-          const diffMs=gehen-kommen;
-          if(diffMs>=0){
-            const hourMs=3600000;
-            const totH= Math.floor(diffMs/hourMs) + ((Math.floor(diffMs%hourMs/(1000*60)))/60);
-            const wAZ=parseFloat(document.getElementById("wochenarbeitszeit").value)||38;
-            const sollTag=wAZ/5;
-            const net= parseFloat(entry.differenz)||0;
-            const realNet= net + sollTag;
-            const pausenVal= totH - realNet;
-            if(pausenVal>0){
-              pausenLabel=`${Math.round(pausenVal*60)} Min`;
-            } else {
-              pausenLabel="0 Min";
-            }
+    function showDayDetails(dateStr) {
+      const history = JSON.parse(getFromLS('history', '[]'));
+      const entry = history.find(e => e.datum === dateStr);
+      if (!entry) return;
+      
+      const dispDate = (new Date(dateStr)).toLocaleDateString('de-DE');
+      const pcSwitch = $('detail-pc-buchung');
+      pcSwitch.checked = !!entry.pcBuchung;
+      pcSwitch.disabled = true;
+      
+      let pausenLabel = "--";
+      
+      if (entry.urlaub || entry.krank || entry.schulung) {
+        const statusText = entry.urlaub ? "Urlaub" : (entry.krank ? "Krank" : "Schulung");
+        $('detail-date').textContent = dispDate;
+        $('detail-kommen').textContent = "--:--";
+        $('detail-gehen').textContent = "--:--";
+        $('detail-differenz').textContent = statusText;
+        pausenLabel = "n/a";
+      } else {
+        const kommen = entry.kommen ? new Date(entry.kommen) : null;
+        const gehen = entry.gehen ? new Date(entry.gehen) : null;
+        
+        $('detail-date').textContent = dispDate;
+        $('detail-kommen').textContent = kommen ? formatTime(kommen) : "--:--";
+        $('detail-gehen').textContent = gehen ? formatTime(gehen) : "--:--";
+        $('detail-differenz').textContent = `${entry.differenz}h (${entry.differenzTime})`;
+        
+        if (kommen && gehen) {
+          const diffMs = gehen - kommen;
+          if (diffMs >= 0) {
+            const hourMs = 3600000;
+            const totH = Math.floor(diffMs / hourMs) + ((Math.floor(diffMs % hourMs / (1000 * 60))) / 60);
+            const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
+            const sollTag = wAZ / 5;
+            const net = parseFloat(entry.differenz) || 0;
+            const realNet = net + sollTag;
+            const pausenVal = totH - realNet;
+            
+            pausenLabel = pausenVal > 0 ? `${Math.round(pausenVal * 60)} Min` : "0 Min";
           }
         }
       }
-      document.getElementById('detail-pausen').textContent=pausenLabel;
-      document.getElementById('detail-modal').style.display='block';
+      
+      $('detail-pausen').textContent = pausenLabel;
+      $('detail-modal').style.display = 'block';
     }
-
-    function closeDetailModal(){
-      console.log("closeDetailModal() geklickt");
-      document.getElementById('detail-modal').style.display='none';
+    
+    function closeDetailModal() {
+      $('detail-modal').style.display = 'none';
     }
   </script>
 
@@ -1016,6 +894,7 @@
       --negative-background-color: #ff9500;
       --zero-background-color: #34c759;
     }
+    
     @media (prefers-color-scheme: dark) {
       :root {
         --background-color: #000000;
@@ -1024,168 +903,281 @@
         --input-background-color: #2c2c2e;
         --input-border-color: #3a3a3c;
         --button-background-color: #0a84ff;
-        --button-text-color: #ffffff;
         --hint-color: #ff453a;
-        --positive-background-color: #0a84ff;
-        --negative-background-color: #ff9500;
-        --zero-background-color: #30d158;
       }
     }
 
     html, body {
       background-color: var(--background-color);
       color: var(--text-color);
-      margin:0; padding:0;
-      font-family:'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-                  Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans','Helvetica Neue', sans-serif;
+      margin: 0; padding: 0;
+      font-family: -apple-system, system-ui, sans-serif;
     }
+    
+    body::before, body::after {
+      content: "";
+      position: fixed;
+      left: 0; right: 0;
+      background-color: var(--background-color);
+    }
+    
     body::before {
-      content:"";
-      position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);
-      background-color:var(--background-color);
+      top: 0;
+      height: env(safe-area-inset-top);
     }
+    
     body::after {
-      content:"";
-      position:fixed;bottom:0;left:0;right:0;height:env(safe-area-inset-bottom);
-      background-color:var(--background-color);
+      bottom: 0;
+      height: env(safe-area-inset-bottom);
     }
 
     .container {
-      max-width:600px;margin:auto;padding:20px;
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
     }
-    h1 {
-      font-weight:600;font-size:28px;margin-bottom:20px;
+    
+    h1, h2, h3 {
+      font-weight: 600;
+      margin-bottom: 20px;
     }
-    h2 {
-      font-size:24px;font-weight:600;margin-bottom:20px;
-    }
-    h3 {
-      font-size:20px;font-weight:600;margin-bottom:10px;
-    }
-    .section { margin-bottom:30px; }
+    
+    h1 { font-size: 28px; }
+    h2 { font-size: 24px; }
+    h3 { font-size: 20px; margin-bottom: 10px; }
+    
+    .section { margin-bottom: 30px; }
 
+    .button, .inline-button, .delete-button {
+      background-color: var(--button-background-color);
+      color: var(--button-text-color);
+      border: none;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+      box-sizing: border-box;
+      line-height: 1.2em;
+    }
+    
     .button {
-      width:100%;padding:15px;background-color:var(--button-background-color);
-      color:var(--button-text-color);border:none;border-radius:12px;font-size:17px;
-      font-weight:600;text-align:center;margin-bottom:10px;cursor:pointer;
-      box-shadow:0 2px 5px rgba(0,0,0,0.15);
-      box-sizing:border-box;height:56px;line-height:1.2em;
+      width: 100%;
+      padding: 15px;
+      font-size: 17px;
+      margin-bottom: 10px;
+      height: 56px;
     }
-    .button:active {
-      background-color:rgba(10,132,255,0.8);
+    
+    .inline-button, .delete-button {
+      font-size: 15px;
+      padding: 10px 15px;
     }
-    .inline-button,
+    
     .delete-button {
-      font-size:15px;font-weight:600;cursor:pointer;border-radius:12px;box-shadow:0 2px 5px rgba(0,0,0,0.15);
-      border:none;padding:10px 15px;box-sizing:border-box;line-height:1.2em;
+      background-color: var(--hint-color);
     }
-    .inline-button {
-      background-color:var(--button-background-color);color:#fff;
+    
+    .button:active, .inline-button:active {
+      opacity: 0.8;
     }
-    .inline-button:active {
-      background-color:rgba(10,132,255,0.8);
-    }
-    .delete-button {
-      background-color:var(--hint-color);color:#fff;
-    }
-    .delete-button:active {
-      background-color:rgba(255,59,48,0.8);
-    }
-    input,select {
-      width:100%;padding:15px;font-size:17px;border:none;border-radius:12px;margin-bottom:10px;
-      background-color:var(--input-background-color);color:var(--text-color);
-      box-sizing:border-box;-webkit-appearance:none;appearance:none;line-height:1.2em;height:56px;
-    }
-    input:read-only {
-      border:none;border-radius:12px;background-color:var(--input-background-color);color:var(--text-color);
-    }
-    input[type=time]::-webkit-calendar-picker-indicator {
-      display:none;
-    }
-    #hinweis {
-      color:var(--hint-color);font-weight:600;font-size:15px;
-      display:none;margin-top:10px;
-    }
-    ul {
-      list-style-type:none;padding-left:0;margin:0;
-    }
-    li {
-      font-size:17px;padding:5px 0;border-bottom:1px solid var(--input-border-color);
-      display:flex;justify-content:space-between;align-items:center;
-    }
-    .history-item { min-height:70px; }
-    .history-entry { flex:1;margin-right:10px; }
-    p { font-size:17px;margin:5px 0; }
 
-    .positive-value,.negative-value,.zero-value {
-      padding:2px 4px;border-radius:5px;color:#fff !important;
+    input, select {
+      width: 100%;
+      padding: 15px;
+      font-size: 17px;
+      border: none;
+      border-radius: 12px;
+      margin-bottom: 10px;
+      background-color: var(--input-background-color);
+      color: var(--text-color);
+      box-sizing: border-box;
+      -webkit-appearance: none;
+      appearance: none;
+      line-height: 1.2em;
+      height: 56px;
     }
-    .positive-value {background-color:var(--positive-background-color)!important;}
-    .negative-value {background-color:var(--negative-background-color)!important;}
-    .zero-value {background-color:var(--zero-background-color)!important;}
+    
+    input:read-only {
+      border: none;
+    }
+    
+    input[type=time]::-webkit-calendar-picker-indicator {
+      display: none;
+    }
+
+    #hinweis {
+      color: var(--hint-color);
+      font-weight: 600;
+      font-size: 15px;
+      display: none;
+      margin-top: 10px;
+    }
+
+    ul {
+      list-style-type: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    
+    li {
+      font-size: 17px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--input-border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .history-item { min-height: 70px; }
+    .history-entry { flex: 1; margin-right: 10px; }
+    p { font-size: 17px; margin: 5px 0; }
+
+    .positive-value,
+    .negative-value,
+    .zero-value {
+      padding: 2px 4px;
+      border-radius: 5px;
+      color: #fff !important;
+    }
+    
+    .positive-value { background-color: var(--positive-background-color) !important; }
+    .negative-value { background-color: var(--negative-background-color) !important; }
+    .zero-value { background-color: var(--zero-background-color) !important; }
+    
     .invalid-time {
-      background-color:var(--hint-color)!important;color:#fff!important;
+      background-color: var(--hint-color) !important;
+      color: #fff !important;
     }
-    #history-page {display:none;}
-    .nav-button {width:auto;padding:10px 20px;margin-bottom:20px;}
+
+    #history-page { display: none; }
+    
+    .nav-button {
+      width: auto;
+      padding: 10px 20px;
+      margin-bottom: 20px;
+    }
+    
     .row {
-      display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
     }
+    
     .column {
-      flex:1;margin-right:10px;display:flex;flex-direction:column;
+      flex: 1;
+      margin-right: 10px;
+      display: flex;
+      flex-direction: column;
     }
-    .column:last-child {margin-right:0;}
+    
+    .column:last-child { margin-right: 0; }
+
     #pagination {
-      display:flex;justify-content:center;align-items:center;flex-wrap:wrap;
-      margin-top:20px;margin-bottom:20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 20px 0;
     }
+    
     #pagination .nav-container {
-      display:flex;align-items:center;flex-wrap:wrap;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
     }
+    
     #pagination button,
     #pagination select {
-      background-color:var(--button-background-color);color:var(--button-text-color);
-      border:none;border-radius:12px;padding:12px;margin:5px;cursor:pointer;font-size:16px;
-      box-sizing:border-box;line-height:1.2em;height:auto;
+      background-color: var(--button-background-color);
+      color: var(--button-text-color);
+      border: none;
+      border-radius: 12px;
+      padding: 12px;
+      margin: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      height: auto;
     }
-    #pagination button:disabled {
-      background-color:#ccc;cursor:not-allowed;
-    }
+    
     #pagination select {
-      width:auto;max-width:200px;flex:1;
+      width: auto;
+      max-width: 200px;
+      flex: 1;
     }
-    #history-page .container {
-      display:block;padding-bottom:20px;
-    }
+
     .switch-container {
-      display:flex;align-items:center;margin-bottom:10px;
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
     }
+    
     .switch {
-      position:relative;display:inline-block;width:50px;height:28px;margin-right:10px;
+      position: relative;
+      display: inline-block;
+      width: 50px;
+      height: 28px;
+      margin-right: 10px;
     }
-    .switch input {opacity:0;width:0;height:0;}
+    
+    .switch input { opacity: 0; width: 0; height: 0; }
+    
     .slider {
-      position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#ccc;
-      transition:0.4s;border-radius:14px;
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #ccc;
+      transition: 0.4s;
+      border-radius: 14px;
     }
+    
     .slider:before {
-      position:absolute;content:"";height:22px;width:22px;left:3px;top:3px;
-      background-color:white;transition:0.4s;border-radius:50%;
+      position: absolute;
+      content: "";
+      height: 22px; width: 22px;
+      left: 3px; top: 3px;
+      background-color: white;
+      transition: 0.4s;
+      border-radius: 50%;
     }
-    input:checked + .slider {background-color:var(--button-background-color);}
-    input:checked + .slider:before {transform:translateX(22px);}
-    #history-list {overflow-y:visible;}
+    
+    input:checked + .slider {
+      background-color: var(--button-background-color);
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
     .modal {
-      display:none;position:fixed;z-index:9999;left:0;top:0;width:100%;height:100%;
-      overflow:auto;background-color:rgba(0,0,0,0.5);justify-content:center;align-items:center;
+      display: none;
+      position: fixed;
+      z-index: 9999;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.5);
+      justify-content: center;
+      align-items: center;
     }
+    
     .modal-content {
-      background-color:var(--card-background-color);border-radius:12px;padding:20px;
-      max-width:400px;margin:50px auto;color:var(--text-color);box-sizing:border-box;
+      background-color: var(--card-background-color);
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 400px;
+      margin: 50px auto;
+      color: var(--text-color);
+      box-sizing: border-box;
     }
+    
     .close-button {
-      background:none;border:none;color:var(--text-color);
-      font-size:20px;font-weight:bold;float:right;cursor:pointer;
+      background: none;
+      border: none;
+      color: var(--text-color);
+      font-size: 20px;
+      font-weight: bold;
+      float: right;
+      cursor: pointer;
     }
   </style>
 </head>
@@ -1199,11 +1191,10 @@
       <div class="section">
         <div class="row">
           <div class="column">
-            <!-- Hier verwenden wir oninput="onInputChange()" -->
             <input type="time" id="kommen-display" oninput="onInputChange()">
           </div>
           <div class="column">
-            <button class="button" onclick="setKommen()">Kommen (Jetzt)</button>
+            <button class="button" onclick="setZeit('kommen')">Kommen (Jetzt)</button>
           </div>
         </div>
 
@@ -1215,7 +1206,7 @@
           <span>PC-Buchung</span>
 
           <label class="switch" style="margin-left:15px;">
-            <input type="checkbox" id="buero-toggle" onchange="onBueroToggle()">
+            <input type="checkbox" id="buero-toggle" onchange="onInputChange()">
             <span class="slider"></span>
           </label>
           <span>Büro</span>
@@ -1223,11 +1214,10 @@
 
         <div class="row">
           <div class="column">
-            <!-- Hier ebenfalls oninput="onInputChange()" -->
             <input type="time" id="gehen-display" oninput="onInputChange()">
           </div>
           <div class="column">
-            <button class="button" onclick="setGehen()">Gehen (Jetzt)</button>
+            <button class="button" onclick="setZeit('gehen')">Gehen (Jetzt)</button>
           </div>
         </div>
         <p id="hinweis"></p>
@@ -1407,21 +1397,21 @@
 
       <div class="switch-container" style="margin-top:10px;">
         <label class="switch">
-          <input type="checkbox" id="urlaub-toggle" onchange="onUrlaubToggleAddDay()">
+          <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')">
           <span class="slider"></span>
         </label>
         <span>Urlaub</span>
       </div>
       <div class="switch-container" style="margin-top:10px;">
         <label class="switch">
-          <input type="checkbox" id="krank-toggle" onchange="onKrankToggleAddDay()">
+          <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')">
           <span class="slider"></span>
         </label>
         <span>Krank</span>
       </div>
       <div class="switch-container" style="margin-top:10px;">
         <label class="switch">
-          <input type="checkbox" id="schulung-toggle" onchange="onSchulungToggleAddDay()">
+          <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')">
           <span class="slider"></span>
         </label>
         <span>Schulung</span>
