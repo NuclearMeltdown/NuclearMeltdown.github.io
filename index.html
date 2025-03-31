@@ -14,7 +14,6 @@
   <!-- Icons -->
   <link rel="apple-touch-icon" href="https://NuclearMeltdown.github.io/apple-touch-icon.png"> <!-- 180x180 recommended -->
   <!-- Basic Splash Screen Image (iOS will use this or theme-color) -->
-  <!-- For perfect splash screens, provide specific sizes via media queries -->
   <link rel="apple-touch-startup-image" href="https://NuclearMeltdown.github.io/apple-touch-icon.png">
   <link rel="icon" type="image/png" href="https://NuclearMeltdown.github.io/favicon.png"> <!-- Favicon for browsers -->
   <meta name="application-name" content="Arbeitszeitrechner"/>
@@ -1105,11 +1104,12 @@
             const cell = document.createElement('div');
             cell.classList.add('calendar-day');
 
-            // Inner div for content and circle styling
+            // --- Corrected: Inner div for content and circle styling ---
             const cellContent = document.createElement('div');
             cellContent.classList.add('calendar-day-content');
-            cellContent.textContent = day;
-            cell.appendChild(cellContent); // Add content div to cell
+            cellContent.textContent = day; // Set day number on inner div
+            cell.appendChild(cellContent); // Append inner div to cell
+            // --- End Correction ---
 
             // Generate YYYY-MM-DD string directly for comparison
             const currentDateStr = `${currentMonthYear}-${pad(currentMonth + 1)}-${pad(day)}`;
@@ -1152,7 +1152,7 @@
                 cellContent.classList.add('today'); // Highlight inner content div
             }
 
-            calendarGrid.appendChild(cell);
+            calendarGrid.appendChild(cell); // Append outer cell
         }
 
          // Update monthly summary
@@ -1496,22 +1496,25 @@
     .row { display: flex; gap: 10px; margin-bottom: 10px; }
     .column { flex: 1; }
 
-    /* Corrected Time Input Row */
+    /* Corrected Time Input Row - Centered */
     .time-input-row {
       display: flex;
       align-items: center; /* Vertically center items */
+      justify-content: center; /* Horizontally center content */
       gap: 10px;
       margin-bottom: 10px;
     }
     .time-input-row input[type="time"] {
-      flex-grow: 1; /* Input takes available space */
+      /* flex-grow: 1; Remove grow */
+      width: 130px; /* Fixed width for time input */
       margin-bottom: 0; /* Remove bottom margin */
+      text-align: center; /* Center text inside input */
     }
     .time-input-row .button {
-      flex-shrink: 0; /* Prevent button from shrinking */
-      width: auto; /* Allow button to size based on content */
+      /* flex-shrink: 0; Remove shrink */
+      width: 130px; /* Fixed width for button */
       margin-bottom: 0; /* Remove bottom margin */
-      padding: 12px 20px; /* Adjust padding if needed */
+      padding: 12px 15px; /* Adjust padding if needed */
     }
 
     /* Switch Toggle */
@@ -1528,7 +1531,7 @@
     .switch {
       position: relative;
       display: inline-block;
-      width: 52px; /* Increased width */
+      width: 60px; /* Adjusted width */
       height: 30px; /* Slightly taller */
       flex-shrink: 0; /* Prevent shrinking */
     }
@@ -1544,8 +1547,8 @@
     .slider:before {
       position: absolute;
       content: "";
-      height: 26px; width: 26px; /* Slightly larger knob */
-      left: 2px; bottom: 2px; /* Positioned bottom-left */
+      height: 28px; width: 28px; /* Adjusted knob size */
+      left: 1px; bottom: 1px; /* Adjusted position */
       background-color: white;
       transition: .4s;
       border-radius: 50%;
@@ -1553,7 +1556,8 @@
     }
     input:checked + .slider { background-color: var(--slider-checked-bg-color); }
     input:checked + .slider:before {
-      transform: translateX(20px); /* Reduced translation */
+      /* Width(60) - LeftPad(1) - RightPad(1) - Knob(28) = 30px travel */
+      transform: translateX(30px); /* Adjusted translation */
     }
 
     /* Value Badges */
@@ -1749,7 +1753,8 @@
       border-radius: 50%; /* Make it a circle */
       transition: transform 0.1s ease;
     }
-    .calendar-day.has-entry .calendar-day-content { color: var(--button-text-color); } /* White text on colored bg */
+    /* Ensure text color contrasts with background */
+    .calendar-day.has-entry .calendar-day-content { color: var(--button-text-color); }
     .calendar-day.has-entry .calendar-day-content.special-day-krank-bg,
     .calendar-day.has-entry .calendar-day-content.special-day-urlaub-bg {
         color: var(--special-day-text); /* Black text on yellow/teal */
@@ -1758,8 +1763,9 @@
         font-weight: bold;
         border: 2px solid var(--button-background-color); /* Circle outline for today */
     }
+    /* Contrast border for today if it also has an entry background */
     .calendar-day.has-entry .calendar-day-content.today {
-         border: 2px solid var(--text-color); /* Contrast border if filled */
+         border: 2px solid var(--text-color);
     }
     .calendar-day:active .calendar-day-content {
         transform: scale(0.95); /* Slight shrink on tap */
@@ -1838,13 +1844,13 @@
         <!-- Kommen / Gehen + PC + Büro -->
         <div class="section">
           <h3>Zeiterfassung</h3>
-          <!-- Corrected Kommen Row -->
+          <!-- Corrected Kommen Row - Centered -->
           <div class="time-input-row">
             <input type="time" id="kommen-display" oninput="onInputChange()">
             <button class="button" onclick="setZeit('kommen')">Kommen</button>
           </div>
 
-          <!-- Corrected Gehen Row -->
+          <!-- Corrected Gehen Row - Centered -->
           <div class="time-input-row">
             <input type="time" id="gehen-display" oninput="onInputChange()">
             <button class="button" onclick="setZeit('gehen')">Gehen</button>
