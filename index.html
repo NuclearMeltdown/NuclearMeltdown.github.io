@@ -132,6 +132,14 @@
     // Input- und Toggle-Events
     function onInputChange(){
       console.log("onInputChange() – Eingaben geändert");
+      
+      // Diese Zeilen hinzufügen, um die globalen Variablen zu aktualisieren
+      const kommenVal = document.getElementById('kommen-display').value;
+      const gehenVal = document.getElementById('gehen-display').value;
+      
+      kommenZeit = parseTime(kommenVal);
+      gehenZeit = parseTime(gehenVal);
+      
       storeInputsToLocalStorage();
       updateCalculations();
     }
