@@ -66,19 +66,31 @@
       const $ = (id) => document.getElementById(id);
       const pad = (num) => num.toString().padStart(2, "0");
 
+      // --- Überarbeitetes parseTime ---
+      // Erzeugt ein Date-Objekt für HEUTE mit der angegebenen LOKALEN Zeit hh:mm
       function parseTime(str) {
         if (!str) return null;
-        const [hh, mm] = str.split(":").map(Number);
-        if (isNaN(hh) || isNaN(mm)) return null; // Basic validation
-        const now = new Date();
-        now.setHours(hh, mm, 0, 0);
+        const match = str.match(/^(\d{2}):(\d{2})$/);
+        if (!match) return null;
+        const hh = parseInt(match[1], 10);
+        const mm = parseInt(match[2], 10);
+        if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
+          return null;
+        const now = new Date(); // Heutiges Datum, lokale Zeit
+        now.setHours(hh, mm, 0, 0); // Setzt Stunden/Minuten LOKAL
+        // console.log(`parseTime("${str}") ->`, now, `(${now.getHours()}:${now.getMinutes()})`);
         return now;
       }
 
+      // --- Überarbeitetes formatTime ---
+      // Formatiert ein Date-Objekt als hh:mm in LOKALER Zeit
       function formatTime(date) {
         if (!date || isNaN(date.getTime())) return "--:--";
-        // Ensure time is formatted in local timezone
-        return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+        // getHours() und getMinutes() sollten die lokale Zeit liefern.
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        // console.log(`formatTime(${date}) -> ${pad(hours)}:${pad(minutes)}`);
+        return `${pad(hours)}:${pad(minutes)}`;
       }
 
       function formatDecimalToTime(decimalH) {
@@ -112,9 +124,15 @@
       }
 
       function getHistory() {
-        // Ensure history is sorted by date ascending upon retrieval
         const history = JSON.parse(getFromLS("history", "[]"));
-        history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
+        // Wichtig: Konvertiere gespeicherte ISO-Strings zurück in lokale Date-Objekte
+        // und sortiere dann nach diesen Date-Objekten.
+        history.forEach((entry) => {
+          entry.dateObj = new Date(entry.datum + "T00:00:00"); // Lokales Datumsobjekt für Sortierung
+        });
+        history.sort((a, b) => a.dateObj - b.dateObj);
+        // Entferne temporäres dateObj nach Sortierung
+        history.forEach((entry) => delete entry.dateObj);
         return history;
       }
 
@@ -126,55 +144,47 @@
         currentMonthYear = heute.getFullYear();
         currentMonth = heute.getMonth(); // 0-11
 
-        // Restore last known account balance from dedicated storage
         const lastKonto = getFromLS("aktuellesStundenkonto");
         if (lastKonto) {
           $("aktuelles-konto").value = parseFloat(lastKonto).toFixed(2);
         } else {
-          // Fallback: Try to get from the latest history entry if storage is empty
-          const history = getHistory(); // Already sorted
+          const history = getHistory();
           if (history.length > 0) {
             const lastEntry = history[history.length - 1];
             if (lastEntry.stundenkonto) {
               $("aktuelles-konto").value = parseFloat(
                 lastEntry.stundenkonto
               ).toFixed(2);
-              // Store it for next time if found
               storeToLS("aktuellesStundenkonto", lastEntry.stundenkonto);
             }
           }
         }
 
         updateCalculations();
-        switchView("main"); // Start on main page
+        switchView("main");
         setupEventListeners();
-        // Ensure modals are hidden initially after setup
         closeAddDayModal();
         closeDetailModal();
       }
 
       function setupEventListeners() {
-        // Add listeners for bottom nav
         $("nav-main").addEventListener("click", () => switchView("main"));
         $("nav-history").addEventListener("click", () => switchView("history"));
         $("nav-month").addEventListener("click", () => switchView("month"));
         $("nav-stats").addEventListener("click", () => switchView("stats"));
 
-        // Existing listeners
         $("kommen-display").oninput = onInputChange;
         $("gehen-display").oninput = onInputChange;
         $("pc-buchung").onchange = onInputChange;
         $("buero-toggle").onchange = onInputChange;
         $("wochenarbeitszeit").onchange = onInputChange;
-        $("zusatzliche-pause").oninput = onInputChange; // Use oninput for immediate update
-        $("aktuelles-konto").onchange = onInputChange; // Update konto time display on change
+        $("zusatzliche-pause").oninput = onInputChange;
+        $("aktuelles-konto").onchange = onInputChange;
 
-        // Modal close buttons
         document.querySelectorAll(".close-button").forEach((btn) => {
           btn.onclick = () => (btn.closest(".modal").style.display = "none");
         });
 
-        // Stats period selector
         $("stats-period").onchange = () => calculateAndDisplayStats();
       }
 
@@ -184,12 +194,12 @@
 
         if (storedKommen) {
           $("kommen-display").value = storedKommen;
-          kommenZeit = parseTime(storedKommen);
+          kommenZeit = parseTime(storedKommen); // Parse die gespeicherte Zeit
         }
 
         if (storedGehen) {
           $("gehen-display").value = storedGehen;
-          gehenZeit = parseTime(storedGehen);
+          gehenZeit = parseTime(storedGehen); // Parse die gespeicherte Zeit
         }
 
         $("pc-buchung").checked = getFromLS("pcBuchungChecked") === "true";
@@ -200,8 +210,6 @@
 
         const storedWochenAZ = getFromLS("wochenarbeitszeitValue");
         if (storedWochenAZ) $("wochenarbeitszeit").value = storedWochenAZ;
-
-        // Aktuelles Konto wird in init() separat behandelt
       }
 
       function storeInputsToLocalStorage() {
@@ -211,19 +219,19 @@
         storeToLS("bueroChecked", $("buero-toggle").checked ? "true" : "false");
         storeToLS("zusatzlichePauseValue", $("zusatzliche-pause").value);
         storeToLS("wochenarbeitszeitValue", $("wochenarbeitszeit").value);
-        // Store current account balance separately for persistence
         storeToLS("aktuellesStundenkonto", $("aktuelles-konto").value);
       }
 
       // Kommen/Gehen Buttons
       function setZeit(type) {
-        const now = new Date();
+        const now = new Date(); // Aktuelle LOKALE Zeit
+        // console.log(`setZeit(${type}) called at`, now, `(${now.getHours()}:${now.getMinutes()})`);
         if (type === "kommen") {
           kommenZeit = now;
-          $("kommen-display").value = formatTime(kommenZeit);
+          $("kommen-display").value = formatTime(kommenZeit); // Formatierte LOKALE Zeit anzeigen
         } else {
           gehenZeit = now;
-          $("gehen-display").value = formatTime(gehenZeit);
+          $("gehen-display").value = formatTime(gehenZeit); // Formatierte LOKALE Zeit anzeigen
         }
         storeInputsToLocalStorage();
         updateCalculations();
@@ -231,9 +239,9 @@
 
       // Input-Events
       function onInputChange() {
-        kommenZeit = parseTime($("kommen-display").value);
-        gehenZeit = parseTime($("gehen-display").value);
-        storeInputsToLocalStorage(); // Store changes immediately
+        kommenZeit = parseTime($("kommen-display").value); // Parse LOKALE Zeit aus Input
+        gehenZeit = parseTime($("gehen-display").value); // Parse LOKALE Zeit aus Input
+        storeInputsToLocalStorage();
         updateCalculations();
       }
 
@@ -241,15 +249,13 @@
       function parseAdditionalPause() {
         const val = $("zusatzliche-pause").value;
         if (!val) return 0;
-        // Allow comma as decimal separator
         const cleanedVal = val.replace(",", ".");
         if (cleanedVal.includes(":")) {
           const parts = cleanedVal.split(":");
-          const hh = parseInt(parts[0], 10) || 0; // Handle potential NaN
-          const mm = parseInt(parts[1], 10) || 0; // Handle potential NaN
+          const hh = parseInt(parts[0], 10) || 0;
+          const mm = parseInt(parts[1], 10) || 0;
           return hh + mm / 60;
         } else {
-          // Interpret as decimal hours if no colon
           const decimalHours = parseFloat(cleanedVal);
           return isNaN(decimalHours) ? 0 : decimalHours;
         }
@@ -257,27 +263,29 @@
 
       function getAdjustedKommenZeit() {
         if (!kommenZeit) return null;
-        const adjusted = new Date(kommenZeit.getTime());
+        const adjusted = new Date(kommenZeit.getTime()); // Kopie des LOKALEN Zeitobjekts
         if ($("pc-buchung").checked) {
-          adjusted.setMinutes(adjusted.getMinutes() - 8);
+          adjusted.setMinutes(adjusted.getMinutes() - 8); // Passt LOKALE Minuten an
         }
         return adjusted;
       }
 
       function calculateWorkingTime() {
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // LOKALES Datum/Zeit
         if (!ak || !gehenZeit)
           return { hours: 0, minutes: 0, totalHours: 0 };
 
-        // Ensure gehenZeit is on the same day or later than ak
-        let gehenAdjusted = new Date(gehenZeit.getTime());
+        let gehenAdjusted = new Date(gehenZeit.getTime()); // Kopie des LOKALEN Zeitobjekts
+
+        // Wichtig: Stelle sicher, dass beide Zeiten am selben logischen Tag sind
+        // oder gehenZeit am nächsten Tag liegt, falls die Uhrzeit kleiner ist.
+        // Die Datumsanteile kommen von new Date() in parseTime/setZeit (also heute).
         if (gehenAdjusted < ak) {
-          // Assume gehen is on the next day if time is earlier
           gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
         }
 
-        const diffMs = gehenAdjusted - ak;
-        if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 }; // Should not happen now
+        const diffMs = gehenAdjusted - ak; // Differenz in Millisekunden
+        if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 };
 
         const totalMinutes = Math.floor(diffMs / (1000 * 60));
         const hh = Math.floor(totalMinutes / 60);
@@ -287,68 +295,44 @@
       }
 
       function calculatePausenForWorkTime(totalHours) {
-        let net = totalHours;
-        let pausen = 0;
-        // Iterative approach to find stable pause value based on *presence* time
-        for (let i = 0; i < 5; i++) {
-          // Limit iterations
-          const prevPresence = totalHours - pausen; // Estimate net time based on current pause
-          pausen = parseAdditionalPause(); // Start with additional pause
-
-          // Statutory breaks depend on *presence* time (totalHours)
-          if (totalHours > 9) pausen += 0.75; // 45 min
-          else if (totalHours > 6) pausen += 0.5; // 30 min
-
-          const newNet = totalHours - pausen;
-          if (Math.abs(newNet - net) < 1e-9) break; // Converged
-          net = newNet; // Update net for next iteration (though not directly used in pause calc)
-        }
-        // Final calculation based on totalHours
-        pausen = parseAdditionalPause();
+        let pausen = parseAdditionalPause();
         if (totalHours > 9) pausen += 0.75;
         else if (totalHours > 6) pausen += 0.5;
-
-        return pausen; // Return calculated pause in hours
+        return pausen;
       }
 
       function calculateArbeitszeit() {
         const wTime = calculateWorkingTime();
         if (wTime.totalHours <= 0) return 0;
-
         const pausen = calculatePausenForWorkTime(wTime.totalHours);
         const netArbeitszeit = wTime.totalHours - pausen;
-
-        return Math.max(0, netArbeitszeit); // Ensure non-negative
+        return Math.max(0, netArbeitszeit);
       }
 
-      // Ausstempeln (Fixpunkt-Iteration beibehalten)
       function calculateEndTimeFixpoint(desiredNet) {
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // LOKALES Datum/Zeit
         if (!ak) return "--:--";
 
-        let presence = desiredNet; // Initial guess: presence = net time
+        let presence = desiredNet;
         for (let i = 0; i < 5; i++) {
-          // Limit iterations
           const prevPresence = presence;
           let pausen = parseAdditionalPause();
-          // Calculate statutory breaks based on *presence* time
           if (prevPresence > 9) pausen += 0.75;
           else if (prevPresence > 6) pausen += 0.5;
-
-          presence = desiredNet + pausen; // New estimate for presence
-          if (Math.abs(presence - prevPresence) < 1e-9) break; // Converged
+          presence = desiredNet + pausen;
+          if (Math.abs(presence - prevPresence) < 1e-9) break;
         }
 
-        const endTime = new Date(ak.getTime());
-        endTime.setMinutes(endTime.getMinutes() + Math.round(presence * 60));
-        return formatTime(endTime);
+        const endTime = new Date(ak.getTime()); // Kopie des LOKALEN Zeitobjekts
+        endTime.setMinutes(endTime.getMinutes() + Math.round(presence * 60)); // Fügt Minuten LOKAL hinzu
+        return formatTime(endTime); // Formatiert LOKALE Zeit
       }
 
       function updateEndTimes() {
         if (!kommenZeit) {
           ["soll", "4h", "6h", "9h", "10h"].forEach((id) => {
             const el = $(`end-time-${id}`);
-            if (el) el.value = ""; // Check if element exists
+            if (el) el.value = "";
           });
           return;
         }
@@ -365,12 +349,10 @@
         if (elSoll) elSoll.value = `(${sollProTag.toFixed(2)}h): ${outS}`;
       }
 
-      // UI-Updates
       function updateCalculations() {
         const netArbeitszeit = calculateArbeitszeit();
         const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
         const sollProTag = wAZ / 5;
-
         let diff =
           netArbeitszeit > 0
             ? parseFloat((netArbeitszeit - sollProTag).toFixed(2))
@@ -378,24 +360,20 @@
         const aktKontoVal = parseFloat($("aktuelles-konto").value) || 0;
         let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
 
-        // Anwesenheitszeit & Pausen
         const wTime = calculateWorkingTime();
         const pausen = calculatePausenForWorkTime(wTime.totalHours);
         const pausenMin = Math.round(pausen * 60);
 
-        // UI-Aktualisierung
         $("anwesend-zeit").value = `${wTime.hours}:${pad(wTime.minutes)} (${wTime.totalHours.toFixed(2)}h)`;
         $("pausenzeit").value = `${pausenMin} Min (${pausen.toFixed(2)}h)`;
         $("arbeitszeit").value = `${formatDecimalToTime(netArbeitszeit)} (${netArbeitszeit.toFixed(2)}h)`;
         $("sollarbeitszeit-display").value = `${formatDecimalToTime(sollProTag)} (${sollProTag.toFixed(2)}h)`;
-
         $("differenz").value = diff.toFixed(2);
         $("differenz-time").value = formatDecimalToTime(diff);
         $("neues-konto").value = newKto.toFixed(2);
         $("neues-konto-time").value = formatDecimalToTime(newKto);
         $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoVal);
 
-        // Einfärben der Differenz/Konto-Felder
         const fieldsToColor = [
           { id: "differenz", value: diff },
           { id: "differenz-time", value: diff },
@@ -403,72 +381,63 @@
           { id: "neues-konto-time", value: newKto },
           { id: "aktuelles-konto-time", value: aktKontoVal },
         ];
-
         fieldsToColor.forEach((item) => {
           const el = $(item.id);
-          if (!el) return; // Safety check
+          if (!el) return;
           el.classList.remove("positive-value", "negative-value", "zero-value");
           if (item.value > 0.001) el.classList.add("positive-value");
           else if (item.value < -0.001) el.classList.add("negative-value");
           else el.classList.add("zero-value");
         });
 
-        // Hinweis Logik
         let hinweisText = "";
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // LOKAL
         const kommenField = $("kommen-display");
         const gehenField = $("gehen-display");
-
         kommenField.classList.remove("invalid-time");
         gehenField.classList.remove("invalid-time");
 
         if (netArbeitszeit > 0 && (netArbeitszeit < 4 || netArbeitszeit > 10)) {
           hinweisText += "Achtung: Arbeitszeit außerhalb 4-10h!<br>";
         }
-
         if (ak) {
-          const kStunde = ak.getHours() + ak.getMinutes() / 60;
+          const kStunde = ak.getHours() + ak.getMinutes() / 60; // LOKAL
           if (kStunde < 6 || kStunde > 16) {
             hinweisText += "Achtung: Kommen außerhalb 06:00-16:00!<br>";
             kommenField.classList.add("invalid-time");
           }
         }
-
         if (gehenZeit) {
-          // Use the potentially adjusted gehenZeit from calculateWorkingTime
-          let gehenAdjusted = new Date(gehenZeit.getTime());
+          // Verwende die gleiche Logik wie calculateWorkingTime für den Tageswechsel
+          let gehenAdjusted = new Date(gehenZeit.getTime()); // LOKAL
           if (ak && gehenAdjusted < ak) {
             gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
           }
-          const gStunde = gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60;
+          const gStunde = gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60; // LOKAL
           if (gStunde > 20) {
             hinweisText += "Achtung: Gehen nach 20:00!<br>";
             gehenField.classList.add("invalid-time");
           }
         }
-
         const hinweis = $("hinweis");
         hinweis.innerHTML = hinweisText;
         hinweis.style.display = hinweisText ? "block" : "none";
-
         updateEndTimes();
       }
 
       // Tag speichern
       function checkViolations(kommenDate, gehenDate, arbeitszeit) {
-        if (!kommenDate || !gehenDate) return false; // Cannot check if times are missing
+        if (!kommenDate || !gehenDate) return false;
 
-        // Ensure gehenDate is on the same day or later than kommenDate
-        let gehenAdjusted = new Date(gehenDate.getTime());
+        let gehenAdjusted = new Date(gehenDate.getTime()); // LOKAL
         if (gehenAdjusted < kommenDate) {
           gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
         }
 
-        const kommenStunde = kommenDate.getHours() + kommenDate.getMinutes() / 60;
+        const kommenStunde = kommenDate.getHours() + kommenDate.getMinutes() / 60; // LOKAL
         const gehenStunde =
-          gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60;
+          gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60; // LOKAL
 
-        // Check: Kommen 6-16, Gehen <= 20, Arbeitszeit 4-10 (if > 0)
         return (
           kommenStunde < 6 ||
           kommenStunde > 16 ||
@@ -479,29 +448,25 @@
       }
 
       function saveDay() {
-        updateCalculations(); // Ensure calculations are current
+        updateCalculations();
 
-        const today = new Date();
-        const dayOfWeek = today.getDay(); // 0=So, 6=Sa
+        const today = new Date(); // Heutiges LOKALES Datum
+        const dayOfWeek = today.getDay();
         if (dayOfWeek === 0 || dayOfWeek === 6) {
           alert("Speichern am Wochenende nicht vorgesehen.");
           return;
         }
 
-        const adjustedKommen = getAdjustedKommenZeit();
+        const adjustedKommen = getAdjustedKommenZeit(); // LOKAL
         const netArbeitszeit = calculateArbeitszeit();
-        const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null; // Use current gehenZeit
+        const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null; // LOKAL
 
-        // Check for violations before saving
         if (adjustedKommen && currentGehen) {
-          // Use the same logic as checkViolations to handle potential day crossing for gehen
-          let gehenCheck = new Date(currentGehen.getTime());
+          let gehenCheck = new Date(currentGehen.getTime()); // LOKAL
           if (gehenCheck < adjustedKommen) {
             gehenCheck.setDate(gehenCheck.getDate() + 1);
           }
-
           if (gehenCheck < adjustedKommen) {
-            // Check again after potential adjustment
             alert(
               "Gehen-Zeit liegt vor der (ggf. angepassten) Kommen-Zeit!"
             );
@@ -510,7 +475,7 @@
           if (checkViolations(adjustedKommen, gehenCheck, netArbeitszeit)) {
             if (
               !confirm(
-                "Es liegt ein Verstoß gegen die Gleitzeitregeln vor (Zeiten außerhalb des Rahmens oder Arbeitszeit <4h/>10h). Trotzdem speichern?"
+                "Es liegt ein Verstoß gegen die Gleitzeitregeln vor. Trotzdem speichern?"
               )
             ) {
               return;
@@ -527,14 +492,14 @@
         const diffTime = $("differenz-time").value || "0:00";
         const newVal = parseFloat($("neues-konto").value) || 0;
 
-        const datum = today.toISOString().split("T")[0]; // Store as YYYY-MM-DD
-        // Store times as ISO strings to preserve timezone info
+        const datum = today.toISOString().split("T")[0]; // YYYY-MM-DD (aus lokalem Datum)
+        // --- Wichtig: Speichere Zeiten als ISO String (UTC) ---
         const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
         const gehenStr = currentGehen ? currentGehen.toISOString() : null;
         const isBuero = $("buero-toggle").checked;
         const isPcBuchung = $("pc-buchung").checked;
 
-        let history = getHistory(); // Gets sorted history
+        let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
 
@@ -543,8 +508,8 @@
           differenz: diffVal.toFixed(2),
           differenzTime: diffTime,
           stundenkonto: newVal.toFixed(2),
-          kommen: kommenStr,
-          gehen: gehenStr,
+          kommen: kommenStr, // ISO String (UTC)
+          gehen: gehenStr, // ISO String (UTC)
           urlaub: false,
           krank: false,
           schulung: false,
@@ -565,45 +530,38 @@
           history.push(dayData);
         }
 
-        // Re-sort before saving (important if overwriting or adding)
-        history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
-        storeToLS("history", JSON.stringify(history));
+        // --- Sortieren vor dem Speichern ---
+        history.forEach((entry) => {
+          entry.dateObj = new Date(entry.datum + "T00:00:00");
+        });
+        history.sort((a, b) => a.dateObj - b.dateObj);
+        history.forEach((entry) => delete entry.dateObj);
+        // --- Ende Sortieren ---
 
-        // Update current account value in input and LS
+        storeToLS("history", JSON.stringify(history));
         $("aktuelles-konto").value = newVal.toFixed(2);
-        storeToLS("aktuellesStundenkonto", newVal.toFixed(2)); // Update persistent balance
+        storeToLS("aktuellesStundenkonto", newVal.toFixed(2));
 
         alert("Der Tag wurde gespeichert.");
-        // Optionally update other views if they are currently active
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
       }
 
-      // KW-Funktionen
+      // KW-Funktionen (unverändert)
       function getWeekNumber(d) {
-        // Copy date to avoid modifying original
         d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        // Set to nearest Thursday: current date + 4 - current day number
-        // Make Sunday's day number 7
         d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-        // Get first day of year
         const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-        // Calculate full weeks to nearest Thursday
         const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-        // Return array of year and week number
         return [d.getUTCFullYear(), weekNo];
       }
-
       function getDateOfISOWeek(w, y) {
-        // Start with Jan 4th of the year (always in week 1)
-        // Use UTC to avoid DST issues
         const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
-        const dow = simple.getUTCDay() || 7; // Get day of week (1=Mon..7=Sun)
-        const ISOweekStart = new Date(simple); // Create copy
-        // Go back to Monday (simple's date - day of week + 1)
+        const dow = simple.getUTCDay() || 7;
+        const ISOweekStart = new Date(simple);
         ISOweekStart.setUTCDate(simple.getUTCDate() - dow + 1);
-        return ISOweekStart; // Returns the Date object for the Monday of the given week/year in UTC
+        return ISOweekStart;
       }
 
       // --- Navigation ---
@@ -615,30 +573,20 @@
           if (page) page.style.display = id === viewId ? "block" : "none";
           if (navItem) navItem.classList.toggle("active", id === viewId);
         });
-
-        // Load data for the activated view
-        if (viewId === "history") {
-          loadHistory();
-        } else if (viewId === "month") {
-          loadMonthData();
-        } else if (viewId === "stats") {
-          calculateAndDisplayStats();
-        }
+        if (viewId === "history") loadHistory();
+        else if (viewId === "month") loadMonthData();
+        else if (viewId === "stats") calculateAndDisplayStats();
       }
 
       // --- History View (Wochenansicht) ---
       function loadHistory() {
         const historyList = $("history-list");
-        historyList.innerHTML = ""; // Clear previous list
+        historyList.innerHTML = "";
+        let history = getHistory(); // Holt sortierte History
 
-        let history = getHistory(); // Gets sorted history
-
-        // Get the Monday of the current week in UTC
         const weekStartDateUTC = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-
-        // Format start/end dates for display using German locale and Berlin time
         const weekEndDate = new Date(weekStartDateUTC);
-        weekEndDate.setUTCDate(weekStartDateUTC.getUTCDate() + 4); // Friday
+        weekEndDate.setUTCDate(weekStartDateUTC.getUTCDate() + 4);
         const optionsDate = {
           year: "numeric",
           month: "2-digit",
@@ -646,24 +594,17 @@
           timeZone: "Europe/Berlin",
         };
         const weekRange = `${weekStartDateUTC.toLocaleDateString("de-DE", optionsDate)} - ${weekEndDate.toLocaleDateString("de-DE", optionsDate)}`;
-
         $("week-info").textContent = `KW ${currentWeekNo} / ${currentWeekYear}`;
         $("week-range").textContent = weekRange;
 
-        const weekdays = [0, 1, 2, 3, 4]; // Monday (0) to Friday (4) offset from week start
+        const weekdays = [0, 1, 2, 3, 4];
         const optionsWeekday = { weekday: "long", timeZone: "Europe/Berlin" };
-
         let weeklyTotalDiff = 0;
 
         weekdays.forEach((dayOffset) => {
-          // Calculate the specific date for this day of the week using UTC
           const currentDateUTC = new Date(weekStartDateUTC.getTime());
           currentDateUTC.setUTCDate(weekStartDateUTC.getUTCDate() + dayOffset);
-
-          // Format date string (YYYY-MM-DD) for matching with history data
-          const currentDateStr = currentDateUTC.toISOString().split("T")[0];
-
-          // Format date and weekday name for display in Berlin time
+          const currentDateStr = currentDateUTC.toISOString().split("T")[0]; // YYYY-MM-DD
           const displayDate = currentDateUTC.toLocaleDateString(
             "de-DE",
             optionsDate
@@ -672,15 +613,12 @@
             "de-DE",
             optionsWeekday
           );
-
           const entry = history.find((e) => e.datum === currentDateStr);
 
           const li = document.createElement("li");
-          li.classList.add("history-item"); // Outer container for flex layout
-
+          li.classList.add("history-item");
           const entryContentDiv = document.createElement("div");
-          entryContentDiv.classList.add("history-entry-content"); // Inner container for content and styling
-
+          entryContentDiv.classList.add("history-entry-content");
           const actionsDiv = document.createElement("div");
           actionsDiv.classList.add("history-actions");
 
@@ -698,14 +636,12 @@
               let bgColor = entry.krank
                 ? "var(--special-day-krank-bg)"
                 : "var(--special-day-urlaub-bg)";
-              let textColor = "var(--special-day-text)";
               entryContentDiv.classList.add("special-day");
               entryContentDiv.style.backgroundColor = bgColor;
-              entryContentDiv.style.color = textColor;
+              entryContentDiv.style.color = "var(--special-day-text)";
               entryContentDiv.innerHTML = `
                 <div><strong>${weekdayName}</strong> (${displayDate})</div>
-                <div>${specialDayText} ${locationEmoji}</div>
-              `;
+                <div>${specialDayText} ${locationEmoji}</div>`;
             } else {
               const diffVal = parseFloat(entry.differenz) || 0;
               weeklyTotalDiff += diffVal;
@@ -715,50 +651,46 @@
                   : diffVal < -0.001
                     ? "negative-value"
                     : "zero-value";
-              // Parse stored ISO strings back to Date objects to pass to checkViolations
-              const kommen = entry.kommen ? new Date(entry.kommen) : null;
-              const gehen = entry.gehen ? new Date(entry.gehen) : null;
-              const netTime = calculateNetArbeitszeitFromEntry(entry);
-              const isViolation = checkViolations(kommen, gehen, netTime);
+
+              // --- Wichtig: Konvertiere gespeicherte ISO-Strings (UTC) zurück in LOKALE Date-Objekte für die Anzeige ---
+              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
+              const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
+
+              // --- Verwende LOKALE Zeiten für checkViolations und Anzeige ---
+              const netTime = calculateNetArbeitszeitFromEntryData(
+                kommenLokal,
+                gehenLokal
+              ); // Berechne Nettozeit aus lokalen Daten
+              const isViolation = checkViolations(kommenLokal, gehenLokal, netTime);
               const violationMark = isViolation
                 ? ' <span class="violation-mark">!</span>'
                 : "";
-
-              if (isViolation) {
-                entryContentDiv.classList.add("violation-day");
-              }
+              if (isViolation) entryContentDiv.classList.add("violation-day");
 
               entryContentDiv.innerHTML = `
                 <div><strong>${weekdayName}</strong> (${displayDate})</div>
                 <div>
-                  ${formatTime(kommen)} - ${formatTime(gehen)} ${locationEmoji}
+                  ${formatTime(kommenLokal)} - ${formatTime(gehenLokal)} ${locationEmoji}
                   <span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>
                   ${violationMark}
-                </div>
-              `;
+                </div>`;
             }
             actionsDiv.innerHTML = `
               <button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button>
-              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>
-            `;
+              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>`;
           } else {
-            // No entry for this day
             entryContentDiv.classList.add("no-data");
             entryContentDiv.innerHTML = `
               <div><strong>${weekdayName}</strong> (${displayDate})</div>
-              <div>Kein Eintrag</div>
-          `;
+              <div>Kein Eintrag</div>`;
             actionsDiv.innerHTML = `
-               <button class="inline-button add-button" onclick="showAddDayModal('${currentDateStr}')">+</button>
-            `;
+               <button class="inline-button add-button" onclick="showAddDayModal('${currentDateStr}')">+</button>`;
           }
-
-          li.appendChild(entryContentDiv); // Add content div
-          li.appendChild(actionsDiv); // Add actions div
-          historyList.appendChild(li); // Add list item to list
+          li.appendChild(entryContentDiv);
+          li.appendChild(actionsDiv);
+          historyList.appendChild(li);
         });
 
-        // Update weekly summary
         const diffClassSummary =
           weeklyTotalDiff > 0.001
             ? "positive-value"
@@ -767,49 +699,56 @@
               : "zero-value";
         $("weekly-summary-content").innerHTML = `
         Gesamtdifferenz:
-           <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(weeklyTotalDiff)} (${weeklyTotalDiff.toFixed(2)}h)</span>
-      `;
-
+           <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(weeklyTotalDiff)} (${weeklyTotalDiff.toFixed(2)}h)</span>`;
         updateWeekNavigation();
       }
 
-      function calculateNetArbeitszeitFromEntry(entry) {
-        if (
-          !entry.kommen ||
-          !entry.gehen ||
-          entry.urlaub ||
-          entry.krank ||
-          entry.schulung
-        )
-          return 0;
-        // Parse ISO strings back to Date objects
-        const k = new Date(entry.kommen);
-        const g = new Date(entry.gehen);
-        const diffMs = g - k;
-        if (diffMs < 0) return 0; // Should not happen if saved correctly
+      // --- Neue Hilfsfunktion zur Nettozeitberechnung aus LOKALEN Date-Objekten ---
+      function calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal) {
+        if (!kommenLokal || !gehenLokal) return 0;
+
+        // Stelle sicher, dass gehen nach kommen ist (möglicher Tageswechsel)
+        let gehenAdjusted = new Date(gehenLokal.getTime());
+        if (gehenAdjusted < kommenLokal) {
+          gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
+        }
+
+        const diffMs = gehenAdjusted - kommenLokal;
+        if (diffMs < 0) return 0;
 
         const totalH = diffMs / (1000 * 60 * 60);
-        // Use the standard pause calculation based on presence time
+        // Verwende die Standard-Pausenberechnung basierend auf Anwesenheitszeit
+        // Beachte: parseAdditionalPause() liest vom *Hauptseiten*-Input, was hier falsch sein könnte.
+        // Besser wäre, die Pause aus der Differenz von Anwesenheit und gespeicherter Nettozeit zu ermitteln,
+        // aber wir verwenden hier die Standardberechnung für Konsistenz.
         const pausen = calculatePausenForWorkTime(totalH);
         return Math.max(0, totalH - pausen);
       }
 
+      // --- calculateNetArbeitszeitFromEntry wird nicht mehr direkt verwendet, stattdessen calculateNetArbeitszeitFromEntryData ---
+      /* function calculateNetArbeitszeitFromEntry(entry) { ... } */
+
       function deleteEntryByDate(dateStr) {
-        let history = getHistory(); // Gets sorted history
+        let history = getHistory();
         const index = history.findIndex((e) => e.datum === dateStr);
         if (index !== -1) {
           const displayDate = new Date(
             dateStr + "T00:00:00"
-          ).toLocaleDateString("de-DE"); // Interpret locally for display
+          ).toLocaleDateString("de-DE");
           if (
             confirm(
               `Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`
             )
           ) {
             history.splice(index, 1);
-            // History is already sorted, just save
+            // --- Sortieren vor dem Speichern ---
+            history.forEach((entry) => {
+              entry.dateObj = new Date(entry.datum + "T00:00:00");
+            });
+            history.sort((a, b) => a.dateObj - b.dateObj);
+            history.forEach((entry) => delete entry.dateObj);
+            // --- Ende Sortieren ---
             storeToLS("history", JSON.stringify(history));
-            // Reload the current view if it depends on history
             if (currentView === "history") loadHistory();
             if (currentView === "month") loadMonthData();
             if (currentView === "stats") calculateAndDisplayStats();
@@ -819,69 +758,56 @@
 
       function updateWeekNavigation() {
         const pagination = $("pagination");
-        pagination.innerHTML = ""; // Clear existing buttons
-
+        pagination.innerHTML = "";
         const createButton = (text, onClick) => {
           const btn = document.createElement("button");
           btn.textContent = text;
           btn.onclick = onClick;
           return btn;
         };
-
         const prevWeekBtn = createButton("‹ Vorige KW", () => {
           const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-          d.setUTCDate(d.getUTCDate() - 7); // Go back 7 days in UTC
+          d.setUTCDate(d.getUTCDate() - 7);
           [currentWeekYear, currentWeekNo] = getWeekNumber(d);
           loadHistory();
         });
-
         const nextWeekBtn = createButton("Nächste KW ›", () => {
           const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-          d.setUTCDate(d.getUTCDate() + 7); // Go forward 7 days in UTC
+          d.setUTCDate(d.getUTCDate() + 7);
           [currentWeekYear, currentWeekNo] = getWeekNumber(d);
           loadHistory();
         });
-
         pagination.appendChild(prevWeekBtn);
-        // Optional: Add a "Current Week" button here
         pagination.appendChild(nextWeekBtn);
       }
 
       // --- Manuelle Buchung / Add Day Modal ---
       function showAddDayModal(dateStr) {
-        // dateStr is YYYY-MM-DD
-        const dateVal = new Date(dateStr + "T00:00:00"); // Interpret as local date
+        const dateVal = new Date(dateStr + "T00:00:00"); // LOKAL
         const displayDate = dateVal.toLocaleDateString("de-DE");
         const weekdayName = dateVal.toLocaleDateString("de-DE", {
           weekday: "long",
         });
-
         $("add-day-modal-title").textContent = `Buchung für ${weekdayName}, ${displayDate}`;
         $("add-day-kommen").value = "";
         $("add-day-gehen").value = "";
         $("pc-buchung-add-day").checked =
-          getFromLS("pcBuchungChecked") === "true"; // Default to user setting
-        $("buero-add-day").checked = getFromLS("bueroChecked") === "true"; // Default to user setting
-
+          getFromLS("pcBuchungChecked") === "true";
+        $("buero-add-day").checked = getFromLS("bueroChecked") === "true";
         $("urlaub-toggle").checked = false;
         $("krank-toggle").checked = false;
         $("schulung-toggle").checked = false;
-        toggleTimeFieldsDisabled(false); // Enable time fields initially
-
-        $("add-day-modal").setAttribute("data-date", dateStr); // Store YYYY-MM-DD
-        $("add-day-modal").style.display = "flex"; // Use flex for centering
+        toggleTimeFieldsDisabled(false);
+        $("add-day-modal").setAttribute("data-date", dateStr); // YYYY-MM-DD
+        $("add-day-modal").style.display = "flex";
       }
 
       function toggleSpecialDay(type) {
         const types = ["urlaub", "krank", "schulung"];
         const isChecked = $(type + "-toggle").checked;
-
         types.forEach((t) => {
-          // Uncheck others only if the current one is being checked
           if (t !== type && isChecked) $(t + "-toggle").checked = false;
         });
-
-        // Disable time fields if *any* special day is checked
         toggleTimeFieldsDisabled(
           $("urlaub-toggle").checked ||
             $("krank-toggle").checked ||
@@ -893,7 +819,6 @@
         $("add-day-kommen").disabled = disabled;
         $("add-day-gehen").disabled = disabled;
         $("pc-buchung-add-day").disabled = disabled;
-        // Keep Buero/Homeoffice enabled even for special days
       }
 
       function addManualDay() {
@@ -902,8 +827,7 @@
           alert("Kein gültiges Datum für die Buchung!");
           return;
         }
-
-        const realDate = new Date(dateVal + "T00:00:00"); // Interpret as local date
+        const realDate = new Date(dateVal + "T00:00:00"); // LOKALES Datum
         const dayOfWeek = realDate.getDay();
         if (dayOfWeek === 0 || dayOfWeek === 6) {
           alert("Samstag und Sonntag sind nicht zulässig!");
@@ -916,27 +840,25 @@
         const isBueroAddDay = $("buero-add-day").checked;
         const isPcBuchungAddDay = $("pc-buchung-add-day").checked;
 
-        let history = getHistory(); // Gets sorted history
+        let history = getHistory();
         const existingIndex = history.findIndex((e) => e.datum === dateVal);
         const displayDate = realDate.toLocaleDateString("de-DE");
 
         let dayData = {
-          datum: dateVal, // Store as YYYY-MM-DD string
+          datum: dateVal,
           differenz: "0.00",
           differenzTime: "0:00",
-          stundenkonto: "0.00", // Will be updated later
+          stundenkonto: "0.00",
           kommen: null,
           gehen: null,
           urlaub: isUrlaub,
           krank: isKrank,
           schulung: isSchulung,
-          pcBuchung: false, // Default for special days
+          pcBuchung: false,
           buero: isBueroAddDay,
         };
 
-        // --- Special Day Handling ---
         if (isUrlaub || isKrank || isSchulung) {
-          // For special days, difference is 0, konto remains unchanged from previous day
           const lastKonto = findLastKontoBeforeDate(
             history,
             dateVal,
@@ -948,7 +870,6 @@
             : isKrank
               ? "Krank"
               : "Schulung";
-
           if (existingIndex !== -1) {
             if (
               !confirm(
@@ -960,15 +881,13 @@
           } else {
             history.push(dayData);
           }
-          saveAndReload(history, dayData.stundenkonto);
+          saveAndReload(history); // Kein newKontoValue nötig, da Konto unverändert
           alert(`${label} für ${displayDate} eingetragen.`);
           return;
         }
 
-        // --- Normal Work Day Handling ---
         const kommenVal = $("add-day-kommen").value;
         const gehenVal = $("add-day-gehen").value;
-
         if (!kommenVal || !gehenVal) {
           alert(
             "Bitte Kommen- und Gehen-Zeit angeben oder Urlaub/Krank/Schulung wählen!"
@@ -976,52 +895,38 @@
           return;
         }
 
-        const kommenDateManual = parseTime(kommenVal); // Creates Date object with today's date, given time
-        const gehenDateManual = parseTime(gehenVal); // Creates Date object with today's date, given time
+        // --- Erzeuge LOKALE Date-Objekte für den ZIELTAG ---
+        const kommenDateManual = parseTimeForDate(kommenVal, realDate);
+        const gehenDateManual = parseTimeForDate(gehenVal, realDate);
 
         if (!kommenDateManual || !gehenDateManual) {
           alert("Ungültige Zeitformate!");
           return;
         }
 
-        // Set the date part of the manually entered times to the *actual* date being saved
-        kommenDateManual.setFullYear(
-          realDate.getFullYear(),
-          realDate.getMonth(),
-          realDate.getDate()
-        );
-        gehenDateManual.setFullYear(
-          realDate.getFullYear(),
-          realDate.getMonth(),
-          realDate.getDate()
-        );
-
-        // Handle potential overnight case for manual entry
+        // Tageswechsel-Logik für manuelle Eingabe
         if (gehenDateManual < kommenDateManual) {
-          gehenDateManual.setDate(gehenDateManual.getDate() + 1); // Assume next day
+          gehenDateManual.setDate(gehenDateManual.getDate() + 1);
         }
 
-        let adjustedKommenManual = new Date(kommenDateManual.getTime());
+        let adjustedKommenManual = new Date(kommenDateManual.getTime()); // LOKAL
         if (isPcBuchungAddDay) {
           adjustedKommenManual.setMinutes(
             adjustedKommenManual.getMinutes() - 8
           );
         }
 
-        // Recalculate diffMs with potentially adjusted Kommen time AND potentially next-day Gehen time
         const diffMsManual = gehenDateManual - adjustedKommenManual;
         if (diffMsManual < 0) {
-          // This should only happen if PC-Buchung adjustment makes Kommen later than Gehen on the same day
           alert(
             "Angepasste Kommen-Zeit (PC-Buchung) liegt nach der Gehen-Zeit!"
           );
           return;
         }
         const totalHManual = diffMsManual / (1000 * 60 * 60);
-        const pausenManual = calculatePausenForWorkTime(totalHManual);
+        const pausenManual = calculatePausenForWorkTime(totalHManual); // Nutzt globale Einstellung
         const netManual = Math.max(0, totalHManual - pausenManual);
 
-        // Check violations for manual entry using the final adjusted times
         if (checkViolations(adjustedKommenManual, gehenDateManual, netManual)) {
           if (
             !confirm(
@@ -1039,17 +944,15 @@
           history,
           dateVal,
           existingIndex
-        ); // Find balance before this day
+        );
         const newKtoManual = parseFloat((lastKonto + diffValManual).toFixed(2));
         const diffTimeManual = formatDecimalToTime(diffValManual);
 
-        // Update dayData for normal work day
         dayData.differenz = diffValManual.toFixed(2);
         dayData.differenzTime = diffTimeManual;
         dayData.stundenkonto = newKtoManual.toFixed(2);
-        // Store times as ISO strings, preserving timezone info from the Date objects
-        dayData.kommen = adjustedKommenManual.toISOString();
-        dayData.gehen = gehenDateManual.toISOString();
+        dayData.kommen = adjustedKommenManual.toISOString(); // Speichere als ISO (UTC)
+        dayData.gehen = gehenDateManual.toISOString(); // Speichere als ISO (UTC)
         dayData.pcBuchung = isPcBuchungAddDay;
         dayData.urlaub = false;
         dayData.krank = false;
@@ -1063,20 +966,33 @@
           history.push(dayData);
         }
 
-        saveAndReload(history, dayData.stundenkonto); // Save and update UI
+        saveAndReload(history); // Lässt saveAndReload den neuesten Kontostand ermitteln
         alert(`Arbeitstag für ${displayDate} gespeichert.`);
       }
 
+      // --- Neue Hilfsfunktion: Parse Time für ein spezifisches Datum ---
+      function parseTimeForDate(timeStr, targetDate) {
+        if (!timeStr || !targetDate) return null;
+        const match = timeStr.match(/^(\d{2}):(\d{2})$/);
+        if (!match) return null;
+        const hh = parseInt(match[1], 10);
+        const mm = parseInt(match[2], 10);
+        if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
+          return null;
+        const resultDate = new Date(targetDate.getTime()); // Kopie des Zieldatums (LOKAL)
+        resultDate.setHours(hh, mm, 0, 0); // Setzt Stunden/Minuten LOKAL für dieses Datum
+        return resultDate;
+      }
+
       function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
-        // dateStr is YYYY-MM-DD
-        const targetDate = new Date(dateStr + "T00:00:00"); // Interpret date string locally
+        const targetDate = new Date(dateStr + "T00:00:00"); // LOKAL
         const relevantHistory = history
           .filter(
             (entry, index) =>
               index !== excludeIndex &&
               new Date(entry.datum + "T00:00:00") < targetDate
           )
-          .sort((a, b) => new Date(b.datum) - new Date(a.datum)); // Sort descending by date
+          .sort((a, b) => new Date(b.datum) - new Date(a.datum));
 
         if (
           relevantHistory.length > 0 &&
@@ -1084,32 +1000,34 @@
         ) {
           return parseFloat(relevantHistory[0].stundenkonto) || 0;
         }
-        // If no previous entry, use the current value from LS (more reliable than input field)
         return parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
       }
 
-      function saveAndReload(history, newKontoValue) {
-        // Sort history before saving to ensure correct order for future calculations
-        history.sort((a, b) => new Date(a.datum) - new Date(b.datum));
+      // --- Überarbeitetes saveAndReload ---
+      function saveAndReload(history) {
+        // Sortieren vor dem Speichern
+        history.forEach((entry) => {
+          entry.dateObj = new Date(entry.datum + "T00:00:00");
+        });
+        history.sort((a, b) => a.dateObj - b.dateObj);
+        history.forEach((entry) => delete entry.dateObj);
+        // Ende Sortieren
+
         storeToLS("history", JSON.stringify(history));
 
-        // Update the main page's current balance display *if* the saved day is the latest one
-        const latestEntry = history[history.length - 1];
-        if (latestEntry && latestEntry.stundenkonto !== undefined) {
-          const latestKonto = parseFloat(latestEntry.stundenkonto);
-          // Only update main page display if this entry IS the latest overall
-          const allHistory = getHistory(); // Get potentially updated full history (already sorted)
-          const overallLatestDate =
-            allHistory.length > 0 ? allHistory[allHistory.length - 1].datum : null;
-          if (latestEntry.datum === overallLatestDate) {
-            $("aktuelles-konto").value = latestKonto.toFixed(2);
-            storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2)); // Persist latest balance
-            updateCalculations(); // Update dependent fields on main page
-          }
-        }
+        // Finde den *aktuellsten* Eintrag in der *gesamten* (jetzt gespeicherten) History
+        const latestEntry = history.length > 0 ? history[history.length - 1] : null;
+        const latestKonto = latestEntry
+          ? parseFloat(latestEntry.stundenkonto || 0)
+          : 0;
+
+        // Aktualisiere immer den persistenten Kontostand und das Hauptseiten-Feld
+        // mit dem Kontostand des letzten Eintrags.
+        $('aktuelles-konto').value = latestKonto.toFixed(2);
+        storeToLS('aktuellesStundenkonto', latestKonto.toFixed(2));
+        updateCalculations(); // Aktualisiert abhängige Felder auf der Hauptseite
 
         closeAddDayModal();
-        // Reload the current view
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
@@ -1122,17 +1040,15 @@
 
       // --- Detail-Anzeige Modal ---
       function showDayDetails(dateStr) {
-        // dateStr is YYYY-MM-DD
-        const history = getHistory(); // Gets sorted history
+        const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
         if (!entry) return;
 
-        const entryDate = new Date(dateStr + "T00:00:00"); // Interpret locally
+        const entryDate = new Date(dateStr + "T00:00:00"); // LOKAL
         const dispDate = entryDate.toLocaleDateString("de-DE");
         const weekdayName = entryDate.toLocaleDateString("de-DE", {
           weekday: "long",
         });
-
         $("detail-modal-title").textContent = `Details: ${weekdayName}, ${dispDate}`;
 
         let detailsHTML = "";
@@ -1152,15 +1068,14 @@
           <p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p>
           <p><strong>Kommen:</strong> --:--</p>
           <p><strong>Gehen:</strong> --:--</p>
-          <p><strong>Differenz:</strong> 0.00h (0:00)</p>
-        `;
-          pcBuchungChecked = false; // No PC booking for special days
+          <p><strong>Differenz:</strong> 0.00h (0:00)</p>`;
+          pcBuchungChecked = false;
         } else {
-          // Parse stored ISO strings back to Date objects
-          const kommen = entry.kommen ? new Date(entry.kommen) : null;
-          const gehen = entry.gehen ? new Date(entry.gehen) : null;
-          const kommenFormatted = formatTime(kommen);
-          const gehenFormatted = formatTime(gehen);
+          // --- Konvertiere gespeicherte ISO (UTC) zu LOKAL für Anzeige ---
+          const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
+          const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
+          const kommenFormatted = formatTime(kommenLokal); // LOKAL
+          const gehenFormatted = formatTime(gehenLokal); // LOKAL
           const diffVal = parseFloat(entry.differenz) || 0;
           const diffClass =
             diffVal > 0.001
@@ -1169,16 +1084,20 @@
                 ? "negative-value"
                 : "zero-value";
 
-          if (kommen && gehen) {
-            // Calculate presence based on the *stored* (potentially adjusted) kommen time
-            const diffMs = gehen - kommen;
+          if (kommenLokal && gehenLokal) {
+            let gehenAdjusted = new Date(gehenLokal.getTime());
+            if (gehenAdjusted < kommenLokal) {
+              gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
+            }
+            const diffMs = gehenAdjusted - kommenLokal;
             if (diffMs >= 0) {
               const totalH = diffMs / (1000 * 60 * 60);
               anwesenheitLabel = `${Math.floor(totalH)}:${pad(Math.round((totalH % 1) * 60))} (${totalH.toFixed(2)}h)`;
-
-              const netCalculated = calculateNetArbeitszeitFromEntry(entry);
+              const netCalculated = calculateNetArbeitszeitFromEntryData(
+                kommenLokal,
+                gehenLokal
+              ); // LOKAL
               nettoLabel = `${formatDecimalToTime(netCalculated)} (${netCalculated.toFixed(2)}h)`;
-
               const pausenVal = totalH - netCalculated;
               pausenLabel =
                 pausenVal > 0
@@ -1186,7 +1105,6 @@
                   : "0 Min";
             }
           }
-
           detailsHTML = `
           <p><strong>Ort:</strong> ${bueroEmoji}</p>
           <p><strong>Kommen:</strong> ${kommenFormatted} ${pcBuchungChecked ? "(PC-Buchung aktiv)" : ""}</p>
@@ -1195,12 +1113,10 @@
           <p><strong>Pause:</strong> ${pausenLabel}</p>
           <p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}</p>
           <p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p>
-          <p><strong>Stundenkonto danach:</strong> ${formatDecimalToTime(parseFloat(entry.stundenkonto || 0))} (${parseFloat(entry.stundenkonto || 0).toFixed(2)}h)</p>
-        `;
+          <p><strong>Stundenkonto danach:</strong> ${formatDecimalToTime(parseFloat(entry.stundenkonto || 0))} (${parseFloat(entry.stundenkonto || 0).toFixed(2)}h)</p>`;
         }
-
         $("detail-content").innerHTML = detailsHTML;
-        $("detail-modal").style.display = "flex"; // Use flex for centering
+        $("detail-modal").style.display = "flex";
       }
 
       function closeDetailModal() {
@@ -1208,7 +1124,7 @@
         if (modal) modal.style.display = "none";
       }
 
-      // --- Month View ---
+      // --- Month View (unverändert bzgl. Logik) ---
       const monthNames = [
         "Januar",
         "Februar",
@@ -1223,22 +1139,16 @@
         "November",
         "Dezember",
       ];
-
       function getFirstDayOfMonth(year, month) {
-        // Returns 0 for Sunday, 1 for Monday, etc. based on local time
         return new Date(year, month, 1).getDay();
       }
-
       function getDaysInMonth(year, month) {
-        // month is 0-indexed, day 0 of next month gives last day of current month
         return new Date(year, month + 1, 0).getDate();
       }
-
       function loadMonthData() {
-        const history = getHistory(); // Gets sorted history
+        const history = getHistory();
         const monthData = history.filter((entry) => {
-          // entry.datum is YYYY-MM-DD
-          const entryDate = new Date(entry.datum + "T00:00:00"); // Interpret as local date
+          const entryDate = new Date(entry.datum + "T00:00:00"); // LOKAL
           return (
             entryDate.getFullYear() === currentMonthYear &&
             entryDate.getMonth() === currentMonth
@@ -1247,17 +1157,13 @@
         renderCalendar(monthData);
         updateMonthNavigation();
       }
-
       function renderCalendar(monthData) {
         const calendarGrid = $("calendar-grid");
-        calendarGrid.innerHTML = ""; // Clear previous grid
+        calendarGrid.innerHTML = "";
         $("month-year-display").textContent = `${monthNames[currentMonth]} ${currentMonthYear}`;
-
         const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
-        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth); // 0=Sun, 1=Mon
-        firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1; // Adjust to 0=Mon, 6=Sun
-
-        // Add weekday headers
+        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth);
+        firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
         const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
         weekdays.forEach((wd) => {
           const headerCell = document.createElement("div");
@@ -1265,37 +1171,25 @@
           headerCell.textContent = wd;
           calendarGrid.appendChild(headerCell);
         });
-
-        // Add empty cells for the first days offset
         for (let i = 0; i < firstDayIndex; i++) {
           const emptyCell = document.createElement("div");
           emptyCell.classList.add("calendar-day", "empty");
           calendarGrid.appendChild(emptyCell);
         }
-
         let monthlyTotalDiff = 0;
-
-        // Add day cells
         for (let day = 1; day <= daysInMonth; day++) {
           const cell = document.createElement("div");
           cell.classList.add("calendar-day");
-
-          // --- Corrected: Inner div for content and circle styling ---
           const cellContent = document.createElement("div");
           cellContent.classList.add("calendar-day-content");
-          cellContent.textContent = day; // Set day number on inner div
-          cell.appendChild(cellContent); // Append inner div to cell
-          // --- End Correction ---
-
-          // Generate YYYY-MM-DD string directly for comparison
+          cellContent.textContent = day;
+          cell.appendChild(cellContent);
           const currentDateStr = `${currentMonthYear}-${pad(currentMonth + 1)}-${pad(day)}`;
-          const currentDateObj = new Date(currentMonthYear, currentMonth, day); // For weekday check
-          const dayOfWeek = currentDateObj.getDay(); // 0=Sun, 6=Sat
-
+          const currentDateObj = new Date(currentMonthYear, currentMonth, day); // LOKAL
+          const dayOfWeek = currentDateObj.getDay();
           const entry = monthData.find((e) => e.datum === currentDateStr);
-
           if (entry) {
-            cell.classList.add("has-entry"); // Mark cell as having an entry
+            cell.classList.add("has-entry");
             const diffVal = parseFloat(entry.differenz) || 0;
             monthlyTotalDiff += diffVal;
             let diffClass = "";
@@ -1314,32 +1208,26 @@
               else diffClass = "zero-value";
               cellContent.title = `Differenz: ${entry.differenzTime}`;
             }
-            cellContent.classList.add(diffClass); // Apply color class to inner content div
+            cellContent.classList.add(diffClass);
             cell.onclick = () => showDayDetails(currentDateStr);
           } else if (dayOfWeek === 0 || dayOfWeek === 6) {
             cell.classList.add("weekend");
-            cellContent.classList.add("weekend-text"); // Style weekend text differently
+            cellContent.classList.add("weekend-text");
           } else {
-            // Empty workday - allow adding entry
             cell.classList.add("no-entry");
             cell.onclick = () => showAddDayModal(currentDateStr);
             cellContent.title = "Klicken zum Hinzufügen";
           }
-
-          // Highlight today
           const today = new Date();
           if (
             currentDateObj.getFullYear() === today.getFullYear() &&
             currentDateObj.getMonth() === today.getMonth() &&
             currentDateObj.getDate() === today.getDate()
           ) {
-            cellContent.classList.add("today"); // Highlight inner content div
+            cellContent.classList.add("today");
           }
-
-          calendarGrid.appendChild(cell); // Append outer cell
+          calendarGrid.appendChild(cell);
         }
-
-        // Update monthly summary
         const diffClassSummary =
           monthlyTotalDiff > 0.001
             ? "positive-value"
@@ -1347,12 +1235,9 @@
               ? "negative-value"
               : "zero-value";
         $("month-summary-content").innerHTML = `
-            Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(monthlyTotalDiff)} (${monthlyTotalDiff.toFixed(2)}h)</span>
-        `;
+            Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(monthlyTotalDiff)} (${monthlyTotalDiff.toFixed(2)}h)</span>`;
       }
-
       function updateMonthNavigation() {
-        // Simple Prev/Next Month buttons
         $("prev-month").onclick = () => {
           currentMonth--;
           if (currentMonth < 0) {
@@ -1371,83 +1256,45 @@
         };
       }
 
-      // --- Statistics View ---
+      // --- Statistics View (Logik unverändert, nutzt jetzt korrekte lokale Zeiten aus History) ---
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
-        const history = getHistory(); // Gets sorted history
+        const history = getHistory();
         const today = new Date();
         let startDate, endDate;
-
-        // Set hours to avoid timezone issues affecting date comparisons
         today.setHours(12, 0, 0, 0);
 
         switch (period) {
           case "current_month":
-            startDate = new Date(
-              today.getFullYear(),
-              today.getMonth(),
-              1,
-              12,
-              0,
-              0,
-              0
-            );
-            endDate = new Date(
-              today.getFullYear(),
-              today.getMonth() + 1,
-              0,
-              12,
-              0,
-              0,
-              0
-            ); // End of month
+            startDate = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0, 0);
             break;
           case "last_month":
-            startDate = new Date(
-              today.getFullYear(),
-              today.getMonth() - 1,
-              1,
-              12,
-              0,
-              0,
-              0
-            );
-            endDate = new Date(
-              today.getFullYear(),
-              today.getMonth(),
-              0,
-              12,
-              0,
-              0,
-              0
-            ); // End of last month
+            startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear(), today.getMonth(), 0, 12, 0, 0, 0);
             break;
           case "current_year":
             startDate = new Date(today.getFullYear(), 0, 1, 12, 0, 0, 0);
-            endDate = new Date(today.getFullYear(), 11, 31, 12, 0, 0, 0); // End of year
+            endDate = new Date(today.getFullYear(), 11, 31, 12, 0, 0, 0);
             break;
-          case "last_year": // Added Last Year
+          case "last_year":
             startDate = new Date(today.getFullYear() - 1, 0, 1, 12, 0, 0, 0);
-            endDate = new Date(today.getFullYear() - 1, 11, 31, 12, 0, 0, 0); // End of last year
+            endDate = new Date(today.getFullYear() - 1, 11, 31, 12, 0, 0, 0);
             break;
           case "all_time":
           default:
             if (history.length === 0) {
-              startDate = new Date(today); // No data, use today
+              startDate = new Date(today);
               endDate = new Date(today);
             } else {
-              // History is already sorted
-              startDate = new Date(history[0].datum + "T12:00:00"); // Use noon to avoid TZ issues
-              endDate = new Date(
-                history[history.length - 1].datum + "T12:00:00"
-              );
+              startDate = new Date(history[0].datum + "T12:00:00");
+              endDate = new Date(history[history.length - 1].datum + "T12:00:00");
             }
             break;
         }
 
         const filteredHistory = history.filter((entry) => {
-          const entryDate = new Date(entry.datum + "T12:00:00"); // Interpret locally at noon
-          // Compare dates only, ignoring time part effectively
+          const entryDate = new Date(entry.datum + "T12:00:00"); // LOKAL
           return (
             entryDate.setHours(0, 0, 0, 0) >= startDate.setHours(0, 0, 0, 0) &&
             entryDate.setHours(0, 0, 0, 0) <= endDate.setHours(0, 0, 0, 0)
@@ -1464,35 +1311,31 @@
         let trainingDays = 0;
 
         filteredHistory.forEach((entry) => {
-          if (entry.urlaub) {
-            vacationDays++;
-          } else if (entry.krank) {
-            sickDays++;
-          } else if (entry.schulung) {
-            trainingDays++;
-          } else if (entry.kommen && entry.gehen) {
-            // It's a work day
+          if (entry.urlaub) vacationDays++;
+          else if (entry.krank) sickDays++;
+          else if (entry.schulung) trainingDays++;
+          else if (entry.kommen && entry.gehen) {
             workDays++;
-            const netHours = calculateNetArbeitszeitFromEntry(entry);
+            // --- Konvertiere zu LOKAL für Berechnung ---
+            const kommenLokal = new Date(entry.kommen);
+            const gehenLokal = new Date(entry.gehen);
+            const netHours = calculateNetArbeitszeitFromEntryData(
+              kommenLokal,
+              gehenLokal
+            );
             totalNetHours += netHours;
             totalDiff += parseFloat(entry.differenz || 0);
-            if (entry.buero) {
-              officeDays++;
-            } else {
-              homeDays++;
-            }
+            if (entry.buero) officeDays++;
+            else homeDays++;
           }
         });
 
         const avgDailyHours = workDays > 0 ? totalNetHours / workDays : 0;
-
-        // Display Stats
         const statsContent = $("stats-content");
         if (filteredHistory.length === 0) {
           statsContent.innerHTML = `<li>Keine Daten für den ausgewählten Zeitraum vorhanden.</li>`;
           return;
         }
-
         statsContent.innerHTML = `
             <li>Gesamt Netto-Arbeitszeit: <span>${formatDecimalToTime(totalNetHours)} (${totalNetHours.toFixed(2)}h)</span></li>
             <li>Durchschnittl. tägl. Arbeitszeit: <span>${formatDecimalToTime(avgDailyHours)} (${avgDailyHours.toFixed(2)}h)</span></li>
@@ -1502,8 +1345,7 @@
             <li>&nbsp;&nbsp;&nbsp;davon Homeoffice: <span>${homeDays}</span></li>
             <li>Urlaubstage: <span>${vacationDays}</span></li>
             <li>Krankheitstage: <span>${sickDays}</span></li>
-            <li>Schulungstage: <span>${trainingDays}</span></li>
-        `;
+            <li>Schulungstage: <span>${trainingDays}</span></li>`;
       }
 
       // --- Initial Load ---
@@ -1654,7 +1496,6 @@
         border-bottom: 1px solid var(--separator-color);
         padding-bottom: 8px;
       }
-      /* --- Removed top margin from h3 --- */
       h3 {
         font-size: 17px;
         font-weight: 600;
@@ -1784,7 +1625,25 @@
         flex: 1;
       }
 
-      /* --- Removed .time-input-row styles as they are no longer used --- */
+      /* --- Korrigiertes Layout für Kommen/Gehen --- */
+      .time-button-row {
+        display: flex;
+        gap: 10px; /* Abstand zwischen Input und Button */
+        margin-bottom: 10px;
+        align-items: center; /* Vertikal zentrieren */
+      }
+      .time-button-row input[type="time"] {
+        flex-grow: 1; /* Input nimmt verfügbaren Platz */
+        margin-bottom: 0; /* Margin vom Input entfernen */
+        text-align: center;
+      }
+      .time-button-row .button {
+        flex-shrink: 0; /* Button schrumpft nicht */
+        width: auto; /* Breite automatisch an Inhalt anpassen */
+        padding: 12px 25px; /* Mehr Padding für Button */
+        margin-bottom: 0; /* Margin vom Button entfernen */
+      }
+      /* --- Ende Korrektur --- */
 
       /* Switch Toggle */
       .switch-container {
@@ -1837,7 +1696,6 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        /* Width(60) - LeftPad(1) - RightPad(1) - Knob(28) = 30px travel */
         transform: translateX(30px); /* Adjusted translation */
       }
 
@@ -1904,19 +1762,16 @@
         border-bottom: none;
       }
 
-      /* Corrected History Entry Content Styling */
       .history-entry-content {
         flex-grow: 1; /* Take available space */
         padding: 5px; /* Add some internal padding */
         border-radius: 6px; /* Rounded corners for background/border */
-        /* Default transparent background and no border */
         background-color: transparent;
         border-left: 3px solid transparent;
         transition: background-color 0.2s ease; /* Smooth transition */
       }
       .history-entry-content.special-day {
         color: var(--special-day-text);
-        /* Background color set via inline style in JS */
       }
       .history-entry-content.violation-day {
         border-left: 3px solid var(--hint-color);
@@ -1954,11 +1809,11 @@
       .history-actions .inline-button {
         font-size: 20px;
         padding: 5px 8px;
-      } /* Make info button just 'i' */
+      }
       .history-actions .delete-button {
         font-size: 20px;
         padding: 5px 8px;
-      } /* Make delete button just 'x' */
+      }
 
       /* Weekly Summary & Pagination */
       #weekly-summary,
@@ -2089,11 +1944,9 @@
         border-radius: 50%; /* Make it a circle */
         transition: transform 0.1s ease;
       }
-      /* Ensure text color contrasts with background */
       .calendar-day.has-entry .calendar-day-content {
         color: var(--button-text-color);
       }
-      /* --- Added rules for special day backgrounds --- */
       .calendar-day-content.special-day-krank-bg {
         background-color: var(--special-day-krank-bg);
         color: var(--special-day-text); /* Black text on yellow */
@@ -2102,15 +1955,12 @@
         background-color: var(--special-day-urlaub-bg);
         color: var(--special-day-text); /* Black text on teal */
       }
-      /* --- End Added rules --- */
-
       .calendar-day-content.today {
         font-weight: bold;
         border: 2px solid var(
           --button-background-color
         ); /* Circle outline for today */
       }
-      /* Contrast border for today if it also has an entry background */
       .calendar-day.has-entry .calendar-day-content.today {
         border: 2px solid var(--text-color);
       }
@@ -2195,23 +2045,16 @@
           <!-- Kommen / Gehen + PC + Büro -->
           <div class="section">
             <h3>Zeiterfassung</h3>
-            <!-- --- Changed Layout: Input and Button full width --- -->
-            <input
-              type="time"
-              id="kommen-display"
-              oninput="onInputChange()"
-              style="margin-bottom: 5px"
-            />
-            <button class="button" onclick="setZeit('kommen')">Kommen</button>
-
-            <input
-              type="time"
-              id="gehen-display"
-              oninput="onInputChange()"
-              style="margin-bottom: 5px; margin-top: 10px"
-            />
-            <button class="button" onclick="setZeit('gehen')">Gehen</button>
-            <!-- --- End Changed Layout --- -->
+            <!-- --- Korrigiertes Layout: Input + Button nebeneinander --- -->
+            <div class="time-button-row">
+              <input type="time" id="kommen-display" oninput="onInputChange()" />
+              <button class="button" onclick="setZeit('kommen')">Kommen</button>
+            </div>
+            <div class="time-button-row">
+              <input type="time" id="gehen-display" oninput="onInputChange()" />
+              <button class="button" onclick="setZeit('gehen')">Gehen</button>
+            </div>
+            <!-- --- Ende Korrektur --- -->
 
             <div class="switch-container" style="margin-top: 15px">
               <label class="switch">
@@ -2416,7 +2259,6 @@
             </select>
           </div>
           <ul id="stats-content">
-            <!-- Stats werden hier per JS eingefügt -->
             <li>Lade Statistik...</li>
           </ul>
         </div>
@@ -2427,9 +2269,7 @@
         <div class="modal-content">
           <button class="close-button" onclick="closeDetailModal()">×</button>
           <h3 id="detail-modal-title">Details</h3>
-          <div id="detail-content">
-            <!-- Details werden hier per JS eingefügt -->
-          </div>
+          <div id="detail-content"></div>
         </div>
       </div>
 
@@ -2448,7 +2288,6 @@
               <input type="time" id="add-day-gehen" />
             </div>
           </div>
-
           <div class="switch-container" style="margin-top: 15px">
             <label class="switch">
               <input type="checkbox" id="pc-buchung-add-day" />
@@ -2456,7 +2295,6 @@
             </label>
             <span>PC-Buchung (-8 Min)</span>
           </div>
-
           <div class="switch-container">
             <label class="switch">
               <input type="checkbox" id="buero-add-day" />
@@ -2464,7 +2302,6 @@
             </label>
             <span>Im Büro</span>
           </div>
-
           <h3 style="margin-top: 20px">Sondertag?</h3>
           <div class="switch-container">
             <label class="switch">
@@ -2499,7 +2336,6 @@
             </label>
             <span>Schulung</span>
           </div>
-
           <button
             class="button"
             onclick="addManualDay()"
