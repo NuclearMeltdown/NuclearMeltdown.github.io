@@ -109,7 +109,14 @@
 
       function getHistory() {
         const history = JSON.parse(getFromLS("history", "[]"));
+        // Ensure boolean flags exist for older entries
         history.forEach((entry) => {
+          entry.urlaub = entry.urlaub || false;
+          entry.krank = entry.krank || false;
+          entry.schulung = entry.schulung || false;
+          entry.glaz = entry.glaz || false; // Add default for GLAZ
+          entry.pcBuchung = entry.pcBuchung || false;
+          entry.buero = entry.buero || false;
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
@@ -169,6 +176,12 @@
 
         $("export-button").addEventListener("click", exportHistoryToJson);
         $("import-button").addEventListener("click", importHistoryFromJson);
+
+        // Event listener for special day toggles in modal
+        $("urlaub-toggle").onchange = () => toggleSpecialDay("urlaub");
+        $("krank-toggle").onchange = () => toggleSpecialDay("krank");
+        $("schulung-toggle").onchange = () => toggleSpecialDay("schulung");
+        $("glaz-toggle").onchange = () => toggleSpecialDay("glaz"); // Add listener for GLAZ
       }
 
       function restoreInputsFromLocalStorage() {
@@ -220,8 +233,9 @@
         updateCalculations();
       }
 
-      function parseAdditionalPause() {
-        const val = $("zusatzliche-pause").value;
+      // Helper to parse pause input (hh:mm or h.hh)
+      function parsePauseInput(inputId) {
+        const val = $(inputId).value;
         if (!val) return 0;
         const cleanedVal = val.replace(",", ".");
         if (cleanedVal.includes(":")) {
@@ -261,8 +275,9 @@
         return { hours: hh, minutes: mm, totalHours: totalH };
       }
 
-      function calculatePausenForWorkTime(totalHours) {
-        let pausen = parseAdditionalPause();
+      // Calculates total pause (automatic + additional from main view)
+      function calculateGesamtPause(totalHours) {
+        let pausen = parsePauseInput("zusatzliche-pause"); // Use main view input
         if (totalHours > 9) pausen += 0.75;
         else if (totalHours > 6) pausen += 0.5;
         return pausen;
@@ -271,7 +286,7 @@
       function calculateArbeitszeit() {
         const wTime = calculateWorkingTime();
         if (wTime.totalHours <= 0) return 0;
-        const pausen = calculatePausenForWorkTime(wTime.totalHours);
+        const pausen = calculateGesamtPause(wTime.totalHours);
         const netArbeitszeit = wTime.totalHours - pausen;
         return Math.max(0, netArbeitszeit);
       }
@@ -280,9 +295,10 @@
         const ak = getAdjustedKommenZeit();
         if (!ak) return "--:--";
         let presence = desiredNet;
+        const additionalPauseMain = parsePauseInput("zusatzliche-pause"); // Use main view input
         for (let i = 0; i < 5; i++) {
           const prevPresence = presence;
-          let pausen = parseAdditionalPause();
+          let pausen = additionalPauseMain; // Start with additional pause
           if (prevPresence > 9) pausen += 0.75;
           else if (prevPresence > 6) pausen += 0.5;
           presence = desiredNet + pausen;
@@ -323,7 +339,7 @@
         const aktKontoVal = parseFloat($("aktuelles-konto").value) || 0;
         let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
         const wTime = calculateWorkingTime();
-        const pausen = calculatePausenForWorkTime(wTime.totalHours);
+        const pausen = calculateGesamtPause(wTime.totalHours); // Use function for total pause
         const pausenMin = Math.round(pausen * 60);
         $("anwesend-zeit").value = `${wTime.hours}:${pad(wTime.minutes)} (${wTime.totalHours.toFixed(2)}h)`;
         $("pausenzeit").value = `${pausenMin} Min (${pausen.toFixed(2)}h)`;
@@ -380,6 +396,13 @@
         hinweis.innerHTML = hinweisText;
         hinweis.style.display = hinweisText ? "block" : "none";
         updateEndTimes();
+      }
+
+      // Calculates pause based ONLY on duration (for entry data and manual modal)
+      function calculateAutoPauseForDuration(totalHours) {
+        if (totalHours > 9) return 0.75;
+        if (totalHours > 6) return 0.5;
+        return 0;
       }
 
       function checkViolations(kommenDate, gehenDate, arbeitszeit) {
@@ -445,6 +468,9 @@
         const gehenStr = currentGehen ? currentGehen.toISOString() : null;
         const isBuero = $("buero-toggle").checked;
         const isPcBuchung = $("pc-buchung").checked;
+        // Get additional pause value from main view for saving
+        const additionalPauseValue = $("zusatzliche-pause").value || "";
+
         let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
@@ -458,8 +484,10 @@
           urlaub: false,
           krank: false,
           schulung: false,
+          glaz: false, // Add GLAZ flag
           pcBuchung: isPcBuchung,
           buero: isBuero,
+          zusatzPause: additionalPauseValue, // Save additional pause value
         };
         if (existingIndex !== -1) {
           if (
@@ -551,31 +579,46 @@
                 ? "Krank"
                 : entry.schulung
                   ? "Schulung"
-                  : "";
+                  : entry.glaz // Check for GLAZ
+                    ? "GLAZ"
+                    : "";
+            const diffVal = parseFloat(entry.differenz) || 0; // Always get diff
+            weeklyTotalDiff += diffVal; // Always add to weekly total
+            const diffClass =
+              diffVal > 0.001
+                ? "positive-value"
+                : diffVal < -0.001
+                  ? "negative-value"
+                  : "zero-value";
+
             if (specialDayText) {
               let bgColor = entry.krank
                 ? "var(--special-day-krank-bg)"
-                : "var(--special-day-urlaub-bg)";
+                : entry.glaz // Style GLAZ like Urlaub
+                  ? "var(--special-day-urlaub-bg)"
+                  : "var(--special-day-urlaub-bg)";
               entryContentDiv.classList.add("special-day");
               entryContentDiv.style.backgroundColor = bgColor;
               entryContentDiv.style.color = "var(--special-day-text)";
+              // Show difference for GLAZ
+              const diffDisplay = entry.glaz
+                ? `<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>`
+                : "";
               entryContentDiv.innerHTML = `
                 <div><strong>${weekdayName}</strong> (${displayDate})</div>
-                <div>${specialDayText} ${locationEmoji}</div>`;
+                <div>${specialDayText} ${locationEmoji} ${diffDisplay}</div>`;
             } else {
-              const diffVal = parseFloat(entry.differenz) || 0;
-              weeklyTotalDiff += diffVal;
-              const diffClass =
-                diffVal > 0.001
-                  ? "positive-value"
-                  : diffVal < -0.001
-                    ? "negative-value"
-                    : "zero-value";
+              // Regular work day
               const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
+              // Pass saved additional pause to calculation
+              const additionalPauseSaved = parsePauseInputFromString(
+                entry.zusatzPause || ""
+              );
               const netTime = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
-                gehenLokal
+                gehenLokal,
+                additionalPauseSaved
               );
               const isViolation = checkViolations(kommenLokal, gehenLokal, netTime);
               const violationMark = isViolation
@@ -617,7 +660,27 @@
         updateWeekNavigation();
       }
 
-      function calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal) {
+      // Helper to parse pause string (like from saved data)
+      function parsePauseInputFromString(val) {
+        if (!val) return 0;
+        const cleanedVal = val.replace(",", ".");
+        if (cleanedVal.includes(":")) {
+          const parts = cleanedVal.split(":");
+          const hh = parseInt(parts[0], 10) || 0;
+          const mm = parseInt(parts[1], 10) || 0;
+          return hh + mm / 60;
+        } else {
+          const decimalHours = parseFloat(cleanedVal);
+          return isNaN(decimalHours) ? 0 : decimalHours;
+        }
+      }
+
+      // Updated to accept additional pause value
+      function calculateNetArbeitszeitFromEntryData(
+        kommenLokal,
+        gehenLokal,
+        additionalPauseHours = 0
+      ) {
         if (!kommenLokal || !gehenLokal) return 0;
         let gehenAdjusted = new Date(gehenLokal.getTime());
         if (gehenAdjusted < kommenLokal) {
@@ -626,8 +689,9 @@
         const diffMs = gehenAdjusted - kommenLokal;
         if (diffMs < 0) return 0;
         const totalH = diffMs / (1000 * 60 * 60);
-        const pausen = calculatePausenForWorkTime(totalH);
-        return Math.max(0, totalH - pausen);
+        const autoPause = calculateAutoPauseForDuration(totalH);
+        const totalPause = autoPause + additionalPauseHours; // Combine auto + saved additional
+        return Math.max(0, totalH - totalPause);
       }
 
       function deleteEntryByDate(dateStr) {
@@ -683,33 +747,34 @@
         $("add-day-modal-title").textContent = `Buchung für ${weekdayName}, ${displayDate}`;
         $("add-day-kommen").value = "";
         $("add-day-gehen").value = "";
+        $("add-day-zusatzliche-pause").value = ""; // Clear pause input
         $("pc-buchung-add-day").checked =
           getFromLS("pcBuchungChecked") === "true";
         $("buero-add-day").checked = getFromLS("bueroChecked") === "true";
         $("urlaub-toggle").checked = false;
         $("krank-toggle").checked = false;
         $("schulung-toggle").checked = false;
-        toggleTimeFieldsDisabled(false);
+        $("glaz-toggle").checked = false; // Clear GLAZ toggle
+        toggleTimeFieldsDisabled(false); // Enable fields initially
         $("add-day-modal").setAttribute("data-date", dateStr);
         $("add-day-modal").style.display = "flex";
       }
 
       function toggleSpecialDay(type) {
-        const types = ["urlaub", "krank", "schulung"];
+        const types = ["urlaub", "krank", "schulung", "glaz"]; // Include GLAZ
         const isChecked = $(type + "-toggle").checked;
         types.forEach((t) => {
           if (t !== type && isChecked) $(t + "-toggle").checked = false;
         });
-        toggleTimeFieldsDisabled(
-          $("urlaub-toggle").checked ||
-            $("krank-toggle").checked ||
-            $("schulung-toggle").checked
-        );
+        // Disable time/pause fields if ANY special day is checked
+        const anySpecialChecked = types.some((t) => $(t + "-toggle").checked);
+        toggleTimeFieldsDisabled(anySpecialChecked);
       }
 
       function toggleTimeFieldsDisabled(disabled) {
         $("add-day-kommen").disabled = disabled;
         $("add-day-gehen").disabled = disabled;
+        $("add-day-zusatzliche-pause").disabled = disabled; // Disable pause input too
         $("pc-buchung-add-day").disabled = disabled;
       }
 
@@ -728,31 +793,40 @@
         const isUrlaub = $("urlaub-toggle").checked;
         const isKrank = $("krank-toggle").checked;
         const isSchulung = $("schulung-toggle").checked;
+        const isGlaz = $("glaz-toggle").checked; // Check GLAZ
         const isBueroAddDay = $("buero-add-day").checked;
         const isPcBuchungAddDay = $("pc-buchung-add-day").checked;
+        const additionalPauseManualValue = $("add-day-zusatzliche-pause").value; // Get pause value
+
         let history = getHistory();
         const existingIndex = history.findIndex((e) => e.datum === dateVal);
         const displayDate = realDate.toLocaleDateString("de-DE");
+        const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
+        const sollProTag = wAZ / 5;
+        const lastKonto = findLastKontoBeforeDate(
+          history,
+          dateVal,
+          existingIndex
+        );
+
         let dayData = {
           datum: dateVal,
           differenz: "0.00",
           differenzTime: "0:00",
-          stundenkonto: "0.00",
+          stundenkonto: lastKonto.toFixed(2), // Start with previous balance
           kommen: null,
           gehen: null,
           urlaub: isUrlaub,
           krank: isKrank,
           schulung: isSchulung,
-          pcBuchung: false,
+          glaz: isGlaz, // Set GLAZ flag
+          pcBuchung: false, // Default for special days
           buero: isBueroAddDay,
+          zusatzPause: "", // Default pause value
         };
+
+        // Handle Urlaub, Krank, Schulung (Difference = 0)
         if (isUrlaub || isKrank || isSchulung) {
-          const lastKonto = findLastKontoBeforeDate(
-            history,
-            dateVal,
-            existingIndex
-          );
-          dayData.stundenkonto = lastKonto.toFixed(2);
           let label = isUrlaub
             ? "Urlaub"
             : isKrank
@@ -773,12 +847,36 @@
           alert(`${label} für ${displayDate} eingetragen.`);
           return;
         }
+
+        // Handle GLAZ (Difference = -sollProTag)
+        if (isGlaz) {
+          const diffValGlaz = -sollProTag;
+          const newKtoGlaz = parseFloat((lastKonto + diffValGlaz).toFixed(2));
+          dayData.differenz = diffValGlaz.toFixed(2);
+          dayData.differenzTime = formatDecimalToTime(diffValGlaz);
+          dayData.stundenkonto = newKtoGlaz.toFixed(2);
+          let label = "GLAZ";
+          if (existingIndex !== -1) {
+            if (
+              !confirm(
+                `Eintrag für ${displayDate} existiert. Mit ${label} überschreiben?`
+              )
+            )
+              return;
+            history[existingIndex] = dayData;
+          } else {
+            history.push(dayData);
+          }
+          saveAndReload(history);
+          alert(`${label} für ${displayDate} eingetragen.`);
+          return;
+        }
+
+        // Handle regular work day
         const kommenVal = $("add-day-kommen").value;
         const gehenVal = $("add-day-gehen").value;
         if (!kommenVal || !gehenVal) {
-          alert(
-            "Bitte Kommen- und Gehen-Zeit angeben oder Urlaub/Krank/Schulung wählen!"
-          );
+          alert("Bitte Kommen- und Gehen-Zeit angeben!");
           return;
         }
         const kommenDateManual = parseTimeForDate(kommenVal, realDate);
@@ -804,8 +902,14 @@
           return;
         }
         const totalHManual = diffMsManual / (1000 * 60 * 60);
-        const pausenManual = calculatePausenForWorkTime(totalHManual);
+        // Calculate pause for manual entry: auto pause + modal's additional pause
+        const additionalPauseManualHours = parsePauseInput(
+          "add-day-zusatzliche-pause"
+        );
+        const autoPauseManual = calculateAutoPauseForDuration(totalHManual);
+        const pausenManual = autoPauseManual + additionalPauseManualHours;
         const netManual = Math.max(0, totalHManual - pausenManual);
+
         if (checkViolations(adjustedKommenManual, gehenDateManual, netManual)) {
           if (
             !confirm(
@@ -815,25 +919,23 @@
             return;
           }
         }
-        const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
-        const sollProTag = wAZ / 5;
+
         const diffValManual = parseFloat((netManual - sollProTag).toFixed(2));
-        const lastKonto = findLastKontoBeforeDate(
-          history,
-          dateVal,
-          existingIndex
-        );
         const newKtoManual = parseFloat((lastKonto + diffValManual).toFixed(2));
         const diffTimeManual = formatDecimalToTime(diffValManual);
+
         dayData.differenz = diffValManual.toFixed(2);
         dayData.differenzTime = diffTimeManual;
         dayData.stundenkonto = newKtoManual.toFixed(2);
         dayData.kommen = adjustedKommenManual.toISOString();
         dayData.gehen = gehenDateManual.toISOString();
         dayData.pcBuchung = isPcBuchungAddDay;
-        dayData.urlaub = false;
+        dayData.zusatzPause = additionalPauseManualValue; // Save the entered pause value
+        dayData.urlaub = false; // Ensure these are false for work day
         dayData.krank = false;
         dayData.schulung = false;
+        dayData.glaz = false;
+
         if (existingIndex !== -1) {
           if (!confirm(`Eintrag für ${displayDate} existiert. Überschreiben?`))
             return;
@@ -873,6 +975,7 @@
         ) {
           return parseFloat(relevantHistory[0].stundenkonto) || 0;
         }
+        // Fallback to global setting if no prior history entry found
         return parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
       }
 
@@ -886,10 +989,10 @@
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
         const latestKonto = latestEntry
           ? parseFloat(latestEntry.stundenkonto || 0)
-          : 0;
+          : parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0; // Use global if history empty
         $("aktuelles-konto").value = latestKonto.toFixed(2);
         storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2));
-        updateCalculations();
+        updateCalculations(); // Update main view calculations
         closeAddDayModal();
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
@@ -917,30 +1020,43 @@
         let nettoLabel = "N/A";
         let pcBuchungChecked = !!entry.pcBuchung;
         let bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
-        if (entry.urlaub || entry.krank || entry.schulung) {
+        const diffVal = parseFloat(entry.differenz) || 0;
+        const diffClass =
+          diffVal > 0.001
+            ? "positive-value"
+            : diffVal < -0.001
+              ? "negative-value"
+              : "zero-value";
+        const kontoFormatted = formatDecimalToTime(
+          parseFloat(entry.stundenkonto || 0)
+        );
+        const kontoDecimal = parseFloat(entry.stundenkonto || 0).toFixed(2);
+
+        if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
           const statusText = entry.urlaub
             ? "Urlaub"
             : entry.krank
               ? "Krank"
-              : "Schulung";
+              : entry.schulung
+                ? "Schulung"
+                : "GLAZ"; // Show GLAZ status
           detailsHTML = `
           <p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p>
           <p><strong>Kommen:</strong> --:--</p>
           <p><strong>Gehen:</strong> --:--</p>
-          <p><strong>Differenz:</strong> 0.00h (0:00)</p>`;
+          <p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p>
+          <p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
           pcBuchungChecked = false;
         } else {
+          // Regular work day details
           const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
           const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
           const kommenFormatted = formatTime(kommenLokal);
           const gehenFormatted = formatTime(gehenLokal);
-          const diffVal = parseFloat(entry.differenz) || 0;
-          const diffClass =
-            diffVal > 0.001
-              ? "positive-value"
-              : diffVal < -0.001
-                ? "negative-value"
-                : "zero-value";
+          const additionalPauseSaved = parsePauseInputFromString(
+            entry.zusatzPause || ""
+          );
+
           if (kommenLokal && gehenLokal) {
             let gehenAdjusted = new Date(gehenLokal.getTime());
             if (gehenAdjusted < kommenLokal) {
@@ -952,7 +1068,8 @@
               anwesenheitLabel = `${Math.floor(totalH)}:${pad(Math.round((totalH % 1) * 60))} (${totalH.toFixed(2)}h)`;
               const netCalculated = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
-                gehenLokal
+                gehenLokal,
+                additionalPauseSaved
               );
               nettoLabel = `${formatDecimalToTime(netCalculated)} (${netCalculated.toFixed(2)}h)`;
               const pausenVal = totalH - netCalculated;
@@ -960,6 +1077,10 @@
                 pausenVal > 0
                   ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)`
                   : "0 Min";
+              // Add detail about additional pause if present
+              if (additionalPauseSaved > 0) {
+                pausenLabel += ` (inkl. ${formatDecimalToTime(additionalPauseSaved)} manuell)`;
+              }
             }
           }
           detailsHTML = `
@@ -970,7 +1091,7 @@
           <p><strong>Pause:</strong> ${pausenLabel}</p>
           <p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}</p>
           <p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p>
-          <p><strong>Stundenkonto danach:</strong> ${formatDecimalToTime(parseFloat(entry.stundenkonto || 0))} (${parseFloat(entry.stundenkonto || 0).toFixed(2)}h)</p>`;
+          <p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
         }
         $("detail-content").innerHTML = detailsHTML;
         $("detail-modal").style.display = "flex";
@@ -1049,22 +1170,30 @@
             const diffVal = parseFloat(entry.differenz) || 0;
             monthlyTotalDiff += diffVal;
             let diffClass = "";
-            if (entry.urlaub || entry.krank || entry.schulung) {
+            let titleText = "";
+
+            if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
               diffClass = entry.krank
                 ? "special-day-krank-bg"
-                : "special-day-urlaub-bg";
-              cellContent.title = entry.urlaub
+                : entry.glaz // Style GLAZ like Urlaub
+                  ? "special-day-glaz-bg" // Use a specific class for GLAZ styling
+                  : "special-day-urlaub-bg";
+              titleText = entry.urlaub
                 ? "Urlaub"
                 : entry.krank
                   ? "Krank"
-                  : "Schulung";
+                  : entry.schulung
+                    ? "Schulung"
+                    : `GLAZ (${entry.differenzTime})`; // Show diff in title for GLAZ
             } else {
+              // Regular work day
               if (diffVal > 0.001) diffClass = "positive-value";
               else if (diffVal < -0.001) diffClass = "negative-value";
               else diffClass = "zero-value";
-              cellContent.title = `Differenz: ${entry.differenzTime}`;
+              titleText = `Differenz: ${entry.differenzTime}`;
             }
             cellContent.classList.add(diffClass);
+            cellContent.title = titleText;
             cell.onclick = () => showDayDetails(currentDateStr);
           } else if (dayOfWeek === 0 || dayOfWeek === 6) {
             cell.classList.add("weekend");
@@ -1161,20 +1290,29 @@
         let vacationDays = 0;
         let sickDays = 0;
         let trainingDays = 0;
+        let glazDays = 0; // Counter for GLAZ days
+
         filteredHistory.forEach((entry) => {
+          totalDiff += parseFloat(entry.differenz || 0); // Always add difference
+
           if (entry.urlaub) vacationDays++;
           else if (entry.krank) sickDays++;
           else if (entry.schulung) trainingDays++;
+          else if (entry.glaz) glazDays++; // Count GLAZ days
           else if (entry.kommen && entry.gehen) {
+            // Regular work day
             workDays++;
             const kommenLokal = new Date(entry.kommen);
             const gehenLokal = new Date(entry.gehen);
+            const additionalPauseSaved = parsePauseInputFromString(
+              entry.zusatzPause || ""
+            );
             const netHours = calculateNetArbeitszeitFromEntryData(
               kommenLokal,
-              gehenLokal
+              gehenLokal,
+              additionalPauseSaved
             );
             totalNetHours += netHours;
-            totalDiff += parseFloat(entry.differenz || 0);
             if (entry.buero) officeDays++;
             else homeDays++;
           }
@@ -1194,7 +1332,8 @@
             <li>&nbsp;&nbsp;&nbsp;davon Homeoffice: <span>${homeDays}</span></li>
             <li>Urlaubstage: <span>${vacationDays}</span></li>
             <li>Krankheitstage: <span>${sickDays}</span></li>
-            <li>Schulungstage: <span>${trainingDays}</span></li>`;
+            <li>Schulungstage: <span>${trainingDays}</span></li>
+            <li>GLAZ-Tage: <span>${glazDays}</span></li>`; // Add GLAZ to stats
       }
 
       function exportHistoryToJson() {
@@ -1203,7 +1342,12 @@
           alert("Keine Daten zum Exportieren vorhanden.");
           return;
         }
-        const jsonData = JSON.stringify(history, null, 2);
+        // Remove temporary dateObj before export if it exists
+        const exportHistory = history.map((entry) => {
+          const { dateObj, ...rest } = entry;
+          return rest;
+        });
+        const jsonData = JSON.stringify(exportHistory, null, 2);
         const blob = new Blob([jsonData], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -1232,21 +1376,40 @@
               if (!Array.isArray(importedData)) {
                 throw new Error("Importierte Datei ist kein gültiges JSON-Array.");
               }
+              // Basic validation for expected structure
               if (
                 importedData.length > 0 &&
                 (importedData[0].datum === undefined ||
-                  importedData[0].stundenkonto === undefined)
+                  importedData[0].stundenkonto === undefined ||
+                  importedData[0].differenz === undefined)
               ) {
                 throw new Error(
-                  "Struktur der importierten Daten scheint ungültig zu sein."
+                  "Struktur der importierten Daten scheint ungültig zu sein (datum, stundenkonto, differenz fehlen?)."
                 );
               }
+              // Add default values for potentially missing fields during import
+              const sanitizedData = importedData.map((entry) => ({
+                datum: entry.datum,
+                differenz: entry.differenz || "0.00",
+                differenzTime: entry.differenzTime || "0:00",
+                stundenkonto: entry.stundenkonto || "0.00",
+                kommen: entry.kommen || null,
+                gehen: entry.gehen || null,
+                urlaub: entry.urlaub || false,
+                krank: entry.krank || false,
+                schulung: entry.schulung || false,
+                glaz: entry.glaz || false, // Add default for GLAZ
+                pcBuchung: entry.pcBuchung || false,
+                buero: entry.buero || false,
+                zusatzPause: entry.zusatzPause || "", // Add default for pause
+              }));
+
               if (
                 confirm(
-                  `Möchten Sie wirklich ${importedData.length} Einträge importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`
+                  `Möchten Sie wirklich ${sanitizedData.length} Einträge importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`
                 )
               ) {
-                saveAndReload(importedData);
+                saveAndReload(sanitizedData); // Save the sanitized data
                 alert("Verlauf erfolgreich importiert.");
               }
             } catch (error) {
@@ -1287,6 +1450,7 @@
         --system-orange-light: #ff9500;
         --system-yellow-light: #ffcc00;
         --system-teal-light: #5ac8fa;
+        --system-purple-light: #af52de; /* Added for GLAZ */
         --system-gray-light: #8e8e93;
         --system-gray2-light: #aeaeb2;
 
@@ -1305,6 +1469,7 @@
         --system-orange-dark: #ff9f0a;
         --system-yellow-dark: #ffd60a;
         --system-teal-dark: #64d2ff;
+        --system-purple-dark: #bf5af2; /* Added for GLAZ */
         --system-gray-dark: #8e8e93;
         --system-gray2-dark: #3a3a3c;
 
@@ -1325,7 +1490,9 @@
         --hint-color: var(--system-red-light);
         --special-day-urlaub-bg: var(--system-teal-light);
         --special-day-krank-bg: var(--system-yellow-light);
-        --special-day-text: #000000;
+        --special-day-glaz-bg: var(--system-purple-light); /* Added for GLAZ */
+        --special-day-text: #000000; /* Default text for special days */
+        --special-day-glaz-text: #ffffff; /* White text for GLAZ */
         --nav-background: var(--system-secondary-background-light);
         --nav-icon-color: var(--system-gray-light);
         --nav-icon-active-color: var(--system-blue-light);
@@ -1355,6 +1522,7 @@
           --hint-color: var(--system-red-dark);
           --special-day-urlaub-bg: var(--system-teal-dark);
           --special-day-krank-bg: var(--system-yellow-dark);
+          --special-day-glaz-bg: var(--system-purple-dark); /* Added for GLAZ */
           --nav-background: var(--system-secondary-background-dark);
           --nav-icon-color: var(--system-gray-dark);
           --nav-icon-active-color: var(--system-blue-dark);
@@ -1388,9 +1556,8 @@
         flex-grow: 1;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-        /* Padding unten an neue Nav-Höhe angepasst */
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(105px + var(--safe-area-bottom)) /* NEUE Höhe Nav Bar + Safe Area */
+          calc(60px + var(--safe-area-bottom)) /* Adjusted for nav height */
           calc(15px + var(--safe-area-right));
         display: none;
       }
@@ -1401,7 +1568,7 @@
       .container {
         max-width: 600px;
         margin: 0 auto;
-        padding-bottom: 0; /* Kein Padding mehr hier */
+        padding-bottom: 0;
       }
 
       h1 {
@@ -1498,7 +1665,6 @@
         filter: brightness(0.85);
       }
 
-      /* Inputs mit Border (auch readonly) */
       input[type="time"],
       input[type="number"],
       input[type="text"],
@@ -1506,7 +1672,7 @@
         width: 100%;
         padding: 12px 15px;
         font-size: 17px;
-        border: 1px solid var(--input-border-color); /* Border für alle */
+        border: 1px solid var(--input-border-color);
         border-radius: 8px;
         margin-bottom: 10px;
         background-color: var(--input-background-color);
@@ -1517,12 +1683,20 @@
         line-height: 1.2em;
         min-height: 44px;
       }
-      /* Readonly Inputs mit besserem Kontrast */
       input:read-only {
-        background-color: var(
-          --card-background-color
-        ); /* Weniger interaktiv */
-        color: var(--readonly-text-color); /* Besser lesbare Farbe */
+        background-color: var(--card-background-color);
+        color: var(--readonly-text-color);
+      }
+      input:disabled {
+        background-color: var(--system-tertiary-background-light);
+        color: var(--secondary-text-color);
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+      @media (prefers-color-scheme: dark) {
+        input:disabled {
+          background-color: var(--system-tertiary-background-dark);
+        }
       }
       input[type="time"]::-webkit-calendar-picker-indicator {
         display: none;
@@ -1537,7 +1711,6 @@
         flex: 1;
       }
 
-      /* Layout Kommen/Gehen: Input/Button 50/50 */
       .time-button-row {
         display: flex;
         gap: 10px;
@@ -1556,7 +1729,6 @@
         padding: 12px 15px;
       }
 
-      /* Korrigierter Switch Toggle (breiter) mit Alex' Anpassungen */
       .switch-container {
         display: flex;
         align-items: center;
@@ -1570,7 +1742,7 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 70px;
+        width: 51px; /* Standard iOS width */
         height: 31px;
         flex-shrink: 0;
       }
@@ -1595,7 +1767,7 @@
         content: "";
         height: 27px;
         width: 27px;
-        left: 2px; /* 5px nach rechts verschoben */
+        left: 2px;
         bottom: 2px;
         background-color: white;
         transition: 0.4s;
@@ -1606,10 +1778,9 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(29px); /* Alex' Wert */
+        transform: translateX(20px); /* Adjusted for 51px width */
       }
 
-      /* Value Badges mit korrigierter Textfarbe */
       .diff-badge {
         padding: 3px 6px;
         border-radius: 5px;
@@ -1620,15 +1791,15 @@
       }
       .positive-value {
         background-color: var(--positive-value-bg) !important;
-        color: var(--button-text-color) !important; /* Weiß auf Blau */
+        color: var(--button-text-color) !important;
       }
       .negative-value {
         background-color: var(--negative-value-bg) !important;
-        color: #000000 !important; /* Schwarz auf Orange */
+        color: #000000 !important;
       }
       .zero-value {
         background-color: var(--zero-value-bg) !important;
-        color: #000000 !important; /* Schwarz auf Grün */
+        color: #000000 !important;
       }
 
       #hinweis {
@@ -1675,7 +1846,20 @@
         transition: background-color 0.2s ease;
       }
       .history-entry-content.special-day {
+        /* Base style for special days */
+      }
+      /* Specific background colors for special days */
+      .history-entry-content.special-day[style*="--special-day-krank-bg"] {
+        background-color: var(--special-day-krank-bg);
         color: var(--special-day-text);
+      }
+      .history-entry-content.special-day[style*="--special-day-urlaub-bg"] {
+        background-color: var(--special-day-urlaub-bg);
+        color: var(--special-day-text);
+      }
+      .history-entry-content.special-day[style*="--special-day-glaz-bg"] {
+        background-color: var(--special-day-glaz-bg);
+        color: var(--special-day-glaz-text); /* Use specific text color for GLAZ */
       }
       .history-entry-content.violation-day {
         border-left: 3px solid var(--hint-color);
@@ -1691,8 +1875,13 @@
         font-size: 15px;
         color: var(--secondary-text-color);
       }
-      .history-entry-content.special-day div:last-child {
+      /* Ensure text color is correct for special days */
+      .history-entry-content.special-day[style*="--special-day-krank-bg"] div:last-child,
+      .history-entry-content.special-day[style*="--special-day-urlaub-bg"] div:last-child {
         color: var(--special-day-text);
+      }
+      .history-entry-content.special-day[style*="--special-day-glaz-bg"] div:last-child {
+        color: var(--special-day-glaz-text);
       }
       .violation-mark {
         color: var(--hint-color);
@@ -1728,7 +1917,7 @@
         margin: 20px 0;
       }
       #month-pagination button {
-        /* Style kommt von .inline-button */
+        /* Style comes from .inline-button */
       }
 
       .modal {
@@ -1832,21 +2021,25 @@
         border-radius: 50%;
         transition: transform 0.1s ease;
       }
-      /* Kalender Textfarben korrigiert */
+      /* Calendar Text/Background Colors */
       .calendar-day.has-entry .calendar-day-content.positive-value {
-        color: var(--button-text-color); /* Weiß auf Blau */
+        color: var(--button-text-color);
       }
       .calendar-day.has-entry .calendar-day-content.negative-value,
       .calendar-day.has-entry .calendar-day-content.zero-value {
-        color: #000000; /* Schwarz auf Orange/Grün */
+        color: #000000;
       }
-      .calendar-day-content.special-day-krank-bg,
-      .calendar-day-content.special-day-urlaub-bg {
+      .calendar-day-content.special-day-krank-bg {
         background-color: var(--special-day-krank-bg);
-        color: var(--special-day-text) !important; /* Schwarz auf Gelb/Teal */
+        color: var(--special-day-text) !important;
       }
       .calendar-day-content.special-day-urlaub-bg {
         background-color: var(--special-day-urlaub-bg);
+        color: var(--special-day-text) !important;
+      }
+      .calendar-day-content.special-day-glaz-bg {
+        background-color: var(--special-day-glaz-bg);
+        color: var(--special-day-glaz-text) !important; /* Specific text color */
       }
       .calendar-day-content.today {
         font-weight: bold;
@@ -1882,7 +2075,7 @@
         color: var(--secondary-text-color);
       }
       #stats-content li span.diff-badge {
-        /* Farben kommen von .positive/negative/zero-value */
+        /* Colors come from .positive/negative/zero-value */
       }
 
       .import-export-buttons {
@@ -1894,19 +2087,18 @@
         margin-bottom: 0;
       }
 
-      /* Bottom Nav mit reduzierter Höhe */
       #bottom-nav {
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
-        height: calc (30px + var(--safe-area-bottom)); /* NEUE Basishöhe */
+        height: calc(50px + var(--safe-area-bottom)); /* Standard iOS Tab Bar height */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
         justify-content: space-around;
-        align-items: flex-start;
-        padding-top: 5px;
+        align-items: flex-start; /* Align items to top for padding */
+        padding-top: 5px; /* Padding above icons */
         padding-bottom: var(--safe-area-bottom);
         z-index: 1000;
       }
@@ -1914,7 +2106,7 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        justify-content: center; /* Center content vertically */
         flex: 1;
         color: var(--nav-icon-color);
         text-decoration: none;
@@ -1922,6 +2114,8 @@
         cursor: pointer;
         padding: 0 5px;
         text-align: center;
+        height: 100%; /* Ensure item takes full height */
+        box-sizing: border-box;
       }
       .nav-item svg {
         width: 24px;
@@ -2187,6 +2381,17 @@
               <input type="time" id="add-day-gehen" />
             </div>
           </div>
+          <!-- NEU: Zusätzliche Pause Input -->
+          <div style="margin-top: 10px">
+            <label for="add-day-zusatzliche-pause"
+              >Zus. Pause (hh:mm / h.hh):</label
+            >
+            <input
+              type="text"
+              id="add-day-zusatzliche-pause"
+              placeholder="z.B. 0:15 oder 0.25"
+            />
+          </div>
           <div class="switch-container" style="margin-top: 15px">
             <label class="switch">
               <input type="checkbox" id="pc-buchung-add-day" />
@@ -2204,36 +2409,32 @@
           <h3 style="margin-top: 20px">Sondertag?</h3>
           <div class="switch-container">
             <label class="switch">
-              <input
-                type="checkbox"
-                id="urlaub-toggle"
-                onchange="toggleSpecialDay('urlaub')"
-              />
+              <input type="checkbox" id="urlaub-toggle" />
               <span class="slider"></span>
             </label>
             <span>Urlaub</span>
           </div>
           <div class="switch-container">
             <label class="switch">
-              <input
-                type="checkbox"
-                id="krank-toggle"
-                onchange="toggleSpecialDay('krank')"
-              />
+              <input type="checkbox" id="krank-toggle" />
               <span class="slider"></span>
             </label>
             <span>Krank</span>
           </div>
           <div class="switch-container">
             <label class="switch">
-              <input
-                type="checkbox"
-                id="schulung-toggle"
-                onchange="toggleSpecialDay('schulung')"
-              />
+              <input type="checkbox" id="schulung-toggle" />
               <span class="slider"></span>
             </label>
             <span>Schulung</span>
+          </div>
+          <!-- NEU: GLAZ Toggle -->
+          <div class="switch-container">
+            <label class="switch">
+              <input type="checkbox" id="glaz-toggle" />
+              <span class="slider"></span>
+            </label>
+            <span>GLAZ (Gleitzeitabbau)</span>
           </div>
           <button
             class="button"
