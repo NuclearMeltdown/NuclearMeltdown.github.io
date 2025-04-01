@@ -713,7 +713,7 @@
             )
           ) {
             history.splice(index, 1);
-            saveAndReload(history);
+            saveAndReload(history); // saveAndReload handles recalculation and view updates
           }
         }
       }
@@ -744,27 +744,53 @@
         pagination.appendChild(nextWeekBtn);
       }
 
+      // --- MODIFIED: Handles both adding and editing ---
       function showAddDayModal(dateStr) {
         const dateVal = new Date(dateStr + "T00:00:00");
         const displayDate = dateVal.toLocaleDateString("de-DE");
         const weekdayName = dateVal.toLocaleDateString("de-DE", {
           weekday: "long",
         });
-        $("add-day-modal-title").textContent = `Buchung für ${weekdayName}, ${displayDate}`;
-        $("add-day-kommen").value = "";
-        $("add-day-gehen").value = "";
-        $("add-day-zusatzliche-pause").value = ""; // Clear pause input
-        $("pc-buchung-add-day").checked =
-          getFromLS("pcBuchungChecked") === "true";
-        $("buero-add-day").checked = getFromLS("bueroChecked") === "true";
-        $("urlaub-toggle").checked = false;
-        $("krank-toggle").checked = false;
-        $("schulung-toggle").checked = false;
-        $("glaz-toggle").checked = false; // Clear GLAZ toggle
-        toggleTimeFieldsDisabled(false); // Enable fields initially
+
+        const history = getHistory();
+        const entry = history.find(e => e.datum === dateStr);
+
+        $("add-day-modal-title").textContent = entry
+            ? `Buchung ändern: ${weekdayName}, ${displayDate}`
+            : `Buchung für ${weekdayName}, ${displayDate}`;
+
+        if (entry) {
+            // Pre-fill fields for editing
+            $("add-day-kommen").value = entry.kommen ? formatTime(new Date(entry.kommen)) : "";
+            $("add-day-gehen").value = entry.gehen ? formatTime(new Date(entry.gehen)) : "";
+            $("add-day-zusatzliche-pause").value = entry.zusatzPause || "";
+            $("pc-buchung-add-day").checked = entry.pcBuchung || false;
+            $("buero-add-day").checked = entry.buero || false;
+            $("urlaub-toggle").checked = entry.urlaub || false;
+            $("krank-toggle").checked = entry.krank || false;
+            $("schulung-toggle").checked = entry.schulung || false;
+            $("glaz-toggle").checked = entry.glaz || false;
+
+            const isSpecial = entry.urlaub || entry.krank || entry.schulung || entry.glaz;
+            toggleTimeFieldsDisabled(isSpecial);
+        } else {
+            // Clear fields for adding
+            $("add-day-kommen").value = "";
+            $("add-day-gehen").value = "";
+            $("add-day-zusatzliche-pause").value = "";
+            $("pc-buchung-add-day").checked = getFromLS("pcBuchungChecked") === "true"; // Default from settings
+            $("buero-add-day").checked = getFromLS("bueroChecked") === "true"; // Default from settings
+            $("urlaub-toggle").checked = false;
+            $("krank-toggle").checked = false;
+            $("schulung-toggle").checked = false;
+            $("glaz-toggle").checked = false;
+            toggleTimeFieldsDisabled(false); // Enable fields initially
+        }
+
         $("add-day-modal").setAttribute("data-date", dateStr);
         $("add-day-modal").style.display = "flex";
       }
+      // --- END MODIFIED ---
 
       function toggleSpecialDay(type) {
         const types = ["urlaub", "krank", "schulung", "glaz"]; // Include GLAZ
@@ -784,6 +810,7 @@
         $("pc-buchung-add-day").disabled = disabled;
       }
 
+      // Handles both adding new and saving edited days
       function addManualDay() {
         const dateVal = $("add-day-modal").getAttribute("data-date");
         if (!dateVal) {
@@ -809,17 +836,14 @@
         const displayDate = realDate.toLocaleDateString("de-DE");
         const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
         const sollProTag = wAZ / 5;
-        const lastKonto = findLastKontoBeforeDate(
-          history,
-          dateVal,
-          existingIndex
-        );
+        // Kontostand wird in saveAndReload neu berechnet, hier nur Platzhalter
+        const lastKontoPlaceholder = "0.00";
 
         let dayData = {
           datum: dateVal,
           differenz: "0.00",
           differenzTime: "0:00",
-          stundenkonto: lastKonto.toFixed(2), // Start with previous balance
+          stundenkonto: lastKontoPlaceholder, // Wird in saveAndReload neu berechnet
           kommen: null,
           gehen: null,
           urlaub: isUrlaub,
@@ -839,42 +863,30 @@
               ? "Krank"
               : "Schulung";
           if (existingIndex !== -1) {
-            if (
-              !confirm(
-                `Eintrag für ${displayDate} existiert. Mit ${label} überschreiben?`
-              )
-            )
-              return;
+            // No confirmation needed when editing via modal
             history[existingIndex] = dayData;
           } else {
             history.push(dayData);
           }
           saveAndReload(history);
-          alert(`${label} für ${displayDate} eingetragen.`);
+          alert(`${label} für ${displayDate} gespeichert.`);
           return;
         }
 
         // Handle GLAZ (Difference = -sollProTag)
         if (isGlaz) {
           const diffValGlaz = -sollProTag;
-          const newKtoGlaz = parseFloat((lastKonto + diffValGlaz).toFixed(2));
           dayData.differenz = diffValGlaz.toFixed(2);
           dayData.differenzTime = formatDecimalToTime(diffValGlaz);
-          dayData.stundenkonto = newKtoGlaz.toFixed(2);
+          // dayData.stundenkonto wird in saveAndReload berechnet
           let label = "GLAZ";
           if (existingIndex !== -1) {
-            if (
-              !confirm(
-                `Eintrag für ${displayDate} existiert. Mit ${label} überschreiben?`
-              )
-            )
-              return;
             history[existingIndex] = dayData;
           } else {
             history.push(dayData);
           }
           saveAndReload(history);
-          alert(`${label} für ${displayDate} eingetragen.`);
+          alert(`${label} für ${displayDate} gespeichert.`);
           return;
         }
 
@@ -916,6 +928,8 @@
         const pausenManual = autoPauseManual + additionalPauseManualHours;
         const netManual = Math.max(0, totalHManual - pausenManual);
 
+        // Violation check only needed when adding new, not necessarily when editing?
+        // Or maybe always check? Let's keep the check.
         if (checkViolations(adjustedKommenManual, gehenDateManual, netManual)) {
           if (
             !confirm(
@@ -927,12 +941,11 @@
         }
 
         const diffValManual = parseFloat((netManual - sollProTag).toFixed(2));
-        const newKtoManual = parseFloat((lastKonto + diffValManual).toFixed(2));
         const diffTimeManual = formatDecimalToTime(diffValManual);
 
         dayData.differenz = diffValManual.toFixed(2);
         dayData.differenzTime = diffTimeManual;
-        dayData.stundenkonto = newKtoManual.toFixed(2);
+        // dayData.stundenkonto wird in saveAndReload berechnet
         dayData.kommen = adjustedKommenManual.toISOString();
         dayData.gehen = gehenDateManual.toISOString();
         dayData.pcBuchung = isPcBuchungAddDay;
@@ -943,11 +956,9 @@
         dayData.glaz = false;
 
         if (existingIndex !== -1) {
-          if (!confirm(`Eintrag für ${displayDate} existiert. Überschreiben?`))
-            return;
-          history[existingIndex] = dayData;
+            history[existingIndex] = dayData;
         } else {
-          history.push(dayData);
+            history.push(dayData);
         }
         saveAndReload(history);
         alert(`Arbeitstag für ${displayDate} gespeichert.`);
@@ -974,7 +985,7 @@
               index !== excludeIndex &&
               new Date(entry.datum + "T00:00:00") < targetDate
           )
-          .sort((a, b) => new Date(b.datum) - new Date(a.datum));
+          .sort((a, b) => new Date(b.datum) - new Date(a.datum)); // Sort descending by date
         if (
           relevantHistory.length > 0 &&
           relevantHistory[0].stundenkonto !== undefined
@@ -985,6 +996,7 @@
         return parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
       }
 
+      // --- MODIFIED: Recalculates all balances sequentially ---
       function saveAndReload(history) {
         // Ensure history is sorted before processing and saving
         history.forEach((entry) => {
@@ -998,9 +1010,19 @@
         if (history.length > 0) {
             // Find the balance *before* the first entry in the potentially modified history
             const firstDate = history[0].datum;
-            const originalHistory = JSON.parse(getFromLS("history", "[]")); // Get original history for accurate previous balance
-            previousKonto = findLastKontoBeforeDate(originalHistory, firstDate);
+            // Use the *current* state of localStorage 'history' to find the true previous balance
+            // before this batch of modifications started.
+            const originalHistory = JSON.parse(getFromLS("history", "[]"));
+            const relevantOriginalHistory = originalHistory.filter(entry => new Date(entry.datum + "T00:00:00") < new Date(firstDate + "T00:00:00"));
+            if (relevantOriginalHistory.length > 0) {
+                 relevantOriginalHistory.sort((a, b) => new Date(b.datum) - new Date(a.datum));
+                 previousKonto = parseFloat(relevantOriginalHistory[0].stundenkonto || 0);
+            } else {
+                 // If the modified history starts before any existing entry, use the global default
+                 previousKonto = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+            }
         }
+
 
         for (let i = 0; i < history.length; i++) {
             const entry = history[i];
@@ -1021,19 +1043,22 @@
           ? parseFloat(latestEntry.stundenkonto || 0)
           : parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0; // Use global if history empty
         $("aktuelles-konto").value = latestKonto.toFixed(2);
-        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2));
+        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2)); // Store the *very last* calculated balance globally
         updateCalculations(); // Update main view calculations
         closeAddDayModal();
+        closeDetailModal(); // Close detail modal if open
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
       }
+      // --- END MODIFIED ---
 
       function closeAddDayModal() {
         const modal = $("add-day-modal");
         if (modal) modal.style.display = "none";
       }
 
+      // --- MODIFIED: Added button handlers ---
       function showDayDetails(dateStr) {
         const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
@@ -1124,8 +1149,26 @@
           <p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
         }
         $("detail-content").innerHTML = detailsHTML;
+
+        // Add button handlers
+        const editBtn = $('detail-edit-button');
+        const deleteBtn = $('detail-delete-button');
+
+        editBtn.onclick = () => {
+            closeDetailModal();
+            showAddDayModal(dateStr); // Open edit modal
+        };
+
+        deleteBtn.onclick = () => {
+            // Confirmation is inside deleteEntryByDate
+            closeDetailModal();
+            deleteEntryByDate(dateStr);
+        };
+
+
         $("detail-modal").style.display = "flex";
       }
+      // --- END MODIFIED ---
 
       function closeDetailModal() {
         const modal = $("detail-modal");
@@ -1228,13 +1271,17 @@
             }
             cellContent.classList.add(diffClass);
             cellContent.title = titleText;
+            // --- MODIFIED: Click opens detail modal ---
             cell.onclick = () => showDayDetails(currentDateStr);
+            // --- END MODIFIED ---
           } else if (dayOfWeek === 0 || dayOfWeek === 6) {
             cell.classList.add("weekend");
             cellContent.classList.add("weekend-text");
           } else {
             cell.classList.add("no-entry");
+            // --- MODIFIED: Click opens add modal ---
             cell.onclick = () => showAddDayModal(currentDateStr);
+            // --- END MODIFIED ---
             cellContent.title = "Klicken zum Hinzufügen";
           }
           const today = new Date();
@@ -1275,7 +1322,7 @@
         };
       }
 
-      // NEUE FUNKTION: Bulk-Buchung anwenden
+      // Bulk-Buchung anwenden
       function applyBulkBooking() {
         const startDateStr = $("bulk-start-date").value;
         const endDateStr = $("bulk-end-date").value;
@@ -1327,9 +1374,10 @@
         let currentDate = new Date(startDate.getTime());
 
         while (currentDate <= endDate) {
-          const dayOfWeek = currentDate.getDay(); // 0 = Sonntag, 6 = Samstag
+          const dayOfWeek = currentDate.getDay(); // 0 = Sonntag, 1 = Mo, ..., 5 = Fr, 6 = Sa
 
           // Nur Werktage (Montag bis Freitag) berücksichtigen
+          // Diese Bedingung ist korrekt für Mo-Fr.
           if (dayOfWeek >= 1 && dayOfWeek <= 5) {
             const currentDateStr = currentDate.toISOString().split("T")[0];
             const existingEntry = historyMap.get(currentDateStr);
@@ -1361,7 +1409,7 @@
               schulung: isSchulung,
               glaz: isGlaz,
               pcBuchung: false,
-              buero: existingEntry ? existingEntry.buero : ($("buero-toggle").checked), // Default Bürostatus aus Haupteinstellung übernehmen
+              buero: existingEntry ? existingEntry.buero : ($("buero-toggle").checked), // Default Bürostatus aus Haupteinstellung
               zusatzPause: "",
             };
 
@@ -1382,7 +1430,6 @@
           alert("Keine Werktage im ausgewählten Zeitraum gefunden.");
         }
       }
-      // ENDE NEUE FUNKTION
 
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
@@ -1925,7 +1972,7 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(24px); /* Adjusted for 51px width */
+        transform: translateX(24px); /* Adjusted for 65px width */
       }
       /* --- END SLIDER STYLES (Original) --- */
 
@@ -2542,7 +2589,15 @@
         <div class="modal-content">
           <button class="close-button" onclick="closeDetailModal()">×</button>
           <h3 id="detail-modal-title">Details</h3>
-          <div id="detail-content"></div>
+          <div id="detail-content">
+              <!-- Content is filled by JS -->
+          </div>
+          <!-- NEU: Action Buttons im Detail Modal -->
+          <div id="detail-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
+              <button id="detail-edit-button" class="button">Ändern</button>
+              <button id="detail-delete-button" class="button delete-button">Löschen</button>
+          </div>
+          <!-- ENDE NEU -->
         </div>
       </div>
 
@@ -2561,7 +2616,6 @@
               <input type="time" id="add-day-gehen" />
             </div>
           </div>
-          <!-- NEU: Zusätzliche Pause Input -->
           <div style="margin-top: 10px">
             <label for="add-day-zusatzliche-pause"
               >Zus. Pause (hh:mm / h.hh):</label
@@ -2608,7 +2662,6 @@
             </label>
             <span>Schulung</span>
           </div>
-          <!-- NEU: GLAZ Toggle -->
           <div class="switch-container">
             <label class="switch">
               <input type="checkbox" id="glaz-toggle" onchange="toggleSpecialDay('glaz')" />
