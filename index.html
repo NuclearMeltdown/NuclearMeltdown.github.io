@@ -1324,112 +1324,114 @@
 
       // Bulk-Buchung anwenden
       function applyBulkBooking() {
-        const startDateStr = $("bulk-start-date").value;
-        const endDateStr = $("bulk-end-date").value;
-        const specialType = $("bulk-special-day-type").value;
+      const startDateStr = $("bulk-start-date").value;
+      const endDateStr = $("bulk-end-date").value;
+      const specialType = $("bulk-special-day-type").value;
 
-        if (!startDateStr || !endDateStr || !specialType) {
-          alert(
-            "Bitte Startdatum, Enddatum und Typ für die Bulk-Buchung auswählen."
-          );
-          return;
-        }
+      if (!startDateStr || !endDateStr || !specialType) {
+        alert(
+          "Bitte Startdatum, Enddatum und Typ für die Bulk-Buchung auswählen."
+        );
+        return;
+      }
 
-        const startDate = new Date(startDateStr + "T00:00:00");
-        const endDate = new Date(endDateStr + "T00:00:00");
+      // Setze die Zeit auf 12:00 Mittag, um Probleme mit Zeitzonen zu vermeiden
+      const startDate = new Date(startDateStr + "T12:00:00");
+      const endDate = new Date(endDateStr + "T12:00:00");
 
-        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-          alert("Ungültiges Datumsformat.");
-          return;
-        }
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        alert("Ungültiges Datumsformat.");
+        return;
+      }
 
-        if (endDate < startDate) {
-          alert("Das Enddatum darf nicht vor dem Startdatum liegen.");
-          return;
-        }
+      if (endDate < startDate) {
+        alert("Das Enddatum darf nicht vor dem Startdatum liegen.");
+        return;
+      }
 
-        const typeLabel = {
-          urlaub: "Urlaub",
-          krank: "Krank",
-          schulung: "Schulung",
-          glaz: "GLAZ",
-        }[specialType];
+      const typeLabel = {
+        urlaub: "Urlaub",
+        krank: "Krank",
+        schulung: "Schulung",
+        glaz: "GLAZ",
+      }[specialType];
 
-        if (
-          !confirm(
-            `Möchten Sie wirklich für den Zeitraum ${startDate.toLocaleDateString("de-DE")} bis ${endDate.toLocaleDateString("de-DE")} den Typ "${typeLabel}" für alle Werktage buchen?\n\nACHTUNG: Bestehende Einträge in diesem Zeitraum werden überschrieben!`
-          )
-        ) {
-          return;
-        }
+      if (
+        !confirm(
+          `Möchten Sie wirklich für den Zeitraum ${startDate.toLocaleDateString("de-DE")} bis ${endDate.toLocaleDateString("de-DE")} den Typ "${typeLabel}" für alle Werktage buchen?\n\nACHTUNG: Bestehende Einträge in diesem Zeitraum werden überschrieben!`
+        )
+      ) {
+        return;
+      }
 
-        let history = getHistory();
-        const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
-        const sollProTag = wAZ / 5;
-        let modified = false;
+      let history = getHistory();
+      const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
+      const sollProTag = wAZ / 5;
+      let modified = false;
 
-        // Create a map for quick lookup and modification
-        const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
+      // Create a map for quick lookup and modification
+      const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
 
-        let currentDate = new Date(startDate.getTime());
+      let currentDate = new Date(startDate.getTime());
 
-        while (currentDate <= endDate) {
-          const dayOfWeek = currentDate.getDay(); // 0 = Sonntag, 1 = Mo, ..., 5 = Fr, 6 = Sa
+      while (currentDate <= endDate) {
+        // Stellt sicher, dass wir mit lokalem Wochentag arbeiten
+        const dayOfWeek = currentDate.getDay(); // 0 = Sonntag, 1 = Mo, ..., 5 = Fr, 6 = Sa
 
-          // Nur Werktage (Montag bis Freitag) berücksichtigen
-          // Diese Bedingung ist korrekt für Mo-Fr.
-          if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-            const currentDateStr = currentDate.toISOString().split("T")[0];
-            const existingEntry = historyMap.get(currentDateStr);
+        // Nur Werktage (Montag bis Freitag) berücksichtigen
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+          // ISO-Datum für den Eintrag erzeugen (nur das Datum, ohne Zeit)
+          const currentDateStr = currentDate.toISOString().split("T")[0];
+          const existingEntry = historyMap.get(currentDateStr);
 
-            let differenz = 0.0;
-            let differenzTime = "0:00";
-            let isUrlaub = false, isKrank = false, isSchulung = false, isGlaz = false;
+          let differenz = 0.0;
+          let differenzTime = "0:00";
+          let isUrlaub = false, isKrank = false, isSchulung = false, isGlaz = false;
 
-            switch (specialType) {
-              case "urlaub": isUrlaub = true; break;
-              case "krank": isKrank = true; break;
-              case "schulung": isSchulung = true; break;
-              case "glaz":
-                isGlaz = true;
-                differenz = -sollProTag;
-                differenzTime = formatDecimalToTime(differenz);
-                break;
-            }
-
-            const dayData = {
-              datum: currentDateStr,
-              differenz: differenz.toFixed(2),
-              differenzTime: differenzTime,
-              stundenkonto: "0.00", // Wird in saveAndReload neu berechnet
-              kommen: null,
-              gehen: null,
-              urlaub: isUrlaub,
-              krank: isKrank,
-              schulung: isSchulung,
-              glaz: isGlaz,
-              pcBuchung: false,
-              buero: existingEntry ? existingEntry.buero : ($("buero-toggle").checked), // Default Bürostatus aus Haupteinstellung
-              zusatzPause: "",
-            };
-
-            historyMap.set(currentDateStr, dayData); // Update or add to map
-            modified = true;
+          switch (specialType) {
+            case "urlaub": isUrlaub = true; break;
+            case "krank": isKrank = true; break;
+            case "schulung": isSchulung = true; break;
+            case "glaz":
+              isGlaz = true;
+              differenz = -sollProTag;
+              differenzTime = formatDecimalToTime(differenz);
+              break;
           }
 
-          // Zum nächsten Tag wechseln
-          currentDate.setDate(currentDate.getDate() + 1);
+          const dayData = {
+            datum: currentDateStr,
+            differenz: differenz.toFixed(2),
+            differenzTime: differenzTime,
+            stundenkonto: "0.00", // Wird in saveAndReload neu berechnet
+            kommen: null,
+            gehen: null,
+            urlaub: isUrlaub,
+            krank: isKrank,
+            schulung: isSchulung,
+            glaz: isGlaz,
+            pcBuchung: false,
+            buero: existingEntry ? existingEntry.buero : ($("buero-toggle").checked),
+            zusatzPause: "",
+          };
+
+          historyMap.set(currentDateStr, dayData); // Update or add to map
+          modified = true;
         }
 
-        if (modified) {
-          // Konvertiere die Map zurück in ein Array und speichere/lade neu
-          const updatedHistory = Array.from(historyMap.values());
-          saveAndReload(updatedHistory); // saveAndReload sortiert und berechnet Konten neu
-          alert("Bulk-Buchung erfolgreich durchgeführt.");
-        } else {
-          alert("Keine Werktage im ausgewählten Zeitraum gefunden.");
-        }
+        // Zum nächsten Tag wechseln
+        currentDate.setDate(currentDate.getDate() + 1);
       }
+
+      if (modified) {
+        // Konvertiere die Map zurück in ein Array und speichere/lade neu
+        const updatedHistory = Array.from(historyMap.values());
+        saveAndReload(updatedHistory); // saveAndReload sortiert und berechnet Konten neu
+        alert("Bulk-Buchung erfolgreich durchgeführt.");
+      } else {
+        alert("Keine Werktage im ausgewählten Zeitraum gefunden.");
+      }
+    }
 
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
