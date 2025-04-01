@@ -182,6 +182,9 @@
         $("krank-toggle").onchange = () => toggleSpecialDay("krank");
         $("schulung-toggle").onchange = () => toggleSpecialDay("schulung");
         $("glaz-toggle").onchange = () => toggleSpecialDay("glaz"); // Add listener for GLAZ
+
+        // Event listener for the new bulk booking button
+        $("apply-bulk-booking").addEventListener("click", applyBulkBooking);
       }
 
       function restoreInputsFromLocalStorage() {
@@ -595,11 +598,14 @@
               let bgColor = entry.krank
                 ? "var(--special-day-krank-bg)"
                 : entry.glaz // Style GLAZ like Urlaub
-                  ? "var(--special-day-urlaub-bg)"
+                  ? "var(--special-day-glaz-bg)" // Use GLAZ specific style
                   : "var(--special-day-urlaub-bg)";
+              let textColor = entry.glaz
+                ? "var(--special-day-glaz-text)" // Use specific text color for GLAZ
+                : "var(--special-day-text)";
               entryContentDiv.classList.add("special-day");
               entryContentDiv.style.backgroundColor = bgColor;
-              entryContentDiv.style.color = "var(--special-day-text)";
+              entryContentDiv.style.color = textColor;
               // Show difference for GLAZ
               const diffDisplay = entry.glaz
                 ? `<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>`
@@ -980,11 +986,33 @@
       }
 
       function saveAndReload(history) {
+        // Ensure history is sorted before processing and saving
         history.forEach((entry) => {
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
+
+        // Recalculate balances sequentially
+        let previousKonto = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+        if (history.length > 0) {
+            // Find the balance *before* the first entry in the potentially modified history
+            previousKonto = findLastKontoBeforeDate(history, history[0].datum);
+        }
+
+        for (let i = 0; i < history.length; i++) {
+            const entry = history[i];
+            const diff = parseFloat(entry.differenz || 0);
+            if (i === 0) {
+                // For the first entry, calculate based on the balance *before* it
+                entry.stundenkonto = (previousKonto + diff).toFixed(2);
+            } else {
+                // For subsequent entries, calculate based on the *previous* entry's recalculated balance
+                const prevEntryKonto = parseFloat(history[i-1].stundenkonto || 0);
+                entry.stundenkonto = (prevEntryKonto + diff).toFixed(2);
+            }
+        }
+
         storeToLS("history", JSON.stringify(history));
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
         const latestKonto = latestEntry
@@ -1133,6 +1161,10 @@
         });
         renderCalendar(monthData);
         updateMonthNavigation();
+        // Clear bulk booking fields on month load
+        $("bulk-start-date").value = "";
+        $("bulk-end-date").value = "";
+        $("bulk-special-day-type").value = "";
       }
       function renderCalendar(monthData) {
         const calendarGrid = $("calendar-grid");
@@ -1241,6 +1273,119 @@
         };
       }
 
+      // NEUE FUNKTION: Bulk-Buchung anwenden
+      function applyBulkBooking() {
+        const startDateStr = $("bulk-start-date").value;
+        const endDateStr = $("bulk-end-date").value;
+        const specialType = $("bulk-special-day-type").value;
+
+        if (!startDateStr || !endDateStr || !specialType) {
+          alert(
+            "Bitte Startdatum, Enddatum und Typ für die Bulk-Buchung auswählen."
+          );
+          return;
+        }
+
+        const startDate = new Date(startDateStr + "T00:00:00");
+        const endDate = new Date(endDateStr + "T00:00:00");
+
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+          alert("Ungültiges Datumsformat.");
+          return;
+        }
+
+        if (endDate < startDate) {
+          alert("Das Enddatum darf nicht vor dem Startdatum liegen.");
+          return;
+        }
+
+        const typeLabel = {
+          urlaub: "Urlaub",
+          krank: "Krank",
+          schulung: "Schulung",
+          glaz: "GLAZ",
+        }[specialType];
+
+        if (
+          !confirm(
+            `Möchten Sie wirklich für den Zeitraum ${startDate.toLocaleDateString("de-DE")} bis ${endDate.toLocaleDateString("de-DE")} den Typ "${typeLabel}" für alle Werktage buchen?\n\nACHTUNG: Bestehende Einträge in diesem Zeitraum werden überschrieben!`
+          )
+        ) {
+          return;
+        }
+
+        let history = getHistory();
+        const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
+        const sollProTag = wAZ / 5;
+        let modified = false;
+
+        // Create a map for quick lookup and modification
+        const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
+
+        let currentDate = new Date(startDate.getTime());
+
+        while (currentDate <= endDate) {
+          const dayOfWeek = currentDate.getDay(); // 0 = Sonntag, 6 = Samstag
+
+          // Nur Werktage (Montag bis Freitag) berücksichtigen
+          if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+            const currentDateStr = currentDate.toISOString().split("T")[0];
+            const existingEntry = historyMap.get(currentDateStr);
+            const existingIndex = history.findIndex(e => e.datum === currentDateStr);
+
+            // Finde den Kontostand *vor* diesem Tag (wird für die Neuberechnung in saveAndReload benötigt)
+            // Die eigentliche Berechnung passiert jetzt zentral in saveAndReload
+
+            let differenz = 0.0;
+            let differenzTime = "0:00";
+            let isUrlaub = false, isKrank = false, isSchulung = false, isGlaz = false;
+
+            switch (specialType) {
+              case "urlaub": isUrlaub = true; break;
+              case "krank": isKrank = true; break;
+              case "schulung": isSchulung = true; break;
+              case "glaz":
+                isGlaz = true;
+                differenz = -sollProTag;
+                differenzTime = formatDecimalToTime(differenz);
+                break;
+            }
+
+            const dayData = {
+              datum: currentDateStr,
+              differenz: differenz.toFixed(2),
+              differenzTime: differenzTime,
+              stundenkonto: "0.00", // Wird in saveAndReload neu berechnet
+              kommen: null,
+              gehen: null,
+              urlaub: isUrlaub,
+              krank: isKrank,
+              schulung: isSchulung,
+              glaz: isGlaz,
+              pcBuchung: false,
+              buero: existingEntry ? existingEntry.buero : false, // Behalte Bürostatus bei, falls vorhanden? Oder Standard? Hier Standard false.
+              zusatzPause: "",
+            };
+
+            historyMap.set(currentDateStr, dayData); // Update or add to map
+            modified = true;
+          }
+
+          // Zum nächsten Tag wechseln
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        if (modified) {
+          // Konvertiere die Map zurück in ein Array und speichere/lade neu
+          const updatedHistory = Array.from(historyMap.values());
+          saveAndReload(updatedHistory); // saveAndReload sortiert und berechnet Konten neu
+          alert("Bulk-Buchung erfolgreich durchgeführt.");
+        } else {
+          alert("Keine Werktage im ausgewählten Zeitraum gefunden.");
+        }
+      }
+      // ENDE NEUE FUNKTION
+
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
         const history = getHistory();
@@ -1277,6 +1422,7 @@
         }
         const filteredHistory = history.filter((entry) => {
           const entryDate = new Date(entry.datum + "T12:00:00");
+          // Ensure comparison happens at the same time (midnight) to avoid timezone issues
           return (
             entryDate.setHours(0, 0, 0, 0) >= startDate.setHours(0, 0, 0, 0) &&
             entryDate.setHours(0, 0, 0, 0) <= endDate.setHours(0, 0, 0, 0)
@@ -1380,7 +1526,7 @@
               if (
                 importedData.length > 0 &&
                 (importedData[0].datum === undefined ||
-                  importedData[0].stundenkonto === undefined ||
+                  importedData[0].stundenkonto === undefined || // Check stundenkonto too
                   importedData[0].differenz === undefined)
               ) {
                 throw new Error(
@@ -1392,7 +1538,7 @@
                 datum: entry.datum,
                 differenz: entry.differenz || "0.00",
                 differenzTime: entry.differenzTime || "0:00",
-                stundenkonto: entry.stundenkonto || "0.00",
+                stundenkonto: entry.stundenkonto || "0.00", // Ensure stundenkonto exists
                 kommen: entry.kommen || null,
                 gehen: entry.gehen || null,
                 urlaub: entry.urlaub || false,
@@ -1668,6 +1814,7 @@
       input[type="time"],
       input[type="number"],
       input[type="text"],
+      input[type="date"], /* Added style for date input */
       select {
         width: 100%;
         padding: 12px 15px;
@@ -1698,7 +1845,8 @@
           background-color: var(--system-tertiary-background-dark);
         }
       }
-      input[type="time"]::-webkit-calendar-picker-indicator {
+      input[type="time"]::-webkit-calendar-picker-indicator,
+      input[type="date"]::-webkit-calendar-picker-indicator { /* Hide picker for date too */
         display: none;
       }
 
@@ -1742,7 +1890,7 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 65px; /* Standard iOS width */
+        width: 51px; /* Standard iOS width */
         height: 31px;
         flex-shrink: 0;
       }
@@ -1778,7 +1926,7 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(24px); /* Adjusted for 51px width */
+        transform: translateX(20px); /* Adjusted for 51px width */
       }
 
       .diff-badge {
@@ -2092,7 +2240,7 @@
         bottom: 0;
         left: 0;
         right: 0;
-        height: 30px; /* Standard iOS Tab Bar height */
+        height: 50px; /* Standard iOS Tab Bar height */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
@@ -2326,6 +2474,36 @@
           <div id="month-summary">
             <span id="month-summary-content">Monatsdifferenz: --</span>
           </div>
+
+          <!-- NEUER BEREICH: Bulk-Buchung -->
+          <div class="section">
+            <h3>Bulk-Buchung (Werktage)</h3>
+            <div class="row">
+              <div class="column">
+                <label for="bulk-start-date">Von:</label>
+                <input type="date" id="bulk-start-date" />
+              </div>
+              <div class="column">
+                <label for="bulk-end-date">Bis:</label>
+                <input type="date" id="bulk-end-date" />
+              </div>
+            </div>
+            <div style="margin-bottom: 15px">
+              <label for="bulk-special-day-type">Typ:</label>
+              <select id="bulk-special-day-type">
+                <option value="" disabled selected>Typ auswählen...</option>
+                <option value="urlaub">Urlaub</option>
+                <option value="krank">Krank</option>
+                <option value="schulung">Schulung</option>
+                <option value="glaz">GLAZ (Gleitzeitabbau)</option>
+              </select>
+            </div>
+            <button id="apply-bulk-booking" class="button">
+              Bulk-Buchung anwenden
+            </button>
+          </div>
+          <!-- ENDE NEUER BEREICH -->
+
         </div>
       </div>
 
@@ -2409,21 +2587,21 @@
           <h3 style="margin-top: 20px">Sondertag?</h3>
           <div class="switch-container">
             <label class="switch">
-              <input type="checkbox" id="urlaub-toggle" />
+              <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')" />
               <span class="slider"></span>
             </label>
             <span>Urlaub</span>
           </div>
           <div class="switch-container">
             <label class="switch">
-              <input type="checkbox" id="krank-toggle" />
+              <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')" />
               <span class="slider"></span>
             </label>
             <span>Krank</span>
           </div>
           <div class="switch-container">
             <label class="switch">
-              <input type="checkbox" id="schulung-toggle" />
+              <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')" />
               <span class="slider"></span>
             </label>
             <span>Schulung</span>
@@ -2431,7 +2609,7 @@
           <!-- NEU: GLAZ Toggle -->
           <div class="switch-container">
             <label class="switch">
-              <input type="checkbox" id="glaz-toggle" />
+              <input type="checkbox" id="glaz-toggle" onchange="toggleSpecialDay('glaz')" />
               <span class="slider"></span>
             </label>
             <span>GLAZ (Gleitzeitabbau)</span>
