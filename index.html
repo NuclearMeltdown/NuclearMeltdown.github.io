@@ -731,7 +731,7 @@
           alert("Buchung am Wochenende ist in den Optionen deaktiviert."); return;
         }
         const history = getHistory(); const entry = history.find(e => e.datum === dateStr);
-        $("add-day-modal-title").textContent = entry ? `Buchung ändern: ${weekdayName}, ${displayDate}` : `Buchung für ${weekdayName}, ${displayDate}`;
+        $("add-day-modal-title").textContent = entry ? `Buchung ändern: ${weekdayName}, ${displayDate}` : `${weekdayName}, ${displayDate}`;
         if (entry) {
             $("add-day-kommen").value = entry.kommen ? formatTime(new Date(entry.kommen)) : "";
             $("add-day-gehen").value = entry.gehen ? formatTime(new Date(entry.gehen)) : "";
