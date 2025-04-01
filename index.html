@@ -997,7 +997,9 @@
         let previousKonto = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
         if (history.length > 0) {
             // Find the balance *before* the first entry in the potentially modified history
-            previousKonto = findLastKontoBeforeDate(history, history[0].datum);
+            const firstDate = history[0].datum;
+            const originalHistory = JSON.parse(getFromLS("history", "[]")); // Get original history for accurate previous balance
+            previousKonto = findLastKontoBeforeDate(originalHistory, firstDate);
         }
 
         for (let i = 0; i < history.length; i++) {
@@ -1331,10 +1333,6 @@
           if (dayOfWeek >= 1 && dayOfWeek <= 5) {
             const currentDateStr = currentDate.toISOString().split("T")[0];
             const existingEntry = historyMap.get(currentDateStr);
-            const existingIndex = history.findIndex(e => e.datum === currentDateStr);
-
-            // Finde den Kontostand *vor* diesem Tag (wird für die Neuberechnung in saveAndReload benötigt)
-            // Die eigentliche Berechnung passiert jetzt zentral in saveAndReload
 
             let differenz = 0.0;
             let differenzTime = "0:00";
@@ -1363,7 +1361,7 @@
               schulung: isSchulung,
               glaz: isGlaz,
               pcBuchung: false,
-              buero: existingEntry ? existingEntry.buero : false, // Behalte Bürostatus bei, falls vorhanden? Oder Standard? Hier Standard false.
+              buero: existingEntry ? existingEntry.buero : ($("buero-toggle").checked), // Default Bürostatus aus Haupteinstellung übernehmen
               zusatzPause: "",
             };
 
@@ -1877,6 +1875,7 @@
         padding: 12px 15px;
       }
 
+      /* --- SLIDER STYLES (Original) --- */
       .switch-container {
         display: flex;
         align-items: center;
@@ -1890,7 +1889,7 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 51px; /* Standard iOS width */
+        width: 65px; /* Standard iOS width */
         height: 31px;
         flex-shrink: 0;
       }
@@ -1926,8 +1925,9 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(20px); /* Adjusted for 51px width */
+        transform: translateX(24px); /* Adjusted for 51px width */
       }
+      /* --- END SLIDER STYLES (Original) --- */
 
       .diff-badge {
         padding: 3px 6px;
@@ -2235,12 +2235,13 @@
         margin-bottom: 0;
       }
 
+      /* --- BOTTOM NAV STYLES (Original) --- */
       #bottom-nav {
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
-        height: 50px; /* Standard iOS Tab Bar height */
+        height: 30px; /* Standard iOS Tab Bar height */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
@@ -2274,6 +2275,7 @@
       .nav-item.active {
         color: var(--nav-icon-active-color);
       }
+      /* --- END BOTTOM NAV STYLES (Original) --- */
     </style>
   </head>
   <body>
@@ -2476,7 +2478,7 @@
           </div>
 
           <!-- NEUER BEREICH: Bulk-Buchung -->
-          <div class="section">
+          <div class="section" style="margin-top: 20px;"> <!-- Abstand hinzugefügt -->
             <h3>Bulk-Buchung (Werktage)</h3>
             <div class="row">
               <div class="column">
