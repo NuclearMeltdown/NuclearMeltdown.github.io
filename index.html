@@ -769,7 +769,8 @@
 
       function addManualDay() {
         const dateValStr = $("add-day-modal").getAttribute("data-date"); if (!dateValStr) { alert("Kein gültiges Datum!"); return; }
-        const realDate = new Date(dateValStr + "T12:00:00");
+        const dateParts = dateValStr.split('-');
+        const realDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
         const holidayName = getHolidayName(realDate, settings.bundesland);
         if (holidayName) { alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`); closeAddDayModal(); return; }
         const dayOfWeek = realDate.getDay();
@@ -819,10 +820,20 @@
       }
 
       function parseTimeForDate(timeStr, targetDate) {
-        if (!timeStr || !targetDate) return null; const match = timeStr.match(/^(\d{2}):(\d{2})$/); if (!match) return null;
-        const hh = parseInt(match[1], 10), mm = parseInt(match[2], 10);
-        if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-        const resultDate = new Date(targetDate.getTime()); resultDate.setUTCHours(hh, mm, 0, 0); return resultDate;
+        // targetDate ist jetzt ein Date Objekt für den korrekten Tag, lokale Zeit Mitternacht
+        if (!timeStr || !targetDate) return null;
+        const match = timeStr.match(/^(\d{2}):(\d{2})$/);
+        if (!match) return null;
+        const hh = parseInt(match[1], 10);
+        const mm = parseInt(match[2], 10);
+        if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
+          return null;
+
+        // Erstelle eine Kopie des Zieldatums, um das Original nicht zu ändern
+        const resultDate = new Date(targetDate.getTime());
+        // Setze die Stunden und Minuten in der lokalen Zeitzone
+        resultDate.setHours(hh, mm, 0, 0);
+        return resultDate;
       }
 
       function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
