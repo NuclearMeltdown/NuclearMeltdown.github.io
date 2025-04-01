@@ -52,7 +52,15 @@
         currentWeekNo = null;
       let currentMonthYear = null,
         currentMonth = null;
-      let currentView = "main"; // main, history, month, stats
+      let currentView = "main"; // main, history, month, stats, options
+
+      // Globale Einstellungen (werden aus LS geladen)
+      let settings = {
+        wochenarbeitszeit: 38,
+        bundesland: "NATIONAL", // Default: Nur bundesweite Feiertage
+        allowWochenende: false,
+        allowNachtarbeit: false,
+      };
 
       // Hilfsfunktionen
       const $ = (id) => document.getElementById(id);
@@ -114,7 +122,7 @@
           entry.urlaub = entry.urlaub || false;
           entry.krank = entry.krank || false;
           entry.schulung = entry.schulung || false;
-          entry.glaz = entry.glaz || false; // Add default for GLAZ
+          entry.glaz = entry.glaz || false;
           entry.pcBuchung = entry.pcBuchung || false;
           entry.buero = entry.buero || false;
           entry.dateObj = new Date(entry.datum + "T00:00:00");
@@ -124,13 +132,116 @@
         return history;
       }
 
+      // --- Feiertagslogik ---
+      const holidays = {
+        NATIONAL: {
+          "01-01": "Neujahr",
+          "05-01": "Tag der Arbeit",
+          "10-03": "Tag der Deutschen Einheit",
+          "12-25": "1. Weihnachtstag",
+          "12-26": "2. Weihnachtstag",
+        },
+        BW: { "01-06": "Heilige Drei Könige", "11-01": "Allerheiligen" },
+        BY: {
+          "01-06": "Heilige Drei Könige",
+          "08-15": "Mariä Himmelfahrt",
+          "11-01": "Allerheiligen",
+        },
+        BE: { "03-08": "Internationaler Frauentag" },
+        BB: { "10-31": "Reformationstag" },
+        HB: { "10-31": "Reformationstag" },
+        HH: { "10-31": "Reformationstag" },
+        HE: {},
+        MV: { "10-31": "Reformationstag" },
+        NI: { "10-31": "Reformationstag" },
+        NW: { "11-01": "Allerheiligen" },
+        RP: { "11-01": "Allerheiligen" },
+        SL: { "08-15": "Mariä Himmelfahrt", "11-01": "Allerheiligen" },
+        SN: { "10-31": "Reformationstag" },
+        ST: { "01-06": "Heilige Drei Könige", "10-31": "Reformationstag" },
+        SH: { "10-31": "Reformationstag" },
+        TH: { "09-20": "Weltkindertag", "10-31": "Reformationstag" },
+      };
+      const regionalMovableHolidays = {
+        BW: ["fronleichnam"], BY: ["fronleichnam"], HE: ["fronleichnam"],
+        NW: ["fronleichnam"], RP: ["fronleichnam"], SL: ["fronleichnam"],
+        SN: ["bussbettag"],
+      };
+      function getEasterSunday(year) {
+        const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+        const d = Math.floor(b / 4), e = b % 4;
+        const f = Math.floor((b + 8) / 25);
+        const g = Math.floor((b - f + 1) / 3);
+        const h = (19 * a + b - d - g + 15) % 30;
+        const i = Math.floor(c / 4), k = c % 4;
+        const l = (32 + 2 * e + 2 * i - h - k) % 7;
+        const m = Math.floor((a + 11 * h + 22 * l) / 451);
+        const month = Math.floor((h + l - 7 * m + 114) / 31);
+        const day = ((h + l - 7 * m + 114) % 31) + 1;
+        return new Date(Date.UTC(year, month - 1, day));
+      }
+      function getHolidayName(date, bundesland) {
+        if (!date || isNaN(date.getTime())) return null;
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        const day = date.getDate();
+        const mmdd = `${pad(month)}-${pad(day)}`;
+        if (holidays.NATIONAL[mmdd]) return holidays.NATIONAL[mmdd];
+        const regionalFixed = holidays[bundesland] || {};
+        if (regionalFixed[mmdd]) return regionalFixed[mmdd];
+        const easterSunday = getEasterSunday(year);
+        const movableHolidays = {};
+        const goodFriday = new Date(easterSunday); goodFriday.setUTCDate(easterSunday.getUTCDate() - 2);
+        movableHolidays[`${pad(goodFriday.getUTCMonth() + 1)}-${pad(goodFriday.getUTCDate())}`] = "Karfreitag";
+        const easterMonday = new Date(easterSunday); easterMonday.setUTCDate(easterSunday.getUTCDate() + 1);
+        movableHolidays[`${pad(easterMonday.getUTCMonth() + 1)}-${pad(easterMonday.getUTCDate())}`] = "Ostermontag";
+        const ascensionDay = new Date(easterSunday); ascensionDay.setUTCDate(easterSunday.getUTCDate() + 39);
+        movableHolidays[`${pad(ascensionDay.getUTCMonth() + 1)}-${pad(ascensionDay.getUTCDate())}`] = "Christi Himmelfahrt";
+        const whitMonday = new Date(easterSunday); whitMonday.setUTCDate(easterSunday.getUTCDate() + 50);
+        movableHolidays[`${pad(whitMonday.getUTCMonth() + 1)}-${pad(whitMonday.getUTCDate())}`] = "Pfingstmontag";
+        if (regionalMovableHolidays[bundesland]?.includes("fronleichnam")) {
+          const corpusChristi = new Date(easterSunday); corpusChristi.setUTCDate(easterSunday.getUTCDate() + 60);
+          movableHolidays[`${pad(corpusChristi.getUTCMonth() + 1)}-${pad(corpusChristi.getUTCDate())}`] = "Fronleichnam";
+        }
+        if (regionalMovableHolidays[bundesland]?.includes("bussbettag")) {
+          const nov23 = new Date(Date.UTC(year, 10, 23));
+          const dayOfWeekNov23 = nov23.getUTCDay();
+          const daysToSubtract = (dayOfWeekNov23 + 4) % 7;
+          const bussBettag = new Date(nov23); bussBettag.setUTCDate(nov23.getUTCDate() - daysToSubtract);
+          movableHolidays[`${pad(bussBettag.getUTCMonth() + 1)}-${pad(bussBettag.getUTCDate())}`] = "Buß- und Bettag";
+        }
+        return movableHolidays[mmdd] || null;
+      }
+      // --- ENDE Feiertagslogik ---
+
+      function loadSettings() {
+        settings.wochenarbeitszeit = parseFloat(
+          getFromLS("wochenarbeitszeitValue", "38")
+        );
+        settings.bundesland = getFromLS("bundesland", "NATIONAL");
+        settings.allowWochenende = getFromLS("allowWochenende") === "true";
+        settings.allowNachtarbeit = getFromLS("allowNachtarbeit") === "true";
+        $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
+      }
+
+      function saveSettings() {
+        storeToLS("wochenarbeitszeitValue", settings.wochenarbeitszeit.toString());
+        storeToLS("bundesland", settings.bundesland);
+        storeToLS("allowWochenende", settings.allowWochenende ? "true" : "false");
+        storeToLS("allowNachtarbeit", settings.allowNachtarbeit ? "true" : "false");
+        $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
+        updateCalculations();
+        if (currentView === "history") loadHistory();
+        if (currentView === "month") loadMonthData();
+      }
+
       function init() {
+        loadSettings();
         restoreInputsFromLocalStorage();
         const heute = new Date();
         [currentWeekYear, currentWeekNo] = getWeekNumber(heute);
         currentMonthYear = heute.getFullYear();
         currentMonth = heute.getMonth();
-
         const lastKonto = getFromLS("aktuellesStundenkonto");
         if (lastKonto) {
           $("aktuelles-konto").value = parseFloat(lastKonto).toFixed(2);
@@ -146,7 +257,6 @@
             }
           }
         }
-
         updateCalculations();
         switchView("main");
         setupEventListeners();
@@ -159,32 +269,45 @@
         $("nav-history").addEventListener("click", () => switchView("history"));
         $("nav-month").addEventListener("click", () => switchView("month"));
         $("nav-stats").addEventListener("click", () => switchView("stats"));
-
+        $("nav-options").addEventListener("click", () => switchView("options"));
         $("kommen-display").oninput = onInputChange;
         $("gehen-display").oninput = onInputChange;
         $("pc-buchung").onchange = onInputChange;
         $("buero-toggle").onchange = onInputChange;
-        $("wochenarbeitszeit").onchange = onInputChange;
         $("zusatzliche-pause").oninput = onInputChange;
         $("aktuelles-konto").onchange = onInputChange;
-
         document.querySelectorAll(".close-button").forEach((btn) => {
           btn.onclick = () => (btn.closest(".modal").style.display = "none");
         });
-
         $("stats-period").onchange = () => calculateAndDisplayStats();
-
-        $("export-button").addEventListener("click", exportHistoryToJson);
-        $("import-button").addEventListener("click", importHistoryFromJson);
-
-        // Event listener for special day toggles in modal
         $("urlaub-toggle").onchange = () => toggleSpecialDay("urlaub");
         $("krank-toggle").onchange = () => toggleSpecialDay("krank");
         $("schulung-toggle").onchange = () => toggleSpecialDay("schulung");
-        $("glaz-toggle").onchange = () => toggleSpecialDay("glaz"); // Add listener for GLAZ
-
-        // Event listener for the new bulk booking button
+        $("glaz-toggle").onchange = () => toggleSpecialDay("glaz");
         $("apply-bulk-booking").addEventListener("click", applyBulkBooking);
+        $("bundesland-select").onchange = (e) => {
+          settings.bundesland = e.target.value;
+          saveSettings();
+        };
+        $("wochenarbeitszeit-setting").onchange = (e) => {
+          const val = parseFloat(e.target.value);
+          if (!isNaN(val) && val > 0) {
+            settings.wochenarbeitszeit = val;
+            saveSettings();
+          } else {
+            e.target.value = settings.wochenarbeitszeit.toFixed(1);
+          }
+        };
+        $("wochenende-toggle").onchange = (e) => {
+          settings.allowWochenende = e.target.checked;
+          saveSettings();
+        };
+        $("nachtarbeit-toggle").onchange = (e) => {
+          settings.allowNachtarbeit = e.target.checked;
+          saveSettings();
+        };
+        $("export-button-options").addEventListener("click", exportHistoryToJson);
+        $("import-button-options").addEventListener("click", importHistoryFromJson);
       }
 
       function restoreInputsFromLocalStorage() {
@@ -202,8 +325,6 @@
         $("buero-toggle").checked = getFromLS("bueroChecked") === "true";
         const storedPause = getFromLS("zusatzlichePauseValue");
         if (storedPause) $("zusatzliche-pause").value = storedPause;
-        const storedWochenAZ = getFromLS("wochenarbeitszeitValue");
-        if (storedWochenAZ) $("wochenarbeitszeit").value = storedWochenAZ;
       }
 
       function storeInputsToLocalStorage() {
@@ -212,7 +333,6 @@
         storeToLS("pcBuchungChecked", $("pc-buchung").checked ? "true" : "false");
         storeToLS("bueroChecked", $("buero-toggle").checked ? "true" : "false");
         storeToLS("zusatzlichePauseValue", $("zusatzliche-pause").value);
-        storeToLS("wochenarbeitszeitValue", $("wochenarbeitszeit").value);
         storeToLS("aktuellesStundenkonto", $("aktuelles-konto").value);
       }
 
@@ -236,7 +356,6 @@
         updateCalculations();
       }
 
-      // Helper to parse pause input (hh:mm or h.hh)
       function parsePauseInput(inputId) {
         const val = $(inputId).value;
         if (!val) return 0;
@@ -263,12 +382,9 @@
 
       function calculateWorkingTime() {
         const ak = getAdjustedKommenZeit();
-        if (!ak || !gehenZeit)
-          return { hours: 0, minutes: 0, totalHours: 0 };
+        if (!ak || !gehenZeit) return { hours: 0, minutes: 0, totalHours: 0 };
         let gehenAdjusted = new Date(gehenZeit.getTime());
-        if (gehenAdjusted < ak) {
-          gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-        }
+        if (gehenAdjusted < ak) gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
         const diffMs = gehenAdjusted - ak;
         if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 };
         const totalMinutes = Math.floor(diffMs / (1000 * 60));
@@ -278,9 +394,8 @@
         return { hours: hh, minutes: mm, totalHours: totalH };
       }
 
-      // Calculates total pause (automatic + additional from main view)
       function calculateGesamtPause(totalHours) {
-        let pausen = parsePauseInput("zusatzliche-pause"); // Use main view input
+        let pausen = parsePauseInput("zusatzliche-pause");
         if (totalHours > 9) pausen += 0.75;
         else if (totalHours > 6) pausen += 0.5;
         return pausen;
@@ -298,10 +413,10 @@
         const ak = getAdjustedKommenZeit();
         if (!ak) return "--:--";
         let presence = desiredNet;
-        const additionalPauseMain = parsePauseInput("zusatzliche-pause"); // Use main view input
+        const additionalPauseMain = parsePauseInput("zusatzliche-pause");
         for (let i = 0; i < 5; i++) {
           const prevPresence = presence;
-          let pausen = additionalPauseMain; // Start with additional pause
+          let pausen = additionalPauseMain;
           if (prevPresence > 9) pausen += 0.75;
           else if (prevPresence > 6) pausen += 0.5;
           presence = desiredNet + pausen;
@@ -315,17 +430,14 @@
       function updateEndTimes() {
         if (!kommenZeit) {
           ["soll", "4h", "6h", "9h", "10h"].forEach((id) => {
-            const el = $(`end-time-${id}`);
-            if (el) el.value = "";
+            const el = $(`end-time-${id}`); if (el) el.value = "";
           });
           return;
         }
         [4, 6, 9, 10].forEach((d) => {
-          const el = $(`end-time-${d}h`);
-          if (el) el.value = calculateEndTimeFixpoint(d);
+          const el = $(`end-time-${d}h`); if (el) el.value = calculateEndTimeFixpoint(d);
         });
-        const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
-        const sollProTag = wAZ / 5;
+        const sollProTag = settings.wochenarbeitszeit / 5;
         const outS = calculateEndTimeFixpoint(sollProTag);
         const elSoll = $("end-time-soll");
         if (elSoll) elSoll.value = `(${sollProTag.toFixed(2)}h): ${outS}`;
@@ -333,16 +445,12 @@
 
       function updateCalculations() {
         const netArbeitszeit = calculateArbeitszeit();
-        const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
-        const sollProTag = wAZ / 5;
-        let diff =
-          netArbeitszeit > 0
-            ? parseFloat((netArbeitszeit - sollProTag).toFixed(2))
-            : 0;
+        const sollProTag = settings.wochenarbeitszeit / 5;
+        let diff = netArbeitszeit > 0 ? parseFloat((netArbeitszeit - sollProTag).toFixed(2)) : 0;
         const aktKontoVal = parseFloat($("aktuelles-konto").value) || 0;
         let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
         const wTime = calculateWorkingTime();
-        const pausen = calculateGesamtPause(wTime.totalHours); // Use function for total pause
+        const pausen = calculateGesamtPause(wTime.totalHours);
         const pausenMin = Math.round(pausen * 60);
         $("anwesend-zeit").value = `${wTime.hours}:${pad(wTime.minutes)} (${wTime.totalHours.toFixed(2)}h)`;
         $("pausenzeit").value = `${pausenMin} Min (${pausen.toFixed(2)}h)`;
@@ -354,152 +462,117 @@
         $("neues-konto-time").value = formatDecimalToTime(newKto);
         $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoVal);
         const fieldsToColor = [
-          { id: "differenz", value: diff },
-          { id: "differenz-time", value: diff },
-          { id: "neues-konto", value: newKto },
-          { id: "neues-konto-time", value: newKto },
+          { id: "differenz", value: diff }, { id: "differenz-time", value: diff },
+          { id: "neues-konto", value: newKto }, { id: "neues-konto-time", value: newKto },
           { id: "aktuelles-konto-time", value: aktKontoVal },
         ];
         fieldsToColor.forEach((item) => {
-          const el = $(item.id);
-          if (!el) return;
+          const el = $(item.id); if (!el) return;
           el.classList.remove("positive-value", "negative-value", "zero-value");
           if (item.value > 0.001) el.classList.add("positive-value");
           else if (item.value < -0.001) el.classList.add("negative-value");
           else el.classList.add("zero-value");
         });
+
         let hinweisText = "";
+        let showKommenMoon = false, showGehenMoon = false, showArbeitszeitMoon = false;
         const ak = getAdjustedKommenZeit();
         const kommenField = $("kommen-display");
         const gehenField = $("gehen-display");
-        kommenField.classList.remove("invalid-time");
-        gehenField.classList.remove("invalid-time");
-        if (netArbeitszeit > 0 && (netArbeitszeit < 4 || netArbeitszeit > 10)) {
-          hinweisText += "Achtung: Arbeitszeit außerhalb 4-10h!<br>";
+        kommenField.classList.remove("invalid-time"); gehenField.classList.remove("invalid-time");
+        $("kommen-moon").style.display = "none"; $("gehen-moon").style.display = "none";
+        $("arbeitszeit-moon").style.display = "none";
+
+        const violations = checkViolations(ak, gehenZeit, netArbeitszeit);
+
+        if (violations.arbeitszeit && netArbeitszeit > 0) {
+          if (settings.allowNachtarbeit) showArbeitszeitMoon = true;
+          else hinweisText += "Achtung: Arbeitszeit außerhalb 4-10h!<br>";
         }
-        if (ak) {
-          const kStunde = ak.getHours() + ak.getMinutes() / 60;
-          if (kStunde < 6 || kStunde > 16) {
-            hinweisText += "Achtung: Kommen außerhalb 06:00-16:00!<br>";
-            kommenField.classList.add("invalid-time");
-          }
+        if (violations.kommen) {
+          if (settings.allowNachtarbeit) showKommenMoon = true;
+          else { hinweisText += "Achtung: Kommen außerhalb 06:00-16:00!<br>"; kommenField.classList.add("invalid-time"); }
         }
-        if (gehenZeit) {
-          let gehenAdjusted = new Date(gehenZeit.getTime());
-          if (ak && gehenAdjusted < ak) {
-            gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-          }
-          const gStunde = gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60;
-          if (gStunde > 20) {
-            hinweisText += "Achtung: Gehen nach 20:00!<br>";
-            gehenField.classList.add("invalid-time");
-          }
+        if (violations.gehen) {
+          if (settings.allowNachtarbeit) showGehenMoon = true;
+          else { hinweisText += "Achtung: Gehen nach 20:00!<br>"; gehenField.classList.add("invalid-time"); }
         }
+
         const hinweis = $("hinweis");
         hinweis.innerHTML = hinweisText;
         hinweis.style.display = hinweisText ? "block" : "none";
+        if (showKommenMoon) $("kommen-moon").style.display = "inline";
+        if (showGehenMoon) $("gehen-moon").style.display = "inline";
+        if (showArbeitszeitMoon) $("arbeitszeit-moon").style.display = "inline";
+
         updateEndTimes();
       }
 
-      // Calculates pause based ONLY on duration (for entry data and manual modal)
       function calculateAutoPauseForDuration(totalHours) {
-        if (totalHours > 9) return 0.75;
-        if (totalHours > 6) return 0.5;
-        return 0;
+        if (totalHours > 9) return 0.75; if (totalHours > 6) return 0.5; return 0;
       }
 
       function checkViolations(kommenDate, gehenDate, arbeitszeit) {
-        if (!kommenDate || !gehenDate) return false;
+        const violations = { kommen: false, gehen: false, arbeitszeit: false, any: false };
+        if (!kommenDate || !gehenDate) return violations;
         let gehenAdjusted = new Date(gehenDate.getTime());
-        if (gehenAdjusted < kommenDate) {
-          gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-        }
+        if (gehenAdjusted < kommenDate) gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
         const kommenStunde = kommenDate.getHours() + kommenDate.getMinutes() / 60;
-        const gehenStunde =
-          gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60;
-        return (
-          kommenStunde < 6 ||
-          kommenStunde > 16 ||
-          gehenStunde > 20 ||
-          (arbeitszeit > 0 && arbeitszeit < 4) ||
-          arbeitszeit > 10
-        );
+        const gehenStunde = gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60;
+        if (kommenStunde < 6 || kommenStunde > 16) { violations.kommen = true; violations.any = true; }
+        if (gehenStunde > 20) { violations.gehen = true; violations.any = true; }
+        if ((arbeitszeit > 0 && arbeitszeit < 4) || arbeitszeit > 10) { violations.arbeitszeit = true; violations.any = true; }
+        return violations;
       }
 
       function saveDay() {
         updateCalculations();
         const today = new Date();
         const dayOfWeek = today.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-          alert("Speichern am Wochenende nicht vorgesehen.");
-          return;
+        if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
+          alert("Speichern am Wochenende ist in den Optionen deaktiviert."); return;
+        }
+        const datum = today.toISOString().split("T")[0];
+        const holidayName = getHolidayName(today, settings.bundesland);
+        if (holidayName) {
+          alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`); return;
         }
         const adjustedKommen = getAdjustedKommenZeit();
         const netArbeitszeit = calculateArbeitszeit();
         const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null;
-        if (adjustedKommen && currentGehen) {
-          let gehenCheck = new Date(currentGehen.getTime());
-          if (gehenCheck < adjustedKommen) {
-            gehenCheck.setDate(gehenCheck.getDate() + 1);
-          }
-          if (gehenCheck < adjustedKommen) {
-            alert(
-              "Gehen-Zeit liegt vor der (ggf. angepassten) Kommen-Zeit!"
-            );
-            return;
-          }
-          if (checkViolations(adjustedKommen, gehenCheck, netArbeitszeit)) {
-            if (
-              !confirm(
-                "Es liegt ein Verstoß gegen die Gleitzeitregeln vor. Trotzdem speichern?"
-              )
-            ) {
-              return;
-            }
-          }
-        } else if (!adjustedKommen || !currentGehen) {
-          alert(
-            "Bitte Kommen- und Gehen-Zeit für die Speicherung angeben."
-          );
-          return;
+        if (!adjustedKommen || !currentGehen) {
+          alert("Bitte Kommen- und Gehen-Zeit für die Speicherung angeben."); return;
+        }
+        let gehenCheck = new Date(currentGehen.getTime());
+        if (gehenCheck < adjustedKommen) gehenCheck.setDate(gehenCheck.getDate() + 1);
+        if (gehenCheck < adjustedKommen) {
+          alert("Gehen-Zeit liegt vor der (ggf. angepassten) Kommen-Zeit!"); return;
+        }
+        const violations = checkViolations(adjustedKommen, gehenCheck, netArbeitszeit);
+        let needsConfirmation = false;
+        if (violations.any && !settings.allowNachtarbeit) needsConfirmation = true;
+        if (needsConfirmation) {
+          if (!confirm("Es liegt ein Verstoß gegen die Gleitzeitregeln vor. Trotzdem speichern?")) return;
         }
         const diffVal = parseFloat($("differenz").value) || 0;
         const diffTime = $("differenz-time").value || "0:00";
         const newVal = parseFloat($("neues-konto").value) || 0;
-        const datum = today.toISOString().split("T")[0];
-        const kommenStr = adjustedKommen ? adjustedKommen.toISOString() : null;
-        const gehenStr = currentGehen ? currentGehen.toISOString() : null;
+        const kommenStr = adjustedKommen.toISOString();
+        const gehenStr = currentGehen.toISOString();
         const isBuero = $("buero-toggle").checked;
         const isPcBuchung = $("pc-buchung").checked;
-        // Get additional pause value from main view for saving
         const additionalPauseValue = $("zusatzliche-pause").value || "";
-
         let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
         const dayData = {
-          datum: datum,
-          differenz: diffVal.toFixed(2),
-          differenzTime: diffTime,
-          stundenkonto: newVal.toFixed(2),
-          kommen: kommenStr,
-          gehen: gehenStr,
-          urlaub: false,
-          krank: false,
-          schulung: false,
-          glaz: false, // Add GLAZ flag
-          pcBuchung: isPcBuchung,
-          buero: isBuero,
-          zusatzPause: additionalPauseValue, // Save additional pause value
+          datum: datum, differenz: diffVal.toFixed(2), differenzTime: diffTime,
+          stundenkonto: newVal.toFixed(2), kommen: kommenStr, gehen: gehenStr,
+          urlaub: false, krank: false, schulung: false, glaz: false,
+          pcBuchung: isPcBuchung, buero: isBuero, zusatzPause: additionalPauseValue,
         };
         if (existingIndex !== -1) {
-          if (
-            !confirm(
-              `Für heute (${displayDate}) existiert bereits ein Eintrag. Überschreiben?`
-            )
-          ) {
-            return;
-          }
+          if (!confirm(`Für heute (${displayDate}) existiert bereits ein Eintrag. Überschreiben?`)) return;
           history[existingIndex] = dayData;
         } else {
           history.push(dayData);
@@ -525,242 +598,141 @@
 
       function switchView(viewId) {
         currentView = viewId;
-        ["main", "history", "month", "stats"].forEach((id) => {
-          const page = $(`${id}-page`);
-          const navItem = $(`nav-${id}`);
+        ["main", "history", "month", "stats", "options"].forEach((id) => {
+          const page = $(`${id}-page`); const navItem = $(`nav-${id}`);
           if (page) page.style.display = id === viewId ? "block" : "none";
           if (navItem) navItem.classList.toggle("active", id === viewId);
         });
         if (viewId === "history") loadHistory();
         else if (viewId === "month") loadMonthData();
         else if (viewId === "stats") calculateAndDisplayStats();
+        else if (viewId === "options") loadOptions();
+      }
+
+      function loadOptions() {
+        $("bundesland-select").value = settings.bundesland;
+        $("wochenarbeitszeit-setting").value = settings.wochenarbeitszeit.toFixed(1);
+        $("wochenende-toggle").checked = settings.allowWochenende;
+        $("nachtarbeit-toggle").checked = settings.allowNachtarbeit;
       }
 
       function loadHistory() {
-        const historyList = $("history-list");
-        historyList.innerHTML = "";
+        const historyList = $("history-list"); historyList.innerHTML = "";
         let history = getHistory();
         const weekStartDateUTC = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        const weekEndDate = new Date(weekStartDateUTC);
-        weekEndDate.setUTCDate(weekStartDateUTC.getUTCDate() + 4);
-        const optionsDate = {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          timeZone: "Europe/Berlin",
-        };
+        const daysToShow = settings.allowWochenende ? 6 : 4;
+        const weekEndDate = new Date(weekStartDateUTC); weekEndDate.setUTCDate(weekStartDateUTC.getUTCDate() + daysToShow);
+        const optionsDate = { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/Berlin" };
         const weekRange = `${weekStartDateUTC.toLocaleDateString("de-DE", optionsDate)} - ${weekEndDate.toLocaleDateString("de-DE", optionsDate)}`;
         $("week-info").textContent = `KW ${currentWeekNo} / ${currentWeekYear}`;
         $("week-range").textContent = weekRange;
-        const weekdays = [0, 1, 2, 3, 4];
         const optionsWeekday = { weekday: "long", timeZone: "Europe/Berlin" };
         let weeklyTotalDiff = 0;
-        weekdays.forEach((dayOffset) => {
-          const currentDateUTC = new Date(weekStartDateUTC.getTime());
-          currentDateUTC.setUTCDate(weekStartDateUTC.getUTCDate() + dayOffset);
+        for (let dayOffset = 0; dayOffset <= daysToShow; dayOffset++) {
+          const currentDateUTC = new Date(weekStartDateUTC.getTime()); currentDateUTC.setUTCDate(weekStartDateUTC.getUTCDate() + dayOffset);
           const currentDateStr = currentDateUTC.toISOString().split("T")[0];
-          const displayDate = currentDateUTC.toLocaleDateString(
-            "de-DE",
-            optionsDate
-          );
-          const weekdayName = currentDateUTC.toLocaleDateString(
-            "de-DE",
-            optionsWeekday
-          );
+          const displayDate = currentDateUTC.toLocaleDateString("de-DE", optionsDate);
+          const weekdayName = currentDateUTC.toLocaleDateString("de-DE", optionsWeekday);
           const entry = history.find((e) => e.datum === currentDateStr);
-          const li = document.createElement("li");
-          li.classList.add("history-item");
-          const entryContentDiv = document.createElement("div");
-          entryContentDiv.classList.add("history-entry-content");
-          const actionsDiv = document.createElement("div");
-          actionsDiv.classList.add("history-actions");
-          if (entry) {
+          const holidayName = getHolidayName(currentDateUTC, settings.bundesland);
+          const li = document.createElement("li"); li.classList.add("history-item");
+          const entryContentDiv = document.createElement("div"); entryContentDiv.classList.add("history-entry-content");
+          const actionsDiv = document.createElement("div"); actionsDiv.classList.add("history-actions");
+          if (holidayName) {
+            entryContentDiv.classList.add("holiday-day");
+            entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${holidayName}</div>`;
+          } else if (entry) {
             let locationEmoji = entry.buero ? "🏢" : "🏠";
-            let specialDayText = entry.urlaub
-              ? "Urlaub"
-              : entry.krank
-                ? "Krank"
-                : entry.schulung
-                  ? "Schulung"
-                  : entry.glaz // Check for GLAZ
-                    ? "GLAZ"
-                    : "";
-            const diffVal = parseFloat(entry.differenz) || 0; // Always get diff
-            weeklyTotalDiff += diffVal; // Always add to weekly total
-            const diffClass =
-              diffVal > 0.001
-                ? "positive-value"
-                : diffVal < -0.001
-                  ? "negative-value"
-                  : "zero-value";
-
+            let specialDayText = entry.urlaub ? "Urlaub" : entry.krank ? "Krank" : entry.schulung ? "Schulung" : entry.glaz ? "GLAZ" : "";
+            const diffVal = parseFloat(entry.differenz) || 0; weeklyTotalDiff += diffVal;
+            const diffClass = diffVal > 0.001 ? "positive-value" : diffVal < -0.001 ? "negative-value" : "zero-value";
             if (specialDayText) {
-              let bgColor = entry.krank
-                ? "var(--special-day-krank-bg)"
-                : entry.glaz // Style GLAZ like Urlaub
-                  ? "var(--special-day-glaz-bg)" // Use GLAZ specific style
-                  : "var(--special-day-urlaub-bg)";
-              let textColor = entry.glaz
-                ? "var(--special-day-glaz-text)" // Use specific text color for GLAZ
-                : "var(--special-day-text)";
-              entryContentDiv.classList.add("special-day");
-              entryContentDiv.style.backgroundColor = bgColor;
-              entryContentDiv.style.color = textColor;
-              // Show difference for GLAZ
-              const diffDisplay = entry.glaz
-                ? `<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>`
-                : "";
-              entryContentDiv.innerHTML = `
-                <div><strong>${weekdayName}</strong> (${displayDate})</div>
-                <div>${specialDayText} ${locationEmoji} ${diffDisplay}</div>`;
+              let bgColor = entry.krank ? "var(--special-day-krank-bg)" : entry.glaz ? "var(--special-day-glaz-bg)" : "var(--special-day-urlaub-bg)";
+              let textColor = entry.glaz ? "var(--special-day-glaz-text)" : "var(--special-day-text)";
+              entryContentDiv.classList.add("special-day"); entryContentDiv.style.backgroundColor = bgColor; entryContentDiv.style.color = textColor;
+              const diffDisplay = entry.glaz ? `<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>` : "";
+              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${specialDayText} ${locationEmoji} ${diffDisplay}</div>`;
             } else {
-              // Regular work day
               const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-              // Pass saved additional pause to calculation
-              const additionalPauseSaved = parsePauseInputFromString(
-                entry.zusatzPause || ""
-              );
-              const netTime = calculateNetArbeitszeitFromEntryData(
-                kommenLokal,
-                gehenLokal,
-                additionalPauseSaved
-              );
-              const isViolation = checkViolations(kommenLokal, gehenLokal, netTime);
-              const violationMark = isViolation
-                ? ' <span class="violation-mark">!</span>'
-                : "";
-              if (isViolation) entryContentDiv.classList.add("violation-day");
-              entryContentDiv.innerHTML = `
-                <div><strong>${weekdayName}</strong> (${displayDate})</div>
-                <div>
-                  ${formatTime(kommenLokal)} - ${formatTime(gehenLokal)} ${locationEmoji}
-                  <span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>
-                  ${violationMark}
-                </div>`;
+              const additionalPauseSaved = parsePauseInputFromString(entry.zusatzPause || "");
+              const netTime = calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal, additionalPauseSaved);
+              const violations = checkViolations(kommenLokal, gehenLokal, netTime);
+              let violationMark = "", moonMark = "";
+              if (violations.any) {
+                if (settings.allowNachtarbeit) {
+                  if (violations.kommen || violations.gehen || violations.arbeitszeit) moonMark = ' <span class="moon-mark">🌙</span>';
+                } else {
+                  violationMark = ' <span class="violation-mark">!</span>'; entryContentDiv.classList.add("violation-day");
+                }
+              }
+              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${formatTime(kommenLokal)} - ${formatTime(gehenLokal)} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>${violationMark} ${moonMark}</div>`;
             }
-            actionsDiv.innerHTML = `
-              <button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button>
-              <button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>`;
+            actionsDiv.innerHTML = `<button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button><button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>`;
           } else {
             entryContentDiv.classList.add("no-data");
-            entryContentDiv.innerHTML = `
-              <div><strong>${weekdayName}</strong> (${displayDate})</div>
-              <div>Kein Eintrag</div>`;
-            actionsDiv.innerHTML = `
-               <button class="inline-button add-button" onclick="showAddDayModal('${currentDateStr}')">+</button>`;
+            entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>Kein Eintrag</div>`;
+            actionsDiv.innerHTML = `<button class="inline-button add-button" onclick="showAddDayModal('${currentDateStr}')">+</button>`;
           }
-          li.appendChild(entryContentDiv);
-          li.appendChild(actionsDiv);
-          historyList.appendChild(li);
-        });
-        const diffClassSummary =
-          weeklyTotalDiff > 0.001
-            ? "positive-value"
-            : weeklyTotalDiff < -0.001
-              ? "negative-value"
-              : "zero-value";
-        $("weekly-summary-content").innerHTML = `
-        Gesamtdifferenz:
-           <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(weeklyTotalDiff)} (${weeklyTotalDiff.toFixed(2)}h)</span>`;
+          li.appendChild(entryContentDiv); li.appendChild(actionsDiv); historyList.appendChild(li);
+        }
+        const diffClassSummary = weeklyTotalDiff > 0.001 ? "positive-value" : weeklyTotalDiff < -0.001 ? "negative-value" : "zero-value";
+        $("weekly-summary-content").innerHTML = `Gesamtdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(weeklyTotalDiff)} (${weeklyTotalDiff.toFixed(2)}h)</span>`;
         updateWeekNavigation();
       }
 
-      // Helper to parse pause string (like from saved data)
       function parsePauseInputFromString(val) {
-        if (!val) return 0;
-        const cleanedVal = val.replace(",", ".");
+        if (!val) return 0; const cleanedVal = val.replace(",", ".");
         if (cleanedVal.includes(":")) {
-          const parts = cleanedVal.split(":");
-          const hh = parseInt(parts[0], 10) || 0;
-          const mm = parseInt(parts[1], 10) || 0;
-          return hh + mm / 60;
-        } else {
-          const decimalHours = parseFloat(cleanedVal);
-          return isNaN(decimalHours) ? 0 : decimalHours;
-        }
+          const parts = cleanedVal.split(":"); const hh = parseInt(parts[0], 10) || 0; const mm = parseInt(parts[1], 10) || 0; return hh + mm / 60;
+        } else { const decimalHours = parseFloat(cleanedVal); return isNaN(decimalHours) ? 0 : decimalHours; }
       }
 
-      // Updated to accept additional pause value
-      function calculateNetArbeitszeitFromEntryData(
-        kommenLokal,
-        gehenLokal,
-        additionalPauseHours = 0
-      ) {
+      function calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal, additionalPauseHours = 0) {
         if (!kommenLokal || !gehenLokal) return 0;
-        let gehenAdjusted = new Date(gehenLokal.getTime());
-        if (gehenAdjusted < kommenLokal) {
-          gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-        }
-        const diffMs = gehenAdjusted - kommenLokal;
-        if (diffMs < 0) return 0;
-        const totalH = diffMs / (1000 * 60 * 60);
-        const autoPause = calculateAutoPauseForDuration(totalH);
-        const totalPause = autoPause + additionalPauseHours; // Combine auto + saved additional
-        return Math.max(0, totalH - totalPause);
+        let gehenAdjusted = new Date(gehenLokal.getTime()); if (gehenAdjusted < kommenLokal) gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
+        const diffMs = gehenAdjusted - kommenLokal; if (diffMs < 0) return 0;
+        const totalH = diffMs / (1000 * 60 * 60); const autoPause = calculateAutoPauseForDuration(totalH);
+        const totalPause = autoPause + additionalPauseHours; return Math.max(0, totalH - totalPause);
       }
 
       function deleteEntryByDate(dateStr) {
-        let history = getHistory();
-        const index = history.findIndex((e) => e.datum === dateStr);
+        let history = getHistory(); const index = history.findIndex((e) => e.datum === dateStr);
         if (index !== -1) {
-          const displayDate = new Date(
-            dateStr + "T00:00:00"
-          ).toLocaleDateString("de-DE");
-          if (
-            confirm(
-              `Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`
-            )
-          ) {
-            history.splice(index, 1);
-            saveAndReload(history); // saveAndReload handles recalculation and view updates
+          const displayDate = new Date(dateStr + "T00:00:00").toLocaleDateString("de-DE");
+          if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
+            history.splice(index, 1); saveAndReload(history);
           }
         }
       }
 
       function updateWeekNavigation() {
-        const pagination = $("pagination");
-        pagination.innerHTML = "";
+        const pagination = $("pagination"); pagination.innerHTML = "";
         const createButton = (text, onClick) => {
-          const btn = document.createElement("button");
-          btn.textContent = text;
-          btn.onclick = onClick;
-          btn.classList.add("inline-button"); // Einheitlicher Style
-          return btn;
+          const btn = document.createElement("button"); btn.textContent = text; btn.onclick = onClick; btn.classList.add("inline-button"); return btn;
         };
         const prevWeekBtn = createButton("‹ Vorige KW", () => {
-          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-          d.setUTCDate(d.getUTCDate() - 7);
-          [currentWeekYear, currentWeekNo] = getWeekNumber(d);
-          loadHistory();
+          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear); d.setUTCDate(d.getUTCDate() - 7); [currentWeekYear, currentWeekNo] = getWeekNumber(d); loadHistory();
         });
         const nextWeekBtn = createButton("Nächste KW ›", () => {
-          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-          d.setUTCDate(d.getUTCDate() + 7);
-          [currentWeekYear, currentWeekNo] = getWeekNumber(d);
-          loadHistory();
+          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear); d.setUTCDate(d.getUTCDate() + 7); [currentWeekYear, currentWeekNo] = getWeekNumber(d); loadHistory();
         });
-        pagination.appendChild(prevWeekBtn);
-        pagination.appendChild(nextWeekBtn);
+        pagination.appendChild(prevWeekBtn); pagination.appendChild(nextWeekBtn);
       }
 
-      // --- MODIFIED: Handles both adding and editing ---
       function showAddDayModal(dateStr) {
-        const dateVal = new Date(dateStr + "T00:00:00");
+        const dateVal = new Date(dateStr + "T12:00:00"); // Use noon
         const displayDate = dateVal.toLocaleDateString("de-DE");
-        const weekdayName = dateVal.toLocaleDateString("de-DE", {
-          weekday: "long",
-        });
-
-        const history = getHistory();
-        const entry = history.find(e => e.datum === dateStr);
-
-        $("add-day-modal-title").textContent = entry
-            ? `Buchung ändern: ${weekdayName}, ${displayDate}`
-            : `Buchung für ${weekdayName}, ${displayDate}`;
-
+        const weekdayName = dateVal.toLocaleDateString("de-DE", { weekday: "long" });
+        const holidayName = getHolidayName(dateVal, settings.bundesland);
+        if (holidayName) { alert(`Buchung am Feiertag (${holidayName}) nicht möglich.`); return; }
+        const dayOfWeek = dateVal.getDay();
+        if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
+          alert("Buchung am Wochenende ist in den Optionen deaktiviert."); return;
+        }
+        const history = getHistory(); const entry = history.find(e => e.datum === dateStr);
+        $("add-day-modal-title").textContent = entry ? `Buchung ändern: ${weekdayName}, ${displayDate}` : `Buchung für ${weekdayName}, ${displayDate}`;
         if (entry) {
-            // Pre-fill fields for editing
             $("add-day-kommen").value = entry.kommen ? formatTime(new Date(entry.kommen)) : "";
             $("add-day-gehen").value = entry.gehen ? formatTime(new Date(entry.gehen)) : "";
             $("add-day-zusatzliche-pause").value = entry.zusatzPause || "";
@@ -770,857 +742,371 @@
             $("krank-toggle").checked = entry.krank || false;
             $("schulung-toggle").checked = entry.schulung || false;
             $("glaz-toggle").checked = entry.glaz || false;
-
             const isSpecial = entry.urlaub || entry.krank || entry.schulung || entry.glaz;
             toggleTimeFieldsDisabled(isSpecial);
         } else {
-            // Clear fields for adding
-            $("add-day-kommen").value = "";
-            $("add-day-gehen").value = "";
-            $("add-day-zusatzliche-pause").value = "";
-            $("pc-buchung-add-day").checked = getFromLS("pcBuchungChecked") === "true"; // Default from settings
-            $("buero-add-day").checked = getFromLS("bueroChecked") === "true"; // Default from settings
-            $("urlaub-toggle").checked = false;
-            $("krank-toggle").checked = false;
-            $("schulung-toggle").checked = false;
-            $("glaz-toggle").checked = false;
-            toggleTimeFieldsDisabled(false); // Enable fields initially
+            $("add-day-kommen").value = ""; $("add-day-gehen").value = ""; $("add-day-zusatzliche-pause").value = "";
+            $("pc-buchung-add-day").checked = getFromLS("pcBuchungChecked") === "true";
+            $("buero-add-day").checked = getFromLS("bueroChecked") === "true";
+            $("urlaub-toggle").checked = false; $("krank-toggle").checked = false; $("schulung-toggle").checked = false; $("glaz-toggle").checked = false;
+            toggleTimeFieldsDisabled(false);
         }
-
-        $("add-day-modal").setAttribute("data-date", dateStr);
-        $("add-day-modal").style.display = "flex";
+        $("add-day-modal").setAttribute("data-date", dateStr); $("add-day-modal").style.display = "flex";
       }
-      // --- END MODIFIED ---
 
       function toggleSpecialDay(type) {
-        const types = ["urlaub", "krank", "schulung", "glaz"]; // Include GLAZ
+        const types = ["urlaub", "krank", "schulung", "glaz"];
         const isChecked = $(type + "-toggle").checked;
-        types.forEach((t) => {
-          if (t !== type && isChecked) $(t + "-toggle").checked = false;
-        });
-        // Disable time/pause fields if ANY special day is checked
+        types.forEach((t) => { if (t !== type && isChecked) $(t + "-toggle").checked = false; });
         const anySpecialChecked = types.some((t) => $(t + "-toggle").checked);
         toggleTimeFieldsDisabled(anySpecialChecked);
       }
 
       function toggleTimeFieldsDisabled(disabled) {
-        $("add-day-kommen").disabled = disabled;
-        $("add-day-gehen").disabled = disabled;
-        $("add-day-zusatzliche-pause").disabled = disabled; // Disable pause input too
-        $("pc-buchung-add-day").disabled = disabled;
+        $("add-day-kommen").disabled = disabled; $("add-day-gehen").disabled = disabled;
+        $("add-day-zusatzliche-pause").disabled = disabled; $("pc-buchung-add-day").disabled = disabled;
       }
 
-      // Handles both adding new and saving edited days
       function addManualDay() {
-        const dateVal = $("add-day-modal").getAttribute("data-date");
-        if (!dateVal) {
-          alert("Kein gültiges Datum für die Buchung!");
-          return;
-        }
-        const realDate = new Date(dateVal + "T00:00:00");
+        const dateValStr = $("add-day-modal").getAttribute("data-date"); if (!dateValStr) { alert("Kein gültiges Datum!"); return; }
+        const realDate = new Date(dateValStr + "T12:00:00");
+        const holidayName = getHolidayName(realDate, settings.bundesland);
+        if (holidayName) { alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`); closeAddDayModal(); return; }
         const dayOfWeek = realDate.getDay();
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-          alert("Samstag und Sonntag sind nicht zulässig!");
-          return;
-        }
-        const isUrlaub = $("urlaub-toggle").checked;
-        const isKrank = $("krank-toggle").checked;
-        const isSchulung = $("schulung-toggle").checked;
-        const isGlaz = $("glaz-toggle").checked; // Check GLAZ
-        const isBueroAddDay = $("buero-add-day").checked;
-        const isPcBuchungAddDay = $("pc-buchung-add-day").checked;
-        const additionalPauseManualValue = $("add-day-zusatzliche-pause").value; // Get pause value
-
-        let history = getHistory();
-        const existingIndex = history.findIndex((e) => e.datum === dateVal);
-        const displayDate = realDate.toLocaleDateString("de-DE");
-        const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
-        const sollProTag = wAZ / 5;
-        // Kontostand wird in saveAndReload neu berechnet, hier nur Platzhalter
+        if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) { alert("Speichern am Wochenende deaktiviert."); closeAddDayModal(); return; }
+        const isUrlaub = $("urlaub-toggle").checked, isKrank = $("krank-toggle").checked, isSchulung = $("schulung-toggle").checked, isGlaz = $("glaz-toggle").checked;
+        const isBueroAddDay = $("buero-add-day").checked, isPcBuchungAddDay = $("pc-buchung-add-day").checked;
+        const additionalPauseManualValue = $("add-day-zusatzliche-pause").value;
+        let history = getHistory(); const existingIndex = history.findIndex((e) => e.datum === dateValStr);
+        const displayDate = realDate.toLocaleDateString("de-DE"); const sollProTag = settings.wochenarbeitszeit / 5;
         const lastKontoPlaceholder = "0.00";
-
         let dayData = {
-          datum: dateVal,
-          differenz: "0.00",
-          differenzTime: "0:00",
-          stundenkonto: lastKontoPlaceholder, // Wird in saveAndReload neu berechnet
-          kommen: null,
-          gehen: null,
-          urlaub: isUrlaub,
-          krank: isKrank,
-          schulung: isSchulung,
-          glaz: isGlaz, // Set GLAZ flag
-          pcBuchung: false, // Default for special days
-          buero: isBueroAddDay,
-          zusatzPause: "", // Default pause value
+          datum: dateValStr, differenz: "0.00", differenzTime: "0:00", stundenkonto: lastKontoPlaceholder,
+          kommen: null, gehen: null, urlaub: isUrlaub, krank: isKrank, schulung: isSchulung, glaz: isGlaz,
+          pcBuchung: false, buero: isBueroAddDay, zusatzPause: "",
         };
-
-        // Handle Urlaub, Krank, Schulung (Difference = 0)
         if (isUrlaub || isKrank || isSchulung) {
-          let label = isUrlaub
-            ? "Urlaub"
-            : isKrank
-              ? "Krank"
-              : "Schulung";
-          if (existingIndex !== -1) {
-            // No confirmation needed when editing via modal
-            history[existingIndex] = dayData;
-          } else {
-            history.push(dayData);
-          }
-          saveAndReload(history);
-          alert(`${label} für ${displayDate} gespeichert.`);
-          return;
+          let label = isUrlaub ? "Urlaub" : isKrank ? "Krank" : "Schulung";
+          if (existingIndex !== -1) history[existingIndex] = dayData; else history.push(dayData);
+          saveAndReload(history); alert(`${label} für ${displayDate} gespeichert.`); return;
         }
-
-        // Handle GLAZ (Difference = -sollProTag)
         if (isGlaz) {
-          const diffValGlaz = -sollProTag;
-          dayData.differenz = diffValGlaz.toFixed(2);
-          dayData.differenzTime = formatDecimalToTime(diffValGlaz);
-          // dayData.stundenkonto wird in saveAndReload berechnet
-          let label = "GLAZ";
-          if (existingIndex !== -1) {
-            history[existingIndex] = dayData;
-          } else {
-            history.push(dayData);
-          }
-          saveAndReload(history);
-          alert(`${label} für ${displayDate} gespeichert.`);
-          return;
+          const diffValGlaz = -sollProTag; dayData.differenz = diffValGlaz.toFixed(2); dayData.differenzTime = formatDecimalToTime(diffValGlaz);
+          let label = "GLAZ"; if (existingIndex !== -1) history[existingIndex] = dayData; else history.push(dayData);
+          saveAndReload(history); alert(`${label} für ${displayDate} gespeichert.`); return;
         }
-
-        // Handle regular work day
-        const kommenVal = $("add-day-kommen").value;
-        const gehenVal = $("add-day-gehen").value;
-        if (!kommenVal || !gehenVal) {
-          alert("Bitte Kommen- und Gehen-Zeit angeben!");
-          return;
-        }
-        const kommenDateManual = parseTimeForDate(kommenVal, realDate);
-        const gehenDateManual = parseTimeForDate(gehenVal, realDate);
-        if (!kommenDateManual || !gehenDateManual) {
-          alert("Ungültige Zeitformate!");
-          return;
-        }
-        if (gehenDateManual < kommenDateManual) {
-          gehenDateManual.setDate(gehenDateManual.getDate() + 1);
-        }
-        let adjustedKommenManual = new Date(kommenDateManual.getTime());
-        if (isPcBuchungAddDay) {
-          adjustedKommenManual.setMinutes(
-            adjustedKommenManual.getMinutes() - 8
-          );
-        }
-        const diffMsManual = gehenDateManual - adjustedKommenManual;
-        if (diffMsManual < 0) {
-          alert(
-            "Angepasste Kommen-Zeit (PC-Buchung) liegt nach der Gehen-Zeit!"
-          );
-          return;
-        }
+        const kommenVal = $("add-day-kommen").value, gehenVal = $("add-day-gehen").value;
+        if (!kommenVal || !gehenVal) { alert("Bitte Kommen- und Gehen-Zeit angeben!"); return; }
+        const kommenDateManual = parseTimeForDate(kommenVal, realDate), gehenDateManual = parseTimeForDate(gehenVal, realDate);
+        if (!kommenDateManual || !gehenDateManual) { alert("Ungültige Zeitformate!"); return; }
+        if (gehenDateManual < kommenDateManual) gehenDateManual.setDate(gehenDateManual.getDate() + 1);
+        let adjustedKommenManual = new Date(kommenDateManual.getTime()); if (isPcBuchungAddDay) adjustedKommenManual.setMinutes(adjustedKommenManual.getMinutes() - 8);
+        const diffMsManual = gehenDateManual - adjustedKommenManual; if (diffMsManual < 0) { alert("Angepasste Kommen-Zeit liegt nach Gehen-Zeit!"); return; }
         const totalHManual = diffMsManual / (1000 * 60 * 60);
-        // Calculate pause for manual entry: auto pause + modal's additional pause
-        const additionalPauseManualHours = parsePauseInput(
-          "add-day-zusatzliche-pause"
-        );
-        const autoPauseManual = calculateAutoPauseForDuration(totalHManual);
-        const pausenManual = autoPauseManual + additionalPauseManualHours;
+        const additionalPauseManualHours = parsePauseInput("add-day-zusatzliche-pause");
+        const autoPauseManual = calculateAutoPauseForDuration(totalHManual); const pausenManual = autoPauseManual + additionalPauseManualHours;
         const netManual = Math.max(0, totalHManual - pausenManual);
-
-        // Violation check only needed when adding new, not necessarily when editing?
-        // Or maybe always check? Let's keep the check.
-        if (checkViolations(adjustedKommenManual, gehenDateManual, netManual)) {
-          if (
-            !confirm(
-              "Die eingegebenen Zeiten verstoßen gegen die Gleitzeitregeln. Trotzdem speichern?"
-            )
-          ) {
-            return;
-          }
-        }
-
-        const diffValManual = parseFloat((netManual - sollProTag).toFixed(2));
-        const diffTimeManual = formatDecimalToTime(diffValManual);
-
-        dayData.differenz = diffValManual.toFixed(2);
-        dayData.differenzTime = diffTimeManual;
-        // dayData.stundenkonto wird in saveAndReload berechnet
-        dayData.kommen = adjustedKommenManual.toISOString();
-        dayData.gehen = gehenDateManual.toISOString();
-        dayData.pcBuchung = isPcBuchungAddDay;
-        dayData.zusatzPause = additionalPauseManualValue; // Save the entered pause value
-        dayData.urlaub = false; // Ensure these are false for work day
-        dayData.krank = false;
-        dayData.schulung = false;
-        dayData.glaz = false;
-
-        if (existingIndex !== -1) {
-            history[existingIndex] = dayData;
-        } else {
-            history.push(dayData);
-        }
-        saveAndReload(history);
-        alert(`Arbeitstag für ${displayDate} gespeichert.`);
+        const violations = checkViolations(adjustedKommenManual, gehenDateManual, netManual);
+        let needsConfirmation = false; if (violations.any && !settings.allowNachtarbeit) needsConfirmation = true;
+        if (needsConfirmation) { if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return; }
+        const diffValManual = parseFloat((netManual - sollProTag).toFixed(2)); const diffTimeManual = formatDecimalToTime(diffValManual);
+        dayData.differenz = diffValManual.toFixed(2); dayData.differenzTime = diffTimeManual;
+        dayData.kommen = adjustedKommenManual.toISOString(); dayData.gehen = gehenDateManual.toISOString();
+        dayData.pcBuchung = isPcBuchungAddDay; dayData.zusatzPause = additionalPauseManualValue;
+        dayData.urlaub = false; dayData.krank = false; dayData.schulung = false; dayData.glaz = false;
+        if (existingIndex !== -1) history[existingIndex] = dayData; else history.push(dayData);
+        saveAndReload(history); alert(`Arbeitstag für ${displayDate} gespeichert.`);
       }
 
       function parseTimeForDate(timeStr, targetDate) {
-        if (!timeStr || !targetDate) return null;
-        const match = timeStr.match(/^(\d{2}):(\d{2})$/);
-        if (!match) return null;
-        const hh = parseInt(match[1], 10);
-        const mm = parseInt(match[2], 10);
-        if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
-          return null;
-        const resultDate = new Date(targetDate.getTime());
-        resultDate.setHours(hh, mm, 0, 0);
-        return resultDate;
+        if (!timeStr || !targetDate) return null; const match = timeStr.match(/^(\d{2}):(\d{2})$/); if (!match) return null;
+        const hh = parseInt(match[1], 10), mm = parseInt(match[2], 10);
+        if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+        const resultDate = new Date(targetDate.getTime()); resultDate.setUTCHours(hh, mm, 0, 0); return resultDate;
       }
 
       function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
         const targetDate = new Date(dateStr + "T00:00:00");
-        const relevantHistory = history
-          .filter(
-            (entry, index) =>
-              index !== excludeIndex &&
-              new Date(entry.datum + "T00:00:00") < targetDate
-          )
-          .sort((a, b) => new Date(b.datum) - new Date(a.datum)); // Sort descending by date
-        if (
-          relevantHistory.length > 0 &&
-          relevantHistory[0].stundenkonto !== undefined
-        ) {
-          return parseFloat(relevantHistory[0].stundenkonto) || 0;
-        }
-        // Fallback to global setting if no prior history entry found
+        const relevantHistory = history.filter((entry, index) => index !== excludeIndex && new Date(entry.datum + "T00:00:00") < targetDate).sort((a, b) => new Date(b.datum) - new Date(a.datum));
+        if (relevantHistory.length > 0 && relevantHistory[0].stundenkonto !== undefined) return parseFloat(relevantHistory[0].stundenkonto) || 0;
         return parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
       }
 
-      // --- MODIFIED: Recalculates all balances sequentially ---
       function saveAndReload(history) {
-        // Ensure history is sorted before processing and saving
-        history.forEach((entry) => {
-          entry.dateObj = new Date(entry.datum + "T00:00:00");
-        });
-        history.sort((a, b) => a.dateObj - b.dateObj);
-        history.forEach((entry) => delete entry.dateObj);
-
-        // Recalculate balances sequentially
+        history.forEach((entry) => { entry.dateObj = new Date(entry.datum + "T00:00:00"); });
+        history.sort((a, b) => a.dateObj - b.dateObj); history.forEach((entry) => delete entry.dateObj);
         let previousKonto = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
         if (history.length > 0) {
-            // Find the balance *before* the first entry in the potentially modified history
-            const firstDate = history[0].datum;
-            // Use the *current* state of localStorage 'history' to find the true previous balance
-            // before this batch of modifications started.
-            const originalHistory = JSON.parse(getFromLS("history", "[]"));
+            const firstDate = history[0].datum; const originalHistory = JSON.parse(getFromLS("history", "[]"));
             const relevantOriginalHistory = originalHistory.filter(entry => new Date(entry.datum + "T00:00:00") < new Date(firstDate + "T00:00:00"));
             if (relevantOriginalHistory.length > 0) {
                  relevantOriginalHistory.sort((a, b) => new Date(b.datum) - new Date(a.datum));
                  previousKonto = parseFloat(relevantOriginalHistory[0].stundenkonto || 0);
-            } else {
-                 // If the modified history starts before any existing entry, use the global default
-                 previousKonto = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
-            }
+            } else { previousKonto = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0; }
         }
-
-
         for (let i = 0; i < history.length; i++) {
-            const entry = history[i];
-            const diff = parseFloat(entry.differenz || 0);
-            if (i === 0) {
-                // For the first entry, calculate based on the balance *before* it
-                entry.stundenkonto = (previousKonto + diff).toFixed(2);
-            } else {
-                // For subsequent entries, calculate based on the *previous* entry's recalculated balance
-                const prevEntryKonto = parseFloat(history[i-1].stundenkonto || 0);
-                entry.stundenkonto = (prevEntryKonto + diff).toFixed(2);
-            }
+            const entry = history[i]; const diff = parseFloat(entry.differenz || 0);
+            if (i === 0) entry.stundenkonto = (previousKonto + diff).toFixed(2);
+            else { const prevEntryKonto = parseFloat(history[i-1].stundenkonto || 0); entry.stundenkonto = (prevEntryKonto + diff).toFixed(2); }
         }
-
         storeToLS("history", JSON.stringify(history));
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-        const latestKonto = latestEntry
-          ? parseFloat(latestEntry.stundenkonto || 0)
-          : parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0; // Use global if history empty
-        $("aktuelles-konto").value = latestKonto.toFixed(2);
-        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2)); // Store the *very last* calculated balance globally
-        updateCalculations(); // Update main view calculations
-        closeAddDayModal();
-        closeDetailModal(); // Close detail modal if open
-        if (currentView === "history") loadHistory();
-        if (currentView === "month") loadMonthData();
-        if (currentView === "stats") calculateAndDisplayStats();
-      }
-      // --- END MODIFIED ---
-
-      function closeAddDayModal() {
-        const modal = $("add-day-modal");
-        if (modal) modal.style.display = "none";
+        const latestKonto = latestEntry ? parseFloat(latestEntry.stundenkonto || 0) : parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+        $("aktuelles-konto").value = latestKonto.toFixed(2); storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2));
+        updateCalculations(); closeAddDayModal(); closeDetailModal();
+        if (currentView === "history") loadHistory(); if (currentView === "month") loadMonthData(); if (currentView === "stats") calculateAndDisplayStats();
       }
 
-      // --- MODIFIED: Added button handlers ---
+      function closeAddDayModal() { const modal = $("add-day-modal"); if (modal) modal.style.display = "none"; }
+
       function showDayDetails(dateStr) {
-        const history = getHistory();
-        const entry = history.find((e) => e.datum === dateStr);
-        if (!entry) return;
-        const entryDate = new Date(dateStr + "T00:00:00");
-        const dispDate = entryDate.toLocaleDateString("de-DE");
-        const weekdayName = entryDate.toLocaleDateString("de-DE", {
-          weekday: "long",
-        });
+        const history = getHistory(); const entry = history.find((e) => e.datum === dateStr); if (!entry) return;
+        const entryDate = new Date(dateStr + "T12:00:00"); const dispDate = entryDate.toLocaleDateString("de-DE");
+        const weekdayName = entryDate.toLocaleDateString("de-DE", { weekday: "long" });
         $("detail-modal-title").textContent = `Details: ${weekdayName}, ${dispDate}`;
-        let detailsHTML = "";
-        let pausenLabel = "N/A";
-        let anwesenheitLabel = "N/A";
-        let nettoLabel = "N/A";
-        let pcBuchungChecked = !!entry.pcBuchung;
-        let bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
+        let detailsHTML = "", pausenLabel = "N/A", anwesenheitLabel = "N/A", nettoLabel = "N/A";
+        let pcBuchungChecked = !!entry.pcBuchung, bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
         const diffVal = parseFloat(entry.differenz) || 0;
-        const diffClass =
-          diffVal > 0.001
-            ? "positive-value"
-            : diffVal < -0.001
-              ? "negative-value"
-              : "zero-value";
-        const kontoFormatted = formatDecimalToTime(
-          parseFloat(entry.stundenkonto || 0)
-        );
+        const diffClass = diffVal > 0.001 ? "positive-value" : diffVal < -0.001 ? "negative-value" : "zero-value";
+        const kontoFormatted = formatDecimalToTime(parseFloat(entry.stundenkonto || 0));
         const kontoDecimal = parseFloat(entry.stundenkonto || 0).toFixed(2);
-
-        if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
-          const statusText = entry.urlaub
-            ? "Urlaub"
-            : entry.krank
-              ? "Krank"
-              : entry.schulung
-                ? "Schulung"
-                : "GLAZ"; // Show GLAZ status
-          detailsHTML = `
-          <p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p>
-          <p><strong>Kommen:</strong> --:--</p>
-          <p><strong>Gehen:</strong> --:--</p>
-          <p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p>
-          <p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
-          pcBuchungChecked = false;
+        const holidayName = getHolidayName(entryDate, settings.bundesland);
+        if (holidayName) {
+           detailsHTML = `<p><strong>Datum:</strong> ${dispDate}</p><p><strong>Status:</strong> ${holidayName} (Feiertag)</p>`;
+           $('detail-edit-button').style.display = 'none'; $('detail-delete-button').style.display = 'none';
+        } else if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
+          const statusText = entry.urlaub ? "Urlaub" : entry.krank ? "Krank" : entry.schulung ? "Schulung" : "GLAZ";
+          detailsHTML = `<p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
+          pcBuchungChecked = false; $('detail-edit-button').style.display = 'block'; $('detail-delete-button').style.display = 'block';
         } else {
-          // Regular work day details
-          const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
-          const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-          const kommenFormatted = formatTime(kommenLokal);
-          const gehenFormatted = formatTime(gehenLokal);
-          const additionalPauseSaved = parsePauseInputFromString(
-            entry.zusatzPause || ""
-          );
-
+          const kommenLokal = entry.kommen ? new Date(entry.kommen) : null; const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
+          const kommenFormatted = formatTime(kommenLokal); const gehenFormatted = formatTime(gehenLokal);
+          const additionalPauseSaved = parsePauseInputFromString(entry.zusatzPause || ""); let netCalculated = 0;
           if (kommenLokal && gehenLokal) {
-            let gehenAdjusted = new Date(gehenLokal.getTime());
-            if (gehenAdjusted < kommenLokal) {
-              gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-            }
+            let gehenAdjusted = new Date(gehenLokal.getTime()); if (gehenAdjusted < kommenLokal) gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
             const diffMs = gehenAdjusted - kommenLokal;
             if (diffMs >= 0) {
-              const totalH = diffMs / (1000 * 60 * 60);
-              anwesenheitLabel = `${Math.floor(totalH)}:${pad(Math.round((totalH % 1) * 60))} (${totalH.toFixed(2)}h)`;
-              const netCalculated = calculateNetArbeitszeitFromEntryData(
-                kommenLokal,
-                gehenLokal,
-                additionalPauseSaved
-              );
+              const totalH = diffMs / (1000 * 60 * 60); anwesenheitLabel = `${Math.floor(totalH)}:${pad(Math.round((totalH % 1) * 60))} (${totalH.toFixed(2)}h)`;
+              netCalculated = calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal, additionalPauseSaved);
               nettoLabel = `${formatDecimalToTime(netCalculated)} (${netCalculated.toFixed(2)}h)`;
-              const pausenVal = totalH - netCalculated;
-              pausenLabel =
-                pausenVal > 0
-                  ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)`
-                  : "0 Min";
-              // Add detail about additional pause if present
-              if (additionalPauseSaved > 0) {
-                pausenLabel += ` (inkl. ${formatDecimalToTime(additionalPauseSaved)} manuell)`;
-              }
+              const pausenVal = totalH - netCalculated; pausenLabel = pausenVal > 0 ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)` : "0 Min";
+              if (additionalPauseSaved > 0) pausenLabel += ` (inkl. ${formatDecimalToTime(additionalPauseSaved)} manuell)`;
             }
           }
-          detailsHTML = `
-          <p><strong>Ort:</strong> ${bueroEmoji}</p>
-          <p><strong>Kommen:</strong> ${kommenFormatted} ${pcBuchungChecked ? "(PC-Buchung aktiv)" : ""}</p>
-          <p><strong>Gehen:</strong> ${gehenFormatted}</p>
-          <p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p>
-          <p><strong>Pause:</strong> ${pausenLabel}</p>
-          <p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}</p>
-          <p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p>
-          <p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
+          const violations = checkViolations(kommenLokal, gehenLokal, netCalculated);
+          let kommenMoon = violations.kommen && settings.allowNachtarbeit ? ' <span class="moon-mark">🌙</span>' : '';
+          let gehenMoon = violations.gehen && settings.allowNachtarbeit ? ' <span class="moon-mark">🌙</span>' : '';
+          let nettoMoon = violations.arbeitszeit && netCalculated > 0 && settings.allowNachtarbeit ? ' <span class="moon-mark">🌙</span>' : '';
+          detailsHTML = `<p><strong>Ort:</strong> ${bueroEmoji}</p><p><strong>Kommen:</strong> ${kommenFormatted} ${pcBuchungChecked ? "(PC-Buchung aktiv)" : ""}${kommenMoon}</p><p><strong>Gehen:</strong> ${gehenFormatted}${gehenMoon}</p><p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p><p><strong>Pause:</strong> ${pausenLabel}</p><p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}${nettoMoon}</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
+          $('detail-edit-button').style.display = 'block'; $('detail-delete-button').style.display = 'block';
         }
         $("detail-content").innerHTML = detailsHTML;
-
-        // Add button handlers
-        const editBtn = $('detail-edit-button');
-        const deleteBtn = $('detail-delete-button');
-
-        editBtn.onclick = () => {
-            closeDetailModal();
-            showAddDayModal(dateStr); // Open edit modal
-        };
-
-        deleteBtn.onclick = () => {
-            // Confirmation is inside deleteEntryByDate
-            closeDetailModal();
-            deleteEntryByDate(dateStr);
-        };
-
-
+        const editBtn = $('detail-edit-button'); const deleteBtn = $('detail-delete-button');
+        editBtn.onclick = () => { closeDetailModal(); showAddDayModal(dateStr); };
+        deleteBtn.onclick = () => { closeDetailModal(); deleteEntryByDate(dateStr); };
         $("detail-modal").style.display = "flex";
       }
-      // --- END MODIFIED ---
 
-      function closeDetailModal() {
-        const modal = $("detail-modal");
-        if (modal) modal.style.display = "none";
-      }
+      function closeDetailModal() { const modal = $("detail-modal"); if (modal) modal.style.display = "none"; }
 
-      const monthNames = [
-        "Januar",
-        "Februar",
-        "März",
-        "April",
-        "Mai",
-        "Juni",
-        "Juli",
-        "August",
-        "September",
-        "Oktober",
-        "November",
-        "Dezember",
-      ];
-      function getFirstDayOfMonth(year, month) {
-        return new Date(year, month, 1).getDay();
-      }
-      function getDaysInMonth(year, month) {
-        return new Date(year, month + 1, 0).getDate();
-      }
+      const monthNames = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+      function getFirstDayOfMonth(year, month) { return new Date(Date.UTC(year, month, 1)).getUTCDay(); }
+      function getDaysInMonth(year, month) { return new Date(Date.UTC(year, month + 1, 0)).getUTCDate(); }
       function loadMonthData() {
         const history = getHistory();
         const monthData = history.filter((entry) => {
-          const entryDate = new Date(entry.datum + "T00:00:00");
-          return (
-            entryDate.getFullYear() === currentMonthYear &&
-            entryDate.getMonth() === currentMonth
-          );
+          const entryDate = new Date(entry.datum + "T12:00:00");
+          return entryDate.getFullYear() === currentMonthYear && entryDate.getMonth() === currentMonth;
         });
-        renderCalendar(monthData);
-        updateMonthNavigation();
-        // Clear bulk booking fields on month load
-        $("bulk-start-date").value = "";
-        $("bulk-end-date").value = "";
-        $("bulk-special-day-type").value = "";
+        renderCalendar(monthData); updateMonthNavigation();
+        $("bulk-start-date").value = ""; $("bulk-end-date").value = ""; $("bulk-special-day-type").value = "";
       }
+
       function renderCalendar(monthData) {
-        const calendarGrid = $("calendar-grid");
-        calendarGrid.innerHTML = "";
+        const calendarGrid = $("calendar-grid"); calendarGrid.innerHTML = "";
         $("month-year-display").textContent = `${monthNames[currentMonth]} ${currentMonthYear}`;
         const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
-        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth);
-        firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
-        const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth); firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+        const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]; // Always show all headers
+        calendarGrid.style.gridTemplateColumns = `repeat(7, 1fr)`; // Always 7 columns
+
         weekdays.forEach((wd) => {
-          const headerCell = document.createElement("div");
-          headerCell.classList.add("calendar-header");
-          headerCell.textContent = wd;
-          calendarGrid.appendChild(headerCell);
+          const headerCell = document.createElement("div"); headerCell.classList.add("calendar-header"); headerCell.textContent = wd; calendarGrid.appendChild(headerCell);
         });
-        for (let i = 0; i < firstDayIndex; i++) {
-          const emptyCell = document.createElement("div");
-          emptyCell.classList.add("calendar-day", "empty");
-          calendarGrid.appendChild(emptyCell);
+        for (let i = 0; i < firstDayIndex; i++) { // Always add empty cells for 7-day layout
+          const emptyCell = document.createElement("div"); emptyCell.classList.add("calendar-day", "empty"); calendarGrid.appendChild(emptyCell);
         }
+
         let monthlyTotalDiff = 0;
         for (let day = 1; day <= daysInMonth; day++) {
-          const cell = document.createElement("div");
-          cell.classList.add("calendar-day");
-          const cellContent = document.createElement("div");
-          cellContent.classList.add("calendar-day-content");
-          cellContent.textContent = day;
-          cell.appendChild(cellContent);
+          const currentDateObj = new Date(Date.UTC(currentMonthYear, currentMonth, day));
+          const dayOfWeek = currentDateObj.getUTCDay(); // 0=Sun, 6=Sat
+          const cell = document.createElement("div"); cell.classList.add("calendar-day");
+          const cellContent = document.createElement("div"); cellContent.classList.add("calendar-day-content"); cellContent.textContent = day; cell.appendChild(cellContent);
           const currentDateStr = `${currentMonthYear}-${pad(currentMonth + 1)}-${pad(day)}`;
-          const currentDateObj = new Date(currentMonthYear, currentMonth, day);
-          const dayOfWeek = currentDateObj.getDay();
           const entry = monthData.find((e) => e.datum === currentDateStr);
-          if (entry) {
-            cell.classList.add("has-entry");
-            const diffVal = parseFloat(entry.differenz) || 0;
-            monthlyTotalDiff += diffVal;
-            let diffClass = "";
-            let titleText = "";
+          const holidayName = getHolidayName(currentDateObj, settings.bundesland);
+          const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
+          if (holidayName) {
+            cell.classList.add("has-entry", "holiday"); cellContent.classList.add("holiday-day"); cellContent.title = holidayName;
+            cell.onclick = () => alert(`${currentDateObj.toLocaleDateString('de-DE')}: ${holidayName}`); // Info click
+          } else if (entry) {
+            cell.classList.add("has-entry"); const diffVal = parseFloat(entry.differenz) || 0; monthlyTotalDiff += diffVal;
+            let diffClass = "", titleText = "", moonMark = "";
             if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
-              diffClass = entry.krank
-                ? "special-day-krank-bg"
-                : entry.glaz // Style GLAZ like Urlaub
-                  ? "special-day-glaz-bg" // Use a specific class for GLAZ styling
-                  : "special-day-urlaub-bg";
-              titleText = entry.urlaub
-                ? "Urlaub"
-                : entry.krank
-                  ? "Krank"
-                  : entry.schulung
-                    ? "Schulung"
-                    : `GLAZ (${entry.differenzTime})`; // Show diff in title for GLAZ
+              diffClass = entry.krank ? "special-day-krank-bg" : entry.glaz ? "special-day-glaz-bg" : "special-day-urlaub-bg";
+              titleText = entry.urlaub ? "Urlaub" : entry.krank ? "Krank" : entry.schulung ? "Schulung" : `GLAZ (${entry.differenzTime})`;
             } else {
-              // Regular work day
-              if (diffVal > 0.001) diffClass = "positive-value";
-              else if (diffVal < -0.001) diffClass = "negative-value";
-              else diffClass = "zero-value";
+              if (diffVal > 0.001) diffClass = "positive-value"; else if (diffVal < -0.001) diffClass = "negative-value"; else diffClass = "zero-value";
               titleText = `Differenz: ${entry.differenzTime}`;
+              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null; const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
+              const additionalPauseSaved = parsePauseInputFromString(entry.zusatzPause || "");
+              const netTime = calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal, additionalPauseSaved);
+              const violations = checkViolations(kommenLokal, gehenLokal, netTime);
+              if (violations.any && settings.allowNachtarbeit) { if (violations.kommen || violations.gehen || violations.arbeitszeit) moonMark = ' <span class="moon-mark-calendar">🌙</span>'; }
             }
-            cellContent.classList.add(diffClass);
-            cellContent.title = titleText;
-            // --- MODIFIED: Click opens detail modal ---
-            cell.onclick = () => showDayDetails(currentDateStr);
-            // --- END MODIFIED ---
-          } else if (dayOfWeek === 0 || dayOfWeek === 6) {
-            cell.classList.add("weekend");
-            cellContent.classList.add("weekend-text");
-          } else {
-            cell.classList.add("no-entry");
-            // --- MODIFIED: Click opens add modal ---
-            cell.onclick = () => showAddDayModal(currentDateStr);
-            // --- END MODIFIED ---
+            cellContent.classList.add(diffClass); cellContent.title = titleText; cellContent.innerHTML = day + moonMark;
+            cell.onclick = () => showDayDetails(currentDateStr); // Click to show details
+          } else if (isWeekend) {
+             cell.classList.add("weekend"); cellContent.classList.add("weekend-text");
+             if (settings.allowWochenende) { // Only allow adding if enabled
+                 cell.classList.add("no-entry"); // Make it look clickable
+                 cell.onclick = () => showAddDayModal(currentDateStr);
+                 cellContent.title = "Klicken zum Hinzufügen";
+             } else {
+                 cellContent.title = "Wochenende"; // Just indicate weekend
+                 cell.style.cursor = 'default'; // Non-clickable cursor
+             }
+          } else { // Weekday, no entry, not holiday
+            cell.classList.add("no-entry"); cell.onclick = () => showAddDayModal(currentDateStr);
             cellContent.title = "Klicken zum Hinzufügen";
           }
-          const today = new Date();
-          if (
-            currentDateObj.getFullYear() === today.getFullYear() &&
-            currentDateObj.getMonth() === today.getMonth() &&
-            currentDateObj.getDate() === today.getDate()
-          ) {
-            cellContent.classList.add("today");
-          }
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const cellDate = new Date(currentDateObj); cellDate.setHours(0,0,0,0);
+          if (cellDate.getTime() === today.getTime()) cellContent.classList.add("today");
           calendarGrid.appendChild(cell);
         }
-        const diffClassSummary =
-          monthlyTotalDiff > 0.001
-            ? "positive-value"
-            : monthlyTotalDiff < -0.001
-              ? "negative-value"
-              : "zero-value";
-        $("month-summary-content").innerHTML = `
-            Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(monthlyTotalDiff)} (${monthlyTotalDiff.toFixed(2)}h)</span>`;
+        const diffClassSummary = monthlyTotalDiff > 0.001 ? "positive-value" : monthlyTotalDiff < -0.001 ? "negative-value" : "zero-value";
+        $("month-summary-content").innerHTML = `Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(monthlyTotalDiff)} (${monthlyTotalDiff.toFixed(2)}h)</span>`;
       }
+
       function updateMonthNavigation() {
-        $("prev-month").onclick = () => {
-          currentMonth--;
-          if (currentMonth < 0) {
-            currentMonth = 11;
-            currentMonthYear--;
-          }
-          loadMonthData();
-        };
-        $("next-month").onclick = () => {
-          currentMonth++;
-          if (currentMonth > 11) {
-            currentMonth = 0;
-            currentMonthYear++;
-          }
-          loadMonthData();
-        };
+        $("prev-month").onclick = () => { currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentMonthYear--; } loadMonthData(); };
+        $("next-month").onclick = () => { currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentMonthYear++; } loadMonthData(); };
       }
 
-      // Bulk-Buchung anwenden
       function applyBulkBooking() {
-      const startDateStr = $("bulk-start-date").value;
-      const endDateStr = $("bulk-end-date").value;
-      const specialType = $("bulk-special-day-type").value;
-
-      if (!startDateStr || !endDateStr || !specialType) {
-        alert(
-          "Bitte Startdatum, Enddatum und Typ für die Bulk-Buchung auswählen."
-        );
-        return;
-      }
-
-      // Setze die Zeit auf 12:00 Mittag, um Probleme mit Zeitzonen zu vermeiden
-      const startDate = new Date(startDateStr + "T12:00:00");
-      const endDate = new Date(endDateStr + "T12:00:00");
-
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        alert("Ungültiges Datumsformat.");
-        return;
-      }
-
-      if (endDate < startDate) {
-        alert("Das Enddatum darf nicht vor dem Startdatum liegen.");
-        return;
-      }
-
-      const typeLabel = {
-        urlaub: "Urlaub",
-        krank: "Krank",
-        schulung: "Schulung",
-        glaz: "GLAZ",
-      }[specialType];
-
-      if (
-        !confirm(
-          `Möchten Sie wirklich für den Zeitraum ${startDate.toLocaleDateString("de-DE")} bis ${endDate.toLocaleDateString("de-DE")} den Typ "${typeLabel}" für alle Werktage buchen?\n\nACHTUNG: Bestehende Einträge in diesem Zeitraum werden überschrieben!`
-        )
-      ) {
-        return;
-      }
-
-      let history = getHistory();
-      const wAZ = parseFloat($("wochenarbeitszeit").value) || 38;
-      const sollProTag = wAZ / 5;
-      let modified = false;
-
-      // Create a map for quick lookup and modification
-      const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
-
-      let currentDate = new Date(startDate.getTime());
-
-      while (currentDate <= endDate) {
-        // Stellt sicher, dass wir mit lokalem Wochentag arbeiten
-        const dayOfWeek = currentDate.getDay(); // 0 = Sonntag, 1 = Mo, ..., 5 = Fr, 6 = Sa
-
-        // Nur Werktage (Montag bis Freitag) berücksichtigen
-        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-          // ISO-Datum für den Eintrag erzeugen (nur das Datum, ohne Zeit)
-          const currentDateStr = currentDate.toISOString().split("T")[0];
-          const existingEntry = historyMap.get(currentDateStr);
-
-          let differenz = 0.0;
-          let differenzTime = "0:00";
-          let isUrlaub = false, isKrank = false, isSchulung = false, isGlaz = false;
-
-          switch (specialType) {
-            case "urlaub": isUrlaub = true; break;
-            case "krank": isKrank = true; break;
-            case "schulung": isSchulung = true; break;
-            case "glaz":
-              isGlaz = true;
-              differenz = -sollProTag;
-              differenzTime = formatDecimalToTime(differenz);
-              break;
-          }
-
-          const dayData = {
-            datum: currentDateStr,
-            differenz: differenz.toFixed(2),
-            differenzTime: differenzTime,
-            stundenkonto: "0.00", // Wird in saveAndReload neu berechnet
-            kommen: null,
-            gehen: null,
-            urlaub: isUrlaub,
-            krank: isKrank,
-            schulung: isSchulung,
-            glaz: isGlaz,
-            pcBuchung: false,
-            buero: existingEntry ? existingEntry.buero : ($("buero-toggle").checked),
-            zusatzPause: "",
-          };
-
-          historyMap.set(currentDateStr, dayData); // Update or add to map
-          modified = true;
+        const startDateStr = $("bulk-start-date").value, endDateStr = $("bulk-end-date").value, specialType = $("bulk-special-day-type").value;
+        if (!startDateStr || !endDateStr || !specialType) { alert("Bitte Start, Ende und Typ auswählen."); return; }
+        const startDate = new Date(startDateStr + "T12:00:00"), endDate = new Date(endDateStr + "T12:00:00");
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) { alert("Ungültiges Datum."); return; }
+        if (endDate < startDate) { alert("Enddatum vor Startdatum."); return; }
+        const typeLabel = { urlaub: "Urlaub", krank: "Krank", schulung: "Schulung", glaz: "GLAZ" }[specialType];
+        if (!confirm(`Wirklich für ${startDate.toLocaleDateString("de-DE")} bis ${endDate.toLocaleDateString("de-DE")} Typ "${typeLabel}" für Mo-Fr (keine Feiertage) buchen?\n\nACHTUNG: Bestehende Einträge werden überschrieben!`)) return;
+        let history = getHistory(); const sollProTag = settings.wochenarbeitszeit / 5; let modified = false;
+        const historyMap = new Map(history.map((entry) => [entry.datum, entry])); let currentDate = new Date(startDate.getTime()); let skippedDays = 0;
+        while (currentDate <= endDate) {
+          const dayOfWeek = currentDate.getDay(); const holidayName = getHolidayName(currentDate, settings.bundesland);
+          if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
+            const currentDateStr = currentDate.toISOString().split("T")[0]; const existingEntry = historyMap.get(currentDateStr);
+            let differenz = 0.0, differenzTime = "0:00"; let isUrlaub = false, isKrank = false, isSchulung = false, isGlaz = false;
+            switch (specialType) {
+              case "urlaub": isUrlaub = true; break; case "krank": isKrank = true; break; case "schulung": isSchulung = true; break;
+              case "glaz": isGlaz = true; differenz = -sollProTag; differenzTime = formatDecimalToTime(differenz); break;
+            }
+            const dayData = {
+              datum: currentDateStr, differenz: differenz.toFixed(2), differenzTime: differenzTime, stundenkonto: "0.00",
+              kommen: null, gehen: null, urlaub: isUrlaub, krank: isKrank, schulung: isSchulung, glaz: isGlaz, pcBuchung: false,
+              buero: existingEntry ? existingEntry.buero : ($("buero-toggle").checked), zusatzPause: "",
+            };
+            historyMap.set(currentDateStr, dayData); modified = true;
+          } else skippedDays++;
+          currentDate.setDate(currentDate.getDate() + 1);
         }
-
-        // Zum nächsten Tag wechseln
-        currentDate.setDate(currentDate.getDate() + 1);
+        if (modified) {
+          const updatedHistory = Array.from(historyMap.values()); saveAndReload(updatedHistory);
+          alert(`Bulk-Buchung erfolgreich. ${skippedDays > 0 ? `(${skippedDays} Wochenend-/Feiertage übersprungen)` : ''}`);
+        } else alert("Keine gültigen Werktage im Zeitraum gefunden.");
       }
-
-      if (modified) {
-        // Konvertiere die Map zurück in ein Array und speichere/lade neu
-        const updatedHistory = Array.from(historyMap.values());
-        saveAndReload(updatedHistory); // saveAndReload sortiert und berechnet Konten neu
-        alert("Bulk-Buchung erfolgreich durchgeführt.");
-      } else {
-        alert("Keine Werktage im ausgewählten Zeitraum gefunden.");
-      }
-    }
 
       function calculateAndDisplayStats() {
-        const period = $("stats-period").value;
-        const history = getHistory();
-        const today = new Date();
-        let startDate, endDate;
-        today.setHours(12, 0, 0, 0);
+        const period = $("stats-period").value; const history = getHistory(); const today = new Date();
+        let startDate, endDate; today.setHours(12, 0, 0, 0);
         switch (period) {
-          case "current_month":
-            startDate = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0);
-            endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0, 0);
-            break;
-          case "last_month":
-            startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1, 12, 0, 0, 0);
-            endDate = new Date(today.getFullYear(), today.getMonth(), 0, 12, 0, 0, 0);
-            break;
-          case "current_year":
-            startDate = new Date(today.getFullYear(), 0, 1, 12, 0, 0, 0);
-            endDate = new Date(today.getFullYear(), 11, 31, 12, 0, 0, 0);
-            break;
-          case "last_year":
-            startDate = new Date(today.getFullYear() - 1, 0, 1, 12, 0, 0, 0);
-            endDate = new Date(today.getFullYear() - 1, 11, 31, 12, 0, 0, 0);
-            break;
-          case "all_time":
-          default:
-            if (history.length === 0) {
-              startDate = new Date(today);
-              endDate = new Date(today);
-            } else {
-              startDate = new Date(history[0].datum + "T12:00:00");
-              endDate = new Date(history[history.length - 1].datum + "T12:00:00");
+          case "current_month": startDate = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0, 0); break;
+          case "last_month": startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear(), today.getMonth(), 0, 12, 0, 0, 0); break;
+          case "current_year": startDate = new Date(today.getFullYear(), 0, 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear(), 11, 31, 12, 0, 0, 0); break;
+          case "last_year": startDate = new Date(today.getFullYear() - 1, 0, 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear() - 1, 11, 31, 12, 0, 0, 0); break;
+          case "all_time": default: if (history.length === 0) { startDate = new Date(today); endDate = new Date(today); } else { startDate = new Date(history[0].datum + "T12:00:00"); endDate = new Date(history[history.length - 1].datum + "T12:00:00"); } break;
+        }
+        const filteredHistory = history.filter((entry) => { const entryDate = new Date(entry.datum + "T12:00:00"); return entryDate.setHours(0, 0, 0, 0) >= startDate.setHours(0, 0, 0, 0) && entryDate.setHours(0, 0, 0, 0) <= endDate.setHours(0, 0, 0, 0); });
+        let totalNetHours = 0, totalDiff = 0, workDays = 0, officeDays = 0, homeDays = 0, vacationDays = 0, sickDays = 0, trainingDays = 0, glazDays = 0, holidayCount = 0;
+        let currentDate = new Date(startDate); const endCheckDate = new Date(endDate); const dateMap = new Map(filteredHistory.map(e => [e.datum, e]));
+        while(currentDate <= endCheckDate) {
+            const currentDateStr = currentDate.toISOString().split("T")[0]; const entry = dateMap.get(currentDateStr);
+            const holidayName = getHolidayName(currentDate, settings.bundesland); const dayOfWeek = currentDate.getDay();
+            if (holidayName && dayOfWeek !== 0 && dayOfWeek !== 6) holidayCount++;
+            if (entry) {
+                totalDiff += parseFloat(entry.differenz || 0);
+                if (entry.urlaub) vacationDays++; else if (entry.krank) sickDays++; else if (entry.schulung) trainingDays++; else if (entry.glaz) glazDays++;
+                else if (entry.kommen && entry.gehen) {
+                    workDays++; const kommenLokal = new Date(entry.kommen); const gehenLokal = new Date(entry.gehen);
+                    const additionalPauseSaved = parsePauseInputFromString(entry.zusatzPause || "");
+                    const netHours = calculateNetArbeitszeitFromEntryData(kommenLokal, gehenLokal, additionalPauseSaved); totalNetHours += netHours;
+                    if (entry.buero) officeDays++; else homeDays++;
+                }
             }
-            break;
+            currentDate.setDate(currentDate.getDate() + 1);
         }
-        const filteredHistory = history.filter((entry) => {
-          const entryDate = new Date(entry.datum + "T12:00:00");
-          // Ensure comparison happens at the same time (midnight) to avoid timezone issues
-          return (
-            entryDate.setHours(0, 0, 0, 0) >= startDate.setHours(0, 0, 0, 0) &&
-            entryDate.setHours(0, 0, 0, 0) <= endDate.setHours(0, 0, 0, 0)
-          );
-        });
-        let totalNetHours = 0;
-        let totalDiff = 0;
-        let workDays = 0;
-        let officeDays = 0;
-        let homeDays = 0;
-        let vacationDays = 0;
-        let sickDays = 0;
-        let trainingDays = 0;
-        let glazDays = 0; // Counter for GLAZ days
-
-        filteredHistory.forEach((entry) => {
-          totalDiff += parseFloat(entry.differenz || 0); // Always add difference
-
-          if (entry.urlaub) vacationDays++;
-          else if (entry.krank) sickDays++;
-          else if (entry.schulung) trainingDays++;
-          else if (entry.glaz) glazDays++; // Count GLAZ days
-          else if (entry.kommen && entry.gehen) {
-            // Regular work day
-            workDays++;
-            const kommenLokal = new Date(entry.kommen);
-            const gehenLokal = new Date(entry.gehen);
-            const additionalPauseSaved = parsePauseInputFromString(
-              entry.zusatzPause || ""
-            );
-            const netHours = calculateNetArbeitszeitFromEntryData(
-              kommenLokal,
-              gehenLokal,
-              additionalPauseSaved
-            );
-            totalNetHours += netHours;
-            if (entry.buero) officeDays++;
-            else homeDays++;
-          }
-        });
-        const avgDailyHours = workDays > 0 ? totalNetHours / workDays : 0;
-        const statsContent = $("stats-content");
-        if (filteredHistory.length === 0) {
-          statsContent.innerHTML = `<li>Keine Daten für den ausgewählten Zeitraum vorhanden.</li>`;
-          return;
-        }
-        statsContent.innerHTML = `
-            <li>Gesamt Netto-Arbeitszeit: <span>${formatDecimalToTime(totalNetHours)} (${totalNetHours.toFixed(2)}h)</span></li>
-            <li>Durchschnittl. tägl. Arbeitszeit: <span>${formatDecimalToTime(avgDailyHours)} (${avgDailyHours.toFixed(2)}h)</span></li>
-            <li>Gesamte Differenz: <span class="diff-badge ${totalDiff > 0.001 ? "positive-value" : totalDiff < -0.001 ? "negative-value" : "zero-value"}">${formatDecimalToTime(totalDiff)} (${totalDiff.toFixed(2)}h)</span></li>
-            <li>Arbeitstage gesamt: <span>${workDays}</span></li>
-            <li>&nbsp;&nbsp;&nbsp;davon Büro: <span>${officeDays}</span></li>
-            <li>&nbsp;&nbsp;&nbsp;davon Homeoffice: <span>${homeDays}</span></li>
-            <li>Urlaubstage: <span>${vacationDays}</span></li>
-            <li>Krankheitstage: <span>${sickDays}</span></li>
-            <li>Schulungstage: <span>${trainingDays}</span></li>
-            <li>GLAZ-Tage: <span>${glazDays}</span></li>`; // Add GLAZ to stats
+        const avgDailyHours = workDays > 0 ? totalNetHours / workDays : 0; const statsContent = $("stats-content");
+        if (filteredHistory.length === 0 && holidayCount === 0) { statsContent.innerHTML = `<li>Keine Daten für Zeitraum.</li>`; return; }
+        statsContent.innerHTML = `<li>Gesamt Netto: <span>${formatDecimalToTime(totalNetHours)} (${totalNetHours.toFixed(2)}h)</span></li><li>Ø Netto / Tag: <span>${formatDecimalToTime(avgDailyHours)} (${avgDailyHours.toFixed(2)}h)</span></li><li>Gesamt Diff: <span class="diff-badge ${totalDiff > 0.001 ? "positive-value" : totalDiff < -0.001 ? "negative-value" : "zero-value"}">${formatDecimalToTime(totalDiff)} (${totalDiff.toFixed(2)}h)</span></li><li>Arbeitstage: <span>${workDays}</span></li><li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li><li>&nbsp;&nbsp;&nbsp;Home: <span>${homeDays}</span></li><li>Urlaub: <span>${vacationDays}</span></li><li>Krank: <span>${sickDays}</span></li><li>Schulung: <span>${trainingDays}</span></li><li>GLAZ: <span>${glazDays}</span></li><li>Feiertage (Mo-Fr): <span>${holidayCount}</span></li>`;
       }
 
       function exportHistoryToJson() {
-        const history = getHistory();
-        if (history.length === 0) {
-          alert("Keine Daten zum Exportieren vorhanden.");
-          return;
-        }
-        // Remove temporary dateObj before export if it exists
-        const exportHistory = history.map((entry) => {
-          const { dateObj, ...rest } = entry;
-          return rest;
-        });
-        const jsonData = JSON.stringify(exportHistory, null, 2);
-        const blob = new Blob([jsonData], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        const todayStr = new Date().toISOString().split("T")[0];
-        a.href = url;
-        a.download = `arbeitszeit_export_${todayStr}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        alert("Verlauf wurde als JSON-Datei exportiert.");
+        const history = getHistory(); if (history.length === 0) { alert("Keine Daten zum Export."); return; }
+        const exportHistory = history.map((entry) => { const { dateObj, ...rest } = entry; return rest; });
+        const exportData = { settings: settings, history: exportHistory }; const jsonData = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonData], { type: "application/json" }); const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); const todayStr = new Date().toISOString().split("T")[0];
+        a.href = url; a.download = `arbeitszeit_export_${todayStr}.json`; document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url); alert("Verlauf & Optionen exportiert.");
       }
 
       function importHistoryFromJson() {
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = ".json";
-        input.style.display = "none";
+        const input = document.createElement("input"); input.type = "file"; input.accept = ".json"; input.style.display = "none";
         input.onchange = (event) => {
-          const file = event.target.files[0];
-          if (!file) return;
-          const reader = new FileReader();
+          const file = event.target.files[0]; if (!file) return; const reader = new FileReader();
           reader.onload = (e) => {
             try {
-              const importedData = JSON.parse(e.target.result);
-              if (!Array.isArray(importedData)) {
-                throw new Error("Importierte Datei ist kein gültiges JSON-Array.");
-              }
-              // Basic validation for expected structure
-              if (
-                importedData.length > 0 &&
-                (importedData[0].datum === undefined ||
-                  importedData[0].stundenkonto === undefined || // Check stundenkonto too
-                  importedData[0].differenz === undefined)
-              ) {
-                throw new Error(
-                  "Struktur der importierten Daten scheint ungültig zu sein (datum, stundenkonto, differenz fehlen?)."
-                );
-              }
-              // Add default values for potentially missing fields during import
-              const sanitizedData = importedData.map((entry) => ({
-                datum: entry.datum,
-                differenz: entry.differenz || "0.00",
-                differenzTime: entry.differenzTime || "0:00",
-                stundenkonto: entry.stundenkonto || "0.00", // Ensure stundenkonto exists
-                kommen: entry.kommen || null,
-                gehen: entry.gehen || null,
-                urlaub: entry.urlaub || false,
-                krank: entry.krank || false,
-                schulung: entry.schulung || false,
-                glaz: entry.glaz || false, // Add default for GLAZ
-                pcBuchung: entry.pcBuchung || false,
-                buero: entry.buero || false,
-                zusatzPause: entry.zusatzPause || "", // Add default for pause
+              const importedJson = JSON.parse(e.target.result); let importedHistory = [], importedSettings = null;
+              if (Array.isArray(importedJson)) { importedHistory = importedJson; alert("Altes Format erkannt (nur Verlauf)."); }
+              else if (typeof importedJson === 'object' && importedJson !== null && Array.isArray(importedJson.history)) { importedHistory = importedJson.history; importedSettings = importedJson.settings || {}; }
+              else { throw new Error("Unbekanntes Importformat."); }
+              if (importedHistory.length > 0 && (importedHistory[0].datum === undefined || importedHistory[0].stundenkonto === undefined || importedHistory[0].differenz === undefined)) { throw new Error("Ungültige Verlaufsdaten."); }
+              const sanitizedHistory = importedHistory.map((entry) => ({
+                datum: entry.datum, differenz: entry.differenz || "0.00", differenzTime: entry.differenzTime || "0:00", stundenkonto: entry.stundenkonto || "0.00",
+                kommen: entry.kommen || null, gehen: entry.gehen || null, urlaub: entry.urlaub || false, krank: entry.krank || false, schulung: entry.schulung || false, glaz: entry.glaz || false,
+                pcBuchung: entry.pcBuchung || false, buero: entry.buero || false, zusatzPause: entry.zusatzPause || "",
               }));
-
-              if (
-                confirm(
-                  `Möchten Sie wirklich ${sanitizedData.length} Einträge importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`
-                )
-              ) {
-                saveAndReload(sanitizedData); // Save the sanitized data
-                alert("Verlauf erfolgreich importiert.");
+              let confirmationMessage = `Wirklich ${sanitizedHistory.length} Einträge importieren? ACHTUNG: Alle Daten werden überschrieben!`;
+              if (importedSettings) confirmationMessage += "\n\nGespeicherte Einstellungen werden übernommen.";
+              if (confirm(confirmationMessage)) {
+                if (importedSettings) {
+                    settings.wochenarbeitszeit = parseFloat(importedSettings.wochenarbeitszeit || 38); settings.bundesland = importedSettings.bundesland || "NATIONAL";
+                    settings.allowWochenende = !!importedSettings.allowWochenende; settings.allowNachtarbeit = !!importedSettings.allowNachtarbeit;
+                    saveSettings();
+                }
+                saveAndReload(sanitizedHistory); alert("Daten importiert."); switchView('main');
               }
-            } catch (error) {
-              console.error("Fehler beim Importieren:", error);
-              alert(`Import fehlgeschlagen: ${error.message}`);
-            } finally {
-              document.body.removeChild(input);
-            }
+            } catch (error) { console.error("Importfehler:", error); alert(`Import fehlgeschlagen: ${error.message}`); }
+            finally { document.body.removeChild(input); }
           };
-          reader.onerror = (e) => {
-            console.error("Fehler beim Lesen der Datei:", e);
-            alert("Fehler beim Lesen der Datei.");
-            document.body.removeChild(input);
-          };
+          reader.onerror = (e) => { console.error("Fehler beim Lesen:", e); alert("Fehler beim Lesen der Datei."); document.body.removeChild(input); };
           reader.readAsText(file);
         };
-        document.body.appendChild(input);
-        input.click();
+        document.body.appendChild(input); input.click();
       }
 
       document.addEventListener("DOMContentLoaded", init);
@@ -1643,7 +1129,8 @@
         --system-orange-light: #ff9500;
         --system-yellow-light: #ffcc00;
         --system-teal-light: #5ac8fa;
-        --system-purple-light: #af52de; /* Added for GLAZ */
+        --system-purple-light: #af52de; /* GLAZ */
+        --system-indigo-light: #5856d6; /* Holiday */
         --system-gray-light: #8e8e93;
         --system-gray2-light: #aeaeb2;
 
@@ -1662,7 +1149,8 @@
         --system-orange-dark: #ff9f0a;
         --system-yellow-dark: #ffd60a;
         --system-teal-dark: #64d2ff;
-        --system-purple-dark: #bf5af2; /* Added for GLAZ */
+        --system-purple-dark: #bf5af2; /* GLAZ */
+        --system-indigo-dark: #5e5ce6; /* Holiday */
         --system-gray-dark: #8e8e93;
         --system-gray2-dark: #3a3a3c;
 
@@ -1683,9 +1171,11 @@
         --hint-color: var(--system-red-light);
         --special-day-urlaub-bg: var(--system-teal-light);
         --special-day-krank-bg: var(--system-yellow-light);
-        --special-day-glaz-bg: var(--system-purple-light); /* Added for GLAZ */
-        --special-day-text: #000000; /* Default text for special days */
-        --special-day-glaz-text: #ffffff; /* White text for GLAZ */
+        --special-day-glaz-bg: var(--system-purple-light);
+        --holiday-bg: var(--system-indigo-light);
+        --special-day-text: #000000;
+        --special-day-glaz-text: #ffffff;
+        --holiday-text: #ffffff;
         --nav-background: var(--system-secondary-background-light);
         --nav-icon-color: var(--system-gray-light);
         --nav-icon-active-color: var(--system-blue-light);
@@ -1715,7 +1205,8 @@
           --hint-color: var(--system-red-dark);
           --special-day-urlaub-bg: var(--system-teal-dark);
           --special-day-krank-bg: var(--system-yellow-dark);
-          --special-day-glaz-bg: var(--system-purple-dark); /* Added for GLAZ */
+          --special-day-glaz-bg: var(--system-purple-dark);
+          --holiday-bg: var(--system-indigo-dark);
           --nav-background: var(--system-secondary-background-dark);
           --nav-icon-color: var(--system-gray-dark);
           --nav-icon-active-color: var(--system-blue-dark);
@@ -1728,603 +1219,158 @@
       body {
         background-color: var(--background-color);
         color: var(--text-color);
-        margin: 0;
-        padding: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
-          "Segoe UI Symbol";
-        -webkit-text-size-adjust: 100%;
-        -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
-        height: 100%;
-        overflow: hidden;
+        margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        height: 100%; overflow: hidden;
       }
 
-      #app-container {
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-      }
+      #app-container { display: flex; flex-direction: column; height: 100vh; }
 
       .page {
-        flex-grow: 1;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(105px + var(--safe-area-bottom)) /* Adjusted for nav height */
-          calc(15px + var(--safe-area-right));
+        flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+        padding: var(--safe-area-top) calc(15px + var(--safe-area-left)) calc(65px + var(--safe-area-bottom)) calc(15px + var(--safe-area-right)); /* Adjusted nav height */
         display: none;
       }
-      .page.active {
-        display: block;
-      }
+      .page.active { display: block; }
+      .container { max-width: 600px; margin: 0 auto; padding-bottom: 0; }
 
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        padding-bottom: 0;
-      }
+      h1 { font-size: 34px; font-weight: 700; margin: 10px 0 20px 0; }
+      h2 { font-size: 22px; font-weight: 600; margin: 25px 0 15px 0; border-bottom: 1px solid var(--separator-color); padding-bottom: 8px; }
+      h3 { font-size: 17px; font-weight: 600; margin: 0 0 10px 0; color: var(--secondary-text-color); text-transform: uppercase; }
+      label { font-size: 15px; font-weight: 400; color: var(--secondary-text-color); display: block; margin-bottom: 5px; }
+      p { font-size: 17px; line-height: 1.4; margin: 5px 0 15px 0; }
 
-      h1 {
-        font-size: 34px;
-        font-weight: 700;
-        margin: 10px 0 20px 0;
-      }
-      h2 {
-        font-size: 22px;
-        font-weight: 600;
-        margin: 25px 0 15px 0;
-        border-bottom: 1px solid var(--separator-color);
-        padding-bottom: 8px;
-      }
-      h3 {
-        font-size: 17px;
-        font-weight: 600;
-        margin: 0 0 10px 0;
-        color: var(--secondary-text-color);
-        text-transform: uppercase;
-      }
-      label {
-        font-size: 15px;
-        font-weight: 400;
-        color: var(--secondary-text-color);
-        display: block;
-        margin-bottom: 5px;
-      }
-      p {
-        font-size: 17px;
-        line-height: 1.4;
-        margin: 5px 0 15px 0;
-      }
+      .section { background-color: var(--card-background-color); border-radius: 10px; padding: 15px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+      @media (prefers-color-scheme: dark) { .section { box-shadow: none; } }
 
-      .section {
-        background-color: var(--card-background-color);
-        border-radius: 10px;
-        padding: 15px;
-        margin-bottom: 20px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      .button, .inline-button, .delete-button, .add-button {
+        background-color: var(--button-background-color); color: var(--button-text-color); border: none; border-radius: 8px;
+        font-weight: 600; cursor: pointer; box-sizing: border-box; line-height: 1.2em; text-align: center;
+        transition: background-color 0.1s ease-in-out; -webkit-appearance: none; appearance: none;
       }
-      @media (prefers-color-scheme: dark) {
-        .section {
-          box-shadow: none;
-        }
-      }
+      .button { width: 100%; padding: 12px 15px; font-size: 17px; min-height: 44px; margin-bottom: 10px; }
+      .inline-button, .delete-button, .add-button { font-size: 15px; padding: 8px 12px; min-height: 36px; }
+      .delete-button { background-color: var(--hint-color); }
+      .add-button { background-color: var(--system-green-light); }
+      @media (prefers-color-scheme: dark) { .add-button { background-color: var(--system-green-dark); } }
+      .button:active, .inline-button:active, .delete-button:active, .add-button:active { filter: brightness(0.85); }
 
-      .button,
-      .inline-button,
-      .delete-button,
-      .add-button {
-        background-color: var(--button-background-color);
-        color: var(--button-text-color);
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        cursor: pointer;
-        box-sizing: border-box;
-        line-height: 1.2em;
-        text-align: center;
-        transition: background-color 0.1s ease-in-out;
-        -webkit-appearance: none;
-        appearance: none;
-      }
-      .button {
-        width: 100%;
-        padding: 12px 15px;
-        font-size: 17px;
-        min-height: 44px;
-        margin-bottom: 10px;
-      }
-      .inline-button,
-      .delete-button,
-      .add-button {
-        font-size: 15px;
-        padding: 8px 12px;
-        min-height: 36px;
-      }
-      .delete-button {
-        background-color: var(--hint-color);
-      }
-      .add-button {
-        background-color: var(--system-green-light);
-      }
-      @media (prefers-color-scheme: dark) {
-        .add-button {
-          background-color: var(--system-green-dark);
-        }
-      }
-      .button:active,
-      .inline-button:active,
-      .delete-button:active,
-      .add-button:active {
-        filter: brightness(0.85);
-      }
-
-      input[type="time"],
-      input[type="number"],
-      input[type="text"],
-      input[type="date"], /* Added style for date input */
-      select {
-        width: 100%;
-        padding: 12px 15px;
-        font-size: 17px;
-        border: 1px solid var(--input-border-color);
-        border-radius: 8px;
-        margin-bottom: 10px;
-        background-color: var(--input-background-color);
-        color: var(--text-color);
-        box-sizing: border-box;
-        -webkit-appearance: none;
-        appearance: none;
-        line-height: 1.2em;
-        min-height: 44px;
+      input[type="time"], input[type="number"], input[type="text"], input[type="date"], select {
+        width: 100%; padding: 12px 15px; font-size: 17px; border: 1px solid var(--input-border-color); border-radius: 8px;
+        margin-bottom: 10px; background-color: var(--input-background-color); color: var(--text-color); box-sizing: border-box;
+        -webkit-appearance: none; appearance: none; line-height: 1.2em; min-height: 44px;
       }
       input:read-only {
-        background-color: var(--card-background-color);
-        color: var(--readonly-text-color);
+        background-color: var(--card-background-color); color: var(--readonly-text-color); cursor: default;
+        border: 1px solid var(--input-border-color); /* Restore border */
       }
-      input:disabled {
-        background-color: var(--system-tertiary-background-light);
-        color: var(--secondary-text-color);
-        opacity: 0.7;
-        cursor: not-allowed;
-      }
-      @media (prefers-color-scheme: dark) {
-        input:disabled {
-          background-color: var(--system-tertiary-background-dark);
-        }
-      }
-      input[type="time"]::-webkit-calendar-picker-indicator,
-      input[type="date"]::-webkit-calendar-picker-indicator { /* Hide picker for date too */
-        display: none;
-      }
+      input:disabled { background-color: var(--system-tertiary-background-light); color: var(--secondary-text-color); opacity: 0.7; cursor: not-allowed; }
+      @media (prefers-color-scheme: dark) { input:disabled { background-color: var(--system-tertiary-background-dark); } }
+      input[type="time"]::-webkit-calendar-picker-indicator, input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
 
-      .row {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 10px;
-      }
-      .column {
-        flex: 1;
-      }
+      .row { display: flex; gap: 10px; margin-bottom: 10px; }
+      .column { flex: 1; }
 
-      .time-button-row {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 10px;
-        align-items: center;
-      }
-      .time-button-row input[type="time"],
-      .time-button-row .button {
-        flex: 1;
-        margin-bottom: 0;
-      }
-      .time-button-row input[type="time"] {
-        text-align: center;
-      }
-      .time-button-row .button {
-        padding: 12px 15px;
-      }
+      .time-button-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; position: relative; }
+      .time-button-row input[type="time"], .time-button-row .button { flex: 1; margin-bottom: 0; }
+      .time-button-row input[type="time"] { text-align: center; }
+      .time-button-row .button { padding: 12px 15px; }
+      .moon-indicator { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); font-size: 18px; display: none; pointer-events: none; }
+      .moon-mark { font-size: 1em; vertical-align: baseline; }
+      .moon-mark-calendar { font-size: 0.7em; vertical-align: super; margin-left: 1px; }
 
-      /* --- SLIDER STYLES (Original) --- */
-      .switch-container {
-        display: flex;
-        align-items: center;
-        margin-bottom: 15px;
-        min-height: 44px;
-      }
-      .switch-container span {
-        margin-left: 10px;
-        font-size: 17px;
-      }
-      .switch {
-        position: relative;
-        display: inline-block;
-        width: 65px; /* Standard iOS width */
-        height: 31px;
-        flex-shrink: 0;
-      }
-      .switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-      }
-      .slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: var(--slider-bg-color);
-        transition: 0.4s;
-        border-radius: 15.5px;
-      }
-      .slider:before {
-        position: absolute;
-        content: "";
-        height: 27px;
-        width: 27px;
-        left: 2px;
-        bottom: 2px;
-        background-color: white;
-        transition: 0.4s;
-        border-radius: 50%;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-      }
-      input:checked + .slider {
-        background-color: var(--slider-checked-bg-color);
-      }
-      input:checked + .slider:before {
-        transform: translateX(24px); /* Adjusted for 65px width */
-      }
-      /* --- END SLIDER STYLES (Original) --- */
+      /* --- SLIDER STYLES (Reverted to Original) --- */
+      .switch-container { display: flex; align-items: center; margin-bottom: 15px; min-height: 44px; }
+      .switch-container span { margin-left: 10px; font-size: 17px; }
+      .switch { position: relative; display: inline-block; width: 65px; /* Original width */ height: 31px; flex-shrink: 0; }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--slider-bg-color); transition: 0.4s; border-radius: 15.5px; }
+      .slider:before { position: absolute; content: ""; height: 27px; width: 27px; left: 2px; bottom: 2px; background-color: white; transition: 0.4s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); }
+      input:checked + .slider { background-color: var(--slider-checked-bg-color); }
+      input:checked + .slider:before { transform: translateX(24px); /* Original travel distance */ }
+      /* --- END SLIDER STYLES --- */
 
-      .diff-badge {
-        padding: 3px 6px;
-        border-radius: 5px;
-        font-size: 14px;
-        font-weight: 500;
-        display: inline-block;
-        vertical-align: middle;
-      }
-      .positive-value {
-        background-color: var(--positive-value-bg) !important;
-        color: var(--button-text-color) !important;
-      }
-      .negative-value {
-        background-color: var(--negative-value-bg) !important;
-        color: #000000 !important;
-      }
-      .zero-value {
-        background-color: var(--zero-value-bg) !important;
-        color: #000000 !important;
-      }
+      .diff-badge { padding: 3px 6px; border-radius: 5px; font-size: 14px; font-weight: 500; display: inline-block; vertical-align: middle; }
+      .positive-value { background-color: var(--positive-value-bg) !important; color: var(--button-text-color) !important; }
+      .negative-value { background-color: var(--negative-value-bg) !important; color: #000000 !important; }
+      .zero-value { background-color: var(--zero-value-bg) !important; color: #000000 !important; }
 
-      #hinweis {
-        color: var(--hint-color);
-        font-weight: 500;
-        font-size: 15px;
-        display: none;
-        margin-top: 10px;
-        padding: 10px;
-        background-color: rgba(255, 59, 48, 0.1);
-        border-radius: 8px;
-      }
-      .invalid-time {
-        border-color: var(--hint-color) !important;
-        background-color: rgba(255, 59, 48, 0.1) !important;
-      }
+      #hinweis { color: var(--hint-color); font-weight: 500; font-size: 15px; display: none; margin-top: 10px; padding: 10px; background-color: rgba(255, 59, 48, 0.1); border-radius: 8px; }
+      .invalid-time { border-color: var(--hint-color) !important; background-color: rgba(255, 59, 48, 0.1) !important; }
 
-      #history-list {
-        list-style-type: none;
-        padding: 0;
-        margin: 0;
-        background-color: var(--card-background-color);
-        border-radius: 10px;
-        overflow: hidden;
-      }
-      .history-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px 15px;
-        min-height: 60px;
-        border-bottom: 1px solid var(--separator-color);
-        gap: 10px;
-      }
-      .history-item:last-child {
-        border-bottom: none;
-      }
-      .history-entry-content {
-        flex-grow: 1;
-        padding: 5px;
-        border-radius: 6px;
-        background-color: transparent;
-        border-left: 3px solid transparent;
-        transition: background-color 0.2s ease;
-      }
-      .history-entry-content.special-day {
-        /* Base style for special days */
-      }
-      /* Specific background colors for special days */
-      .history-entry-content.special-day[style*="--special-day-krank-bg"] {
-        background-color: var(--special-day-krank-bg);
-        color: var(--special-day-text);
-      }
-      .history-entry-content.special-day[style*="--special-day-urlaub-bg"] {
-        background-color: var(--special-day-urlaub-bg);
-        color: var(--special-day-text);
-      }
-      .history-entry-content.special-day[style*="--special-day-glaz-bg"] {
-        background-color: var(--special-day-glaz-bg);
-        color: var(--special-day-glaz-text); /* Use specific text color for GLAZ */
-      }
-      .history-entry-content.violation-day {
-        border-left: 3px solid var(--hint-color);
-        background-color: rgba(255, 59, 48, 0.05);
-      }
-      .history-entry-content.no-data {
-        color: var(--secondary-text-color);
-      }
-      .history-entry-content div:first-child {
-        font-weight: 500;
-      }
-      .history-entry-content div:last-child {
-        font-size: 15px;
-        color: var(--secondary-text-color);
-      }
-      /* Ensure text color is correct for special days */
-      .history-entry-content.special-day[style*="--special-day-krank-bg"] div:last-child,
-      .history-entry-content.special-day[style*="--special-day-urlaub-bg"] div:last-child {
-        color: var(--special-day-text);
-      }
-      .history-entry-content.special-day[style*="--special-day-glaz-bg"] div:last-child {
-        color: var(--special-day-glaz-text);
-      }
-      .violation-mark {
-        color: var(--hint-color);
-        font-weight: bold;
-      }
-      .history-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-shrink: 0;
-      }
-      .history-actions .inline-button,
-      .history-actions .delete-button {
-        font-size: 20px;
-        padding: 5px 8px;
-      }
+      #history-list { list-style-type: none; padding: 0; margin: 0; background-color: var(--card-background-color); border-radius: 10px; overflow: hidden; }
+      .history-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; min-height: 60px; border-bottom: 1px solid var(--separator-color); gap: 10px; }
+      .history-item:last-child { border-bottom: none; }
+      .history-entry-content { flex-grow: 1; padding: 5px; border-radius: 6px; background-color: transparent; border-left: 3px solid transparent; transition: background-color 0.2s ease; }
+      .history-entry-content.holiday-day { background-color: var(--holiday-bg); color: var(--holiday-text); }
+      .history-entry-content.special-day[style*="--special-day-krank-bg"] { background-color: var(--special-day-krank-bg); color: var(--special-day-text); }
+      .history-entry-content.special-day[style*="--special-day-urlaub-bg"] { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text); }
+      .history-entry-content.special-day[style*="--special-day-glaz-bg"] { background-color: var(--special-day-glaz-bg); color: var(--special-day-glaz-text); }
+      .history-entry-content.violation-day { border-left: 3px solid var(--hint-color); background-color: rgba(255, 59, 48, 0.05); }
+      .history-entry-content.no-data { color: var(--secondary-text-color); }
+      .history-entry-content div:first-child { font-weight: 500; }
+      .history-entry-content div:last-child { font-size: 15px; color: var(--secondary-text-color); }
+      .history-entry-content.special-day[style*="--special-day-krank-bg"] div:last-child, .history-entry-content.special-day[style*="--special-day-urlaub-bg"] div:last-child { color: var(--special-day-text); }
+      .history-entry-content.special-day[style*="--special-day-glaz-bg"] div:last-child { color: var(--special-day-glaz-text); }
+      .history-entry-content.holiday-day div:last-child { color: var(--holiday-text); }
+      .violation-mark { color: var(--hint-color); font-weight: bold; }
+      .history-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+      .history-actions .inline-button, .history-actions .delete-button { font-size: 20px; padding: 5px 8px; }
 
-      #weekly-summary,
-      #month-summary {
-        padding: 15px;
-        background-color: var(--card-background-color);
-        border-radius: 10px;
-        margin-top: 20px;
-        text-align: center;
-        font-size: 17px;
-        font-weight: 500;
-      }
-      #pagination,
-      #month-pagination {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin: 20px 0;
-      }
-      #month-pagination button {
-        /* Style comes from .inline-button */
-      }
+      #weekly-summary, #month-summary { padding: 15px; background-color: var(--card-background-color); border-radius: 10px; margin-top: 20px; text-align: center; font-size: 17px; font-weight: 500; }
+      #pagination, #month-pagination { display: flex; justify-content: space-between; align-items: center; margin: 20px 0; }
 
-      .modal {
-        display: none;
-        position: fixed;
-        z-index: 9999;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-        background-color: rgba(0, 0, 0, 0.4);
-        justify-content: center;
-        align-items: center;
-        padding: 20px;
-        box-sizing: border-box;
-      }
-      .modal-content {
-        background-color: var(--card-background-color);
-        border-radius: 14px;
-        padding: 20px;
-        max-width: 400px;
-        width: 90%;
-        margin: auto;
-        color: var(--text-color);
-        box-sizing: border-box;
-        position: relative;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-      }
-      .modal-content h3 {
-        margin-top: 0;
-      }
-      .close-button {
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        background: var(--system-gray2-light);
-        border: none;
-        color: var(--secondary-text-color);
-        font-size: 14px;
-        font-weight: bold;
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        cursor: pointer;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        line-height: 1;
-        padding: 0;
-      }
-      @media (prefers-color-scheme: dark) {
-        .close-button {
-          background: var(--system-gray2-dark);
-        }
-      }
-      .close-button:active {
-        filter: brightness(0.85);
-      }
+      .modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0, 0, 0, 0.4); justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
+      .modal-content { background-color: var(--card-background-color); border-radius: 14px; padding: 20px; max-width: 400px; width: 90%; margin: auto; color: var(--text-color); box-sizing: border-box; position: relative; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); }
+      .modal-content h3 { margin-top: 0; margin-bottom: 15px; }
+      .close-button { position: absolute; top: 10px; right: 10px; background: var(--system-gray2-light); border: none; color: var(--secondary-text-color); font-size: 14px; font-weight: bold; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; justify-content: center; align-items: center; line-height: 1; padding: 0; }
+      @media (prefers-color-scheme: dark) { .close-button { background: var(--system-gray2-dark); } }
+      .close-button:active { filter: brightness(0.85); }
 
-      #calendar-grid {
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 5px;
-        margin-top: 15px;
-      }
-      .calendar-header {
-        text-align: center;
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--secondary-text-color);
-        padding-bottom: 10px;
-      }
-      .calendar-day {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        aspect-ratio: 1 / 1;
-        font-size: 16px;
-        position: relative;
-        cursor: default;
-      }
-      .calendar-day.empty {
-        visibility: hidden;
-      }
-      .calendar-day.weekend .calendar-day-content {
-        color: var(--secondary-text-color);
-      }
-      .calendar-day.no-entry {
-        cursor: pointer;
-      }
-      .calendar-day.has-entry {
-        cursor: pointer;
-      }
-      .calendar-day-content {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        width: 85%;
-        height: 85%;
-        border-radius: 50%;
-        transition: transform 0.1s ease;
-      }
-      /* Calendar Text/Background Colors */
-      .calendar-day.has-entry .calendar-day-content.positive-value {
-        color: var(--button-text-color);
-      }
-      .calendar-day.has-entry .calendar-day-content.negative-value,
-      .calendar-day.has-entry .calendar-day-content.zero-value {
-        color: #000000;
-      }
-      .calendar-day-content.special-day-krank-bg {
-        background-color: var(--special-day-krank-bg);
-        color: var(--special-day-text) !important;
-      }
-      .calendar-day-content.special-day-urlaub-bg {
-        background-color: var(--special-day-urlaub-bg);
-        color: var(--special-day-text) !important;
-      }
-      .calendar-day-content.special-day-glaz-bg {
-        background-color: var(--special-day-glaz-bg);
-        color: var(--special-day-glaz-text) !important; /* Specific text color */
-      }
-      .calendar-day-content.today {
-        font-weight: bold;
-        border: 2px solid var(--button-background-color);
-      }
-      .calendar-day.has-entry .calendar-day-content.today {
-        border: 2px solid var(--text-color);
-      }
-      .calendar-day:active .calendar-day-content {
-        transform: scale(0.95);
-      }
+      #calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 15px; } /* Always 7 columns */
+      .calendar-header { text-align: center; font-size: 13px; font-weight: 500; color: var(--secondary-text-color); padding-bottom: 10px; }
+      .calendar-day { display: flex; justify-content: center; align-items: center; aspect-ratio: 1 / 1; font-size: 16px; position: relative; cursor: default; }
+      .calendar-day.empty { visibility: hidden; }
+      .calendar-day.weekend .calendar-day-content { color: var(--secondary-text-color); }
+      .calendar-day.no-entry { cursor: pointer; } /* Clickable if not weekend-disabled */
+      .calendar-day.has-entry { cursor: pointer; }
+      .calendar-day.holiday { cursor: help; }
+      .calendar-day-content { display: flex; justify-content: center; align-items: center; width: 85%; height: 85%; border-radius: 50%; transition: transform 0.1s ease; }
+      .calendar-day.has-entry .calendar-day-content.positive-value { color: var(--button-text-color); }
+      .calendar-day.has-entry .calendar-day-content.negative-value, .calendar-day.has-entry .calendar-day-content.zero-value { color: #000000; }
+      .calendar-day-content.special-day-krank-bg { background-color: var(--special-day-krank-bg); color: var(--special-day-text) !important; }
+      .calendar-day-content.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text) !important; }
+      .calendar-day-content.special-day-glaz-bg { background-color: var(--special-day-glaz-bg); color: var(--special-day-glaz-text) !important; }
+      .calendar-day-content.holiday-day { background-color: var(--holiday-bg); color: var(--holiday-text) !important; }
+      .calendar-day-content.today { font-weight: bold; border: 2px solid var(--button-background-color); }
+      .calendar-day.has-entry .calendar-day-content.today { border: 2px solid var(--text-color); }
+      .calendar-day:active .calendar-day-content { transform: scale(0.95); }
 
-      #stats-content {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        background-color: var(--card-background-color);
-        border-radius: 10px;
-        overflow: hidden;
-      }
-      #stats-content li {
-        display: flex;
-        justify-content: space-between;
-        padding: 12px 15px;
-        font-size: 17px;
-        border-bottom: 1px solid var(--separator-color);
-      }
-      #stats-content li:last-child {
-        border-bottom: none;
-      }
-      #stats-content li span:last-child {
-        font-weight: 500;
-        color: var(--secondary-text-color);
-      }
-      #stats-content li span.diff-badge {
-        /* Colors come from .positive/negative/zero-value */
-      }
+      #stats-content { list-style: none; padding: 0; margin: 0; background-color: var(--card-background-color); border-radius: 10px; overflow: hidden; }
+      #stats-content li { display: flex; justify-content: space-between; padding: 12px 15px; font-size: 17px; border-bottom: 1px solid var(--separator-color); }
+      #stats-content li:last-child { border-bottom: none; }
+      #stats-content li span:last-child { font-weight: 500; color: var(--secondary-text-color); }
 
-      .import-export-buttons {
-        display: flex;
-        gap: 10px;
-        margin-top: 20px;
-      }
-      .import-export-buttons .button {
-        margin-bottom: 0;
-      }
+      .import-export-buttons { display: flex; gap: 10px; margin-top: 20px; }
+      .import-export-buttons .button { margin-bottom: 0; }
 
-      /* --- BOTTOM NAV STYLES (Original) --- */
+      /* --- BOTTOM NAV STYLES (Reverted Height) --- */
       #bottom-nav {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 30px; /* Standard iOS Tab Bar height */
-        background-color: var(--nav-background);
-        border-top: 0.5px solid var(--separator-color);
-        display: flex;
-        justify-content: space-around;
-        align-items: flex-start; /* Align items to top for padding */
-        padding-top: 5px; /* Padding above icons */
-        padding-bottom: var(--safe-area-bottom);
-        z-index: 1000;
+        position: fixed; bottom: 0; left: 0; right: 0;
+        height: 30px; /* Original height */
+        background-color: var(--nav-background); border-top: 0.5px solid var(--separator-color);
+        display: flex; justify-content: space-around; align-items: flex-start;
+        padding-top: 5px; padding-bottom: var(--safe-area-bottom); z-index: 1000;
       }
       .nav-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center; /* Center content vertically */
-        flex: 1;
-        color: var(--nav-icon-color);
-        text-decoration: none;
-        font-size: 10px;
-        cursor: pointer;
-        padding: 0 5px;
-        text-align: center;
-        height: 100%; /* Ensure item takes full height */
-        box-sizing: border-box;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        flex: 1; color: var(--nav-icon-color); text-decoration: none; font-size: 10px;
+        cursor: pointer; padding: 0 2px; text-align: center; height: 100%; box-sizing: border-box;
       }
-      .nav-item svg {
-        width: 24px;
-        height: 24px;
-        margin-bottom: 2px;
-        fill: currentColor;
-      }
-      .nav-item.active {
-        color: var(--nav-icon-active-color);
-      }
-      /* --- END BOTTOM NAV STYLES (Original) --- */
+      .nav-item svg { width: 24px; height: 24px; margin-bottom: 2px; fill: currentColor; }
+      .nav-item.active { color: var(--nav-icon-active-color); }
+      /* --- END BOTTOM NAV STYLES --- */
     </style>
   </head>
   <body>
@@ -2338,30 +1384,24 @@
             <h3>Zeiterfassung</h3>
             <div class="time-button-row">
               <input type="time" id="kommen-display" oninput="onInputChange()" />
+              <span id="kommen-moon" class="moon-indicator">🌙</span>
               <button class="button" onclick="setZeit('kommen')">Kommen</button>
             </div>
             <div class="time-button-row">
               <input type="time" id="gehen-display" oninput="onInputChange()" />
+              <span id="gehen-moon" class="moon-indicator">🌙</span>
               <button class="button" onclick="setZeit('gehen')">Gehen</button>
             </div>
             <div class="switch-container" style="margin-top: 15px">
               <label class="switch">
-                <input
-                  type="checkbox"
-                  id="pc-buchung"
-                  onchange="onInputChange()"
-                />
+                <input type="checkbox" id="pc-buchung" onchange="onInputChange()" />
                 <span class="slider"></span>
               </label>
               <span>PC-Buchung (-8 Min)</span>
             </div>
             <div class="switch-container">
               <label class="switch">
-                <input
-                  type="checkbox"
-                  id="buero-toggle"
-                  onchange="onInputChange()"
-                />
+                <input type="checkbox" id="buero-toggle" onchange="onInputChange()" />
                 <span class="slider"></span>
               </label>
               <span>Im Büro</span>
@@ -2370,40 +1410,21 @@
           </div>
 
           <div class="section">
-            <h3>Einstellungen</h3>
-            <div class="row">
+            <h3>Übersicht (Aktuell)</h3>
+             <div class="row">
               <div class="column">
                 <label for="wochenarbeitszeit">Wochen-AZ (Std):</label>
-                <input
-                  type="number"
-                  id="wochenarbeitszeit"
-                  value="38"
-                  step="0.5"
-                  onchange="onInputChange()"
-                />
+                <input type="number" id="wochenarbeitszeit" readonly /> <!-- Removed stray /> -->
               </div>
               <div class="column">
-                <label for="zusatzliche-pause"
-                  >Zus. Pause (hh:mm / h.hh):</label
-                >
-                <input
-                  type="text"
-                  id="zusatzliche-pause"
-                  placeholder="z.B. 0:15 oder 0.25"
-                  oninput="onInputChange()"
-                />
+                <label for="zusatzliche-pause">Zus. Pause (hh:mm / h.hh):</label>
+                <input type="text" id="zusatzliche-pause" placeholder="z.B. 0:15 oder 0.25" oninput="onInputChange()" />
               </div>
             </div>
             <div class="row">
               <div class="column">
                 <label for="aktuelles-konto">Aktuelles Konto (Std):</label>
-                <input
-                  type="number"
-                  id="aktuelles-konto"
-                  value="0"
-                  step="0.01"
-                  onchange="onInputChange()"
-                />
+                <input type="number" id="aktuelles-konto" value="0" step="0.01" onchange="onInputChange()" />
               </div>
               <div class="column">
                 <label>Konto (Zeit):</label>
@@ -2415,44 +1436,23 @@
           <div class="section">
             <h3>Zeitenübersicht (Heute)</h3>
             <div class="row">
-              <div class="column">
-                <label>Anwesenheit:</label>
-                <input type="text" id="anwesend-zeit" readonly />
-              </div>
-              <div class="column">
-                <label>Pause:</label>
-                <input type="text" id="pausenzeit" readonly />
-              </div>
+              <div class="column"> <label>Anwesenheit:</label> <input type="text" id="anwesend-zeit" readonly /> </div>
+              <div class="column"> <label>Pause:</label> <input type="text" id="pausenzeit" readonly /> </div>
             </div>
             <div class="row">
-              <div class="column">
-                <label>Netto-Arbeitszeit:</label>
-                <input type="text" id="arbeitszeit" readonly />
+              <div class="column" style="position: relative;">
+                <label>Netto-Arbeitszeit:</label> <input type="text" id="arbeitszeit" readonly />
+                 <span id="arbeitszeit-moon" class="moon-indicator" style="right: 15px;">🌙</span>
               </div>
-              <div class="column">
-                <label>Soll-Arbeitszeit:</label>
-                <input type="text" id="sollarbeitszeit-display" readonly />
-              </div>
+              <div class="column"> <label>Soll-Arbeitszeit:</label> <input type="text" id="sollarbeitszeit-display" readonly /> </div>
             </div>
             <div class="row">
-              <div class="column">
-                <label>Differenz (Std):</label>
-                <input type="text" id="differenz" readonly />
-              </div>
-              <div class="column">
-                <label>Differenz (Zeit):</label>
-                <input type="text" id="differenz-time" readonly />
-              </div>
+              <div class="column"> <label>Differenz (Std):</label> <input type="text" id="differenz" readonly /> </div>
+              <div class="column"> <label>Differenz (Zeit):</label> <input type="text" id="differenz-time" readonly /> </div>
             </div>
             <div class="row">
-              <div class="column">
-                <label>Neues Konto (Std):</label>
-                <input type="text" id="neues-konto" readonly />
-              </div>
-              <div class="column">
-                <label>Neues Konto (Zeit):</label>
-                <input type="text" id="neues-konto-time" readonly />
-              </div>
+              <div class="column"> <label>Neues Konto (Std):</label> <input type="text" id="neues-konto" readonly /> </div>
+              <div class="column"> <label>Neues Konto (Zeit):</label> <input type="text" id="neues-konto-time" readonly /> </div>
             </div>
             <button class="button" onclick="saveDay()">Tag speichern</button>
           </div>
@@ -2460,28 +1460,13 @@
           <div class="section">
             <h3>Ausstempelzeiten</h3>
             <div class="row">
-              <div class="column">
-                <label>Soll:</label>
-                <input type="text" id="end-time-soll" readonly />
-              </div>
-              <div class="column">
-                <label>10h (Max):</label>
-                <input type="text" id="end-time-10h" readonly />
-              </div>
+              <div class="column"> <label>Soll:</label> <input type="text" id="end-time-soll" readonly /> </div>
+              <div class="column"> <label>10h (Max):</label> <input type="text" id="end-time-10h" readonly /> </div>
             </div>
             <div class="row">
-              <div class="column">
-                <label>4h (Min):</label>
-                <input type="text" id="end-time-4h" readonly />
-              </div>
-              <div class="column">
-                <label>6h (+Pause):</label>
-                <input type="text" id="end-time-6h" readonly />
-              </div>
-              <div class="column">
-                <label>9h (+Pause):</label>
-                <input type="text" id="end-time-9h" readonly />
-              </div>
+              <div class="column"> <label>4h (Min):</label> <input type="text" id="end-time-4h" readonly /> </div>
+              <div class="column"> <label>6h (+Pause):</label> <input type="text" id="end-time-6h" readonly /> </div>
+              <div class="column"> <label>9h (+Pause):</label> <input type="text" id="end-time-9h" readonly /> </div>
             </div>
           </div>
         </div>
@@ -2492,20 +1477,10 @@
         <div class="container">
           <h1>Verlauf</h1>
           <h2 id="week-info"></h2>
-          <p
-            id="week-range"
-            style="
-              text-align: center;
-              color: var(--secondary-text-color);
-              margin-top: -10px;
-              margin-bottom: 15px;
-            "
-          ></p>
+          <p id="week-range" style="text-align: center; color: var(--secondary-text-color); margin-top: -10px; margin-bottom: 15px;"></p>
           <div id="pagination"></div>
           <ul id="history-list"></ul>
-          <div id="weekly-summary">
-            <span id="weekly-summary-content">Gesamtdifferenz: --</span>
-          </div>
+          <div id="weekly-summary"> <span id="weekly-summary-content">Gesamtdifferenz: --</span> </div>
         </div>
       </div>
 
@@ -2515,46 +1490,27 @@
           <h1>Monatsübersicht</h1>
           <div id="month-pagination" style="align-items: center">
             <button id="prev-month" class="inline-button">‹</button>
-            <h2
-              id="month-year-display"
-              style="margin: 0; border: none; text-align: center"
-            ></h2>
+            <h2 id="month-year-display" style="margin: 0; border: none; text-align: center"></h2>
             <button id="next-month" class="inline-button">›</button>
           </div>
           <div id="calendar-grid"></div>
-          <div id="month-summary">
-            <span id="month-summary-content">Monatsdifferenz: --</span>
-          </div>
-
-          <!-- NEUER BEREICH: Bulk-Buchung -->
-          <div class="section" style="margin-top: 20px;"> <!-- Abstand hinzugefügt -->
-            <h3>Bulk-Buchung (Werktage)</h3>
+          <div id="month-summary"> <span id="month-summary-content">Monatsdifferenz: --</span> </div>
+          <div class="section" style="margin-top: 20px;">
+            <h3>Bulk-Buchung (Mo-Fr, keine Feiertage)</h3>
             <div class="row">
-              <div class="column">
-                <label for="bulk-start-date">Von:</label>
-                <input type="date" id="bulk-start-date" />
-              </div>
-              <div class="column">
-                <label for="bulk-end-date">Bis:</label>
-                <input type="date" id="bulk-end-date" />
-              </div>
+              <div class="column"> <label for="bulk-start-date">Von:</label> <input type="date" id="bulk-start-date" /> </div>
+              <div class="column"> <label for="bulk-end-date">Bis:</label> <input type="date" id="bulk-end-date" /> </div>
             </div>
             <div style="margin-bottom: 15px">
               <label for="bulk-special-day-type">Typ:</label>
               <select id="bulk-special-day-type">
                 <option value="" disabled selected>Typ auswählen...</option>
-                <option value="urlaub">Urlaub</option>
-                <option value="krank">Krank</option>
-                <option value="schulung">Schulung</option>
-                <option value="glaz">GLAZ (Gleitzeitabbau)</option>
+                <option value="urlaub">Urlaub</option> <option value="krank">Krank</option>
+                <option value="schulung">Schulung</option> <option value="glaz">GLAZ (Gleitzeitabbau)</option>
               </select>
             </div>
-            <button id="apply-bulk-booking" class="button">
-              Bulk-Buchung anwenden
-            </button>
+            <button id="apply-bulk-booking" class="button"> Bulk-Buchung anwenden </button>
           </div>
-          <!-- ENDE NEUER BEREICH -->
-
         </div>
       </div>
 
@@ -2565,24 +1521,58 @@
           <div class="section">
             <label for="stats-period">Zeitraum:</label>
             <select id="stats-period">
-              <option value="current_month">Aktueller Monat</option>
-              <option value="last_month">Letzter Monat</option>
-              <option value="current_year">Aktuelles Jahr</option>
-              <option value="last_year">Letztes Jahr</option>
+              <option value="current_month">Aktueller Monat</option> <option value="last_month">Letzter Monat</option>
+              <option value="current_year">Aktuelles Jahr</option> <option value="last_year">Letztes Jahr</option>
               <option value="all_time">Gesamter Zeitraum</option>
             </select>
           </div>
-          <ul id="stats-content">
-            <li>Lade Statistik...</li>
-          </ul>
-          <div class="import-export-buttons section">
-            <button id="export-button" class="button">
-              Verlauf exportieren (JSON)
-            </button>
-            <button id="import-button" class="button">
-              Verlauf importieren (JSON)
-            </button>
+          <ul id="stats-content"> <li>Lade Statistik...</li> </ul>
+        </div>
+      </div>
+
+      <!-- Options Page -->
+      <div id="options-page" class="page">
+        <div class="container">
+          <h1>Optionen</h1>
+          <div class="section">
+            <h3>Allgemein</h3>
+             <div style="margin-bottom: 15px">
+              <label for="wochenarbeitszeit-setting">Wochenarbeitszeit (Std):</label>
+              <input type="number" id="wochenarbeitszeit-setting" step="0.1" />
+            </div>
+            <div style="margin-bottom: 15px">
+              <label for="bundesland-select">Bundesland (für Feiertage):</label>
+              <select id="bundesland-select">
+                <option value="NATIONAL">Bundesweit</option> <option value="BW">Baden-Württemberg</option>
+                <option value="BY">Bayern</option> <option value="BE">Berlin</option>
+                <option value="BB">Brandenburg</option> <option value="HB">Bremen</option>
+                <option value="HH">Hamburg</option> <option value="HE">Hessen</option>
+                <option value="MV">Mecklenburg-Vorpommern</option> <option value="NI">Niedersachsen</option>
+                <option value="NW">Nordrhein-Westfalen</option> <option value="RP">Rheinland-Pfalz</option>
+                <option value="SL">Saarland</option> <option value="SN">Sachsen</option>
+                <option value="ST">Sachsen-Anhalt</option> <option value="SH">Schleswig-Holstein</option>
+                <option value="TH">Thüringen</option>
+              </select>
+            </div>
+             <div class="switch-container">
+              <label class="switch"> <input type="checkbox" id="wochenende-toggle" /> <span class="slider"></span> </label>
+              <span>Wochenendarbeit erlauben (Sa/So anzeigen & buchen)</span>
+            </div>
+             <div class="switch-container">
+              <label class="switch"> <input type="checkbox" id="nachtarbeit-toggle" /> <span class="slider"></span> </label>
+              <span>Nacht-/Randzeiten tolerieren (keine Warnung, 🌙 statt !)</span>
+            </div>
           </div>
+           <div class="section">
+             <h3>Daten</h3>
+             <div class="import-export-buttons">
+                <button id="export-button-options" class="button"> Export (Verlauf + Optionen) </button>
+                <button id="import-button-options" class="button"> Import (Verlauf + Optionen) </button>
+              </div>
+              <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px;">
+                  Beim Import werden alle vorhandenen Daten überschrieben. Der Export enthält den Verlauf und die aktuellen Einstellungen.
+              </p>
+           </div>
         </div>
       </div>
 
@@ -2591,15 +1581,11 @@
         <div class="modal-content">
           <button class="close-button" onclick="closeDetailModal()">×</button>
           <h3 id="detail-modal-title">Details</h3>
-          <div id="detail-content">
-              <!-- Content is filled by JS -->
-          </div>
-          <!-- NEU: Action Buttons im Detail Modal -->
+          <div id="detail-content"></div>
           <div id="detail-modal-actions" style="display: flex; gap: 10px; margin-top: 20px;">
               <button id="detail-edit-button" class="button">Ändern</button>
               <button id="detail-delete-button" class="button delete-button">Löschen</button>
           </div>
-          <!-- ENDE NEU -->
         </div>
       </div>
 
@@ -2609,112 +1595,50 @@
           <button class="close-button" onclick="closeAddDayModal()">×</button>
           <h3 id="add-day-modal-title">Manuelle Buchung</h3>
           <div class="row">
-            <div class="column">
-              <label for="add-day-kommen">Kommen:</label>
-              <input type="time" id="add-day-kommen" />
-            </div>
-            <div class="column">
-              <label for="add-day-gehen">Gehen:</label>
-              <input type="time" id="add-day-gehen" />
-            </div>
+            <div class="column"> <label for="add-day-kommen">Kommen:</label> <input type="time" id="add-day-kommen" /> </div>
+            <div class="column"> <label for="add-day-gehen">Gehen:</label> <input type="time" id="add-day-gehen" /> </div>
           </div>
           <div style="margin-top: 10px">
-            <label for="add-day-zusatzliche-pause"
-              >Zus. Pause (hh:mm / h.hh):</label
-            >
-            <input
-              type="text"
-              id="add-day-zusatzliche-pause"
-              placeholder="z.B. 0:15 oder 0.25"
-            />
+            <label for="add-day-zusatzliche-pause">Zus. Pause (hh:mm / h.hh):</label>
+            <input type="text" id="add-day-zusatzliche-pause" placeholder="z.B. 0:15 oder 0.25" />
           </div>
           <div class="switch-container" style="margin-top: 15px">
-            <label class="switch">
-              <input type="checkbox" id="pc-buchung-add-day" />
-              <span class="slider"></span>
-            </label>
+            <label class="switch"> <input type="checkbox" id="pc-buchung-add-day" /> <span class="slider"></span> </label>
             <span>PC-Buchung (-8 Min)</span>
           </div>
           <div class="switch-container">
-            <label class="switch">
-              <input type="checkbox" id="buero-add-day" />
-              <span class="slider"></span>
-            </label>
+            <label class="switch"> <input type="checkbox" id="buero-add-day" /> <span class="slider"></span> </label>
             <span>Im Büro</span>
           </div>
           <h3 style="margin-top: 20px">Sondertag?</h3>
           <div class="switch-container">
-            <label class="switch">
-              <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')" />
-              <span class="slider"></span>
-            </label>
+            <label class="switch"> <input type="checkbox" id="urlaub-toggle" onchange="toggleSpecialDay('urlaub')" /> <span class="slider"></span> </label>
             <span>Urlaub</span>
           </div>
           <div class="switch-container">
-            <label class="switch">
-              <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')" />
-              <span class="slider"></span>
-            </label>
+            <label class="switch"> <input type="checkbox" id="krank-toggle" onchange="toggleSpecialDay('krank')" /> <span class="slider"></span> </label>
             <span>Krank</span>
           </div>
           <div class="switch-container">
-            <label class="switch">
-              <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')" />
-              <span class="slider"></span>
-            </label>
+            <label class="switch"> <input type="checkbox" id="schulung-toggle" onchange="toggleSpecialDay('schulung')" /> <span class="slider"></span> </label>
             <span>Schulung</span>
           </div>
           <div class="switch-container">
-            <label class="switch">
-              <input type="checkbox" id="glaz-toggle" onchange="toggleSpecialDay('glaz')" />
-              <span class="slider"></span>
-            </label>
+            <label class="switch"> <input type="checkbox" id="glaz-toggle" onchange="toggleSpecialDay('glaz')" /> <span class="slider"></span> </label>
             <span>GLAZ (Gleitzeitabbau)</span>
           </div>
-          <button
-            class="button"
-            onclick="addManualDay()"
-            style="margin-top: 20px"
-          >
-            Speichern
-          </button>
+          <button class="button" onclick="addManualDay()" style="margin-top: 20px"> Speichern </button>
         </div>
       </div>
 
       <!-- Bottom Navigation -->
       <nav id="bottom-nav">
-        <a id="nav-main" class="nav-item active">
-          <svg viewBox="0 0 24 24">
-            <path
-              d="M12 5.69l5 4.5V18h-2v-6H9v6H7v-7.81l5-4.5M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"
-            />
-          </svg>
-          <span>Rechner</span>
-        </a>
-        <a id="nav-history" class="nav-item">
-          <svg viewBox="0 0 24 24">
-            <path
-              d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 0 1 7-7 7 7 0 0 1 7 7 7 7 0 0 1-7 7v2a9 9 0 0 0 9-9 9 9 0 0 0-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"
-            />
-          </svg>
-          <span>Verlauf</span>
-        </a>
-        <a id="nav-month" class="nav-item">
-          <svg viewBox="0 0 24 24">
-            <path
-              d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM9 14H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zm-8 4H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2z"
-            />
-          </svg>
-          <span>Monat</span>
-        </a>
-        <a id="nav-stats" class="nav-item">
-          <svg viewBox="0 0 24 24">
-            <path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z" />
-          </svg>
-          <span>Statistik</span>
-        </a>
+        <a id="nav-main" class="nav-item active"> <svg viewBox="0 0 24 24"><path d="M12 5.69l5 4.5V18h-2v-6H9v6H7v-7.81l5-4.5M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"/></svg> <span>Rechner</span> </a>
+        <a id="nav-history" class="nav-item"> <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 0 1 7-7 7 7 0 0 1 7 7 7 7 0 0 1-7 7v2a9 9 0 0 0 9-9 9 9 0 0 0-9-9zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg> <span>Verlauf</span> </a>
+        <a id="nav-month" class="nav-item"> <svg viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM9 14H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2zm-8 4H7v-2h2v2zm4 0h-2v-2h2v2zm4 0h-2v-2h2v2z"/></svg> <span>Monat</span> </a>
+        <a id="nav-stats" class="nav-item"> <svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg> <span>Statistik</span> </a>
+        <a id="nav-options" class="nav-item"> <svg viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg> <span>Optionen</span> </a>
       </nav>
     </div>
-    <!-- End #app-container -->
   </body>
 </html>
