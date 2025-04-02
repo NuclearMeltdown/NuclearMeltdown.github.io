@@ -968,13 +968,13 @@
           btn.classList.add("inline-button");
           return btn;
         };
-        const prevWeekBtn = createButton("‹ Vorige KW", () => {
+        const prevWeekBtn = createButton("‹", () => {
           const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
           d.setUTCDate(d.getUTCDate() - 7);
           [currentWeekYear, currentWeekNo] = getWeekNumber(d);
           loadHistory();
         });
-        const nextWeekBtn = createButton("Nächste KW ›", () => {
+        const nextWeekBtn = createButton("›", () => {
           const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
           d.setUTCDate(d.getUTCDate() + 7);
           [currentWeekYear, currentWeekNo] = getWeekNumber(d);
