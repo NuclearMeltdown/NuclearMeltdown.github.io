@@ -1419,7 +1419,7 @@
         // Optional: Clear fields on open
         $("bulk-modal-start-date").value = "";
         $("bulk-modal-end-date").value = "";
-        $("bulk-modal-special-day-type").value = "";
+        $("bulk-modal-special-day-type").value = ""; // Reset dropdown
         $("bulk-booking-modal").style.display = "flex";
       }
 
@@ -1460,7 +1460,6 @@
         });
         renderCalendar(monthData);
         updateMonthNavigation();
-        // Clear old bulk inputs if they existed (now handled in showBulkModal)
       }
 
       function renderCalendar(monthData) {
@@ -1628,14 +1627,13 @@
       }
 
       function applyBulkBooking() {
-        // Read from MODAL inputs now
         const startDateStr = $("bulk-modal-start-date").value,
           endDateStr = $("bulk-modal-end-date").value,
           specialType = $("bulk-modal-special-day-type").value;
 
         if (!startDateStr || !endDateStr || !specialType) {
           alert("Bitte Start, Ende und Typ auswählen.");
-          return; // Don't close modal if validation fails here
+          return;
         }
         const startDate = new Date(startDateStr + "T12:00:00"),
           endDate = new Date(endDateStr + "T12:00:00");
@@ -1647,95 +1645,160 @@
           alert("Enddatum vor Startdatum.");
           return;
         }
-        const typeLabel = {
-          urlaub: "Urlaub",
-          krank: "Krank",
-          schulung: "Schulung",
-          glaz: "GLAZ",
-        }[specialType];
-        if (
-          !confirm(
-            `Wirklich für ${startDate.toLocaleDateString(
-              "de-DE"
-            )} bis ${endDate.toLocaleDateString(
-              "de-DE"
-            )} Typ "${typeLabel}" für Mo-Fr (keine Feiertage) buchen?\n\nACHTUNG: Bestehende Einträge werden überschrieben!`
-          )
-        ) {
-          return; // Don't close modal if user cancels confirmation
-        }
+
         let history = getHistory();
-        const sollProTag = settings.wochenarbeitszeit / 5;
-        let modified = false;
         const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
-        let currentDate = new Date(startDate.getTime());
+        let modified = false;
         let skippedDays = 0;
-        while (currentDate <= endDate) {
-          const dayOfWeek = currentDate.getDay();
-          const holidayName = getHolidayName(currentDate, settings.bundesland);
-          if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
-            const currentDateStr = currentDate.toISOString().split("T")[0];
-            const existingEntry = historyMap.get(currentDateStr);
-            let differenz = 0.0,
-              differenzTime = "0:00";
-            let isUrlaub = false,
-              isKrank = false,
-              isSchulung = false,
-              isGlaz = false;
-            switch (specialType) {
-              case "urlaub":
-                isUrlaub = true;
-                break;
-              case "krank":
-                isKrank = true;
-                break;
-              case "schulung":
-                isSchulung = true;
-                break;
-              case "glaz":
-                isGlaz = true;
-                differenz = -sollProTag;
-                differenzTime = formatDecimalToTime(differenz);
-                break;
-            }
-            const dayData = {
-              datum: currentDateStr,
-              differenz: differenz.toFixed(2),
-              differenzTime: differenzTime,
-              stundenkonto: "0.00", // Wird von saveAndReload neu berechnet
-              kommen: null,
-              gehen: null,
-              urlaub: isUrlaub,
-              krank: isKrank,
-              schulung: isSchulung,
-              glaz: isGlaz,
-              pcBuchung: false,
-              buero: existingEntry
-                ? existingEntry.buero
-                : $("buero-toggle").checked, // Default to main page setting if new
-              zusatzPause: "",
-            };
-            historyMap.set(currentDateStr, dayData);
-            modified = true;
-          } else {
-            skippedDays++;
+        let deletedCount = 0;
+        let currentDate = new Date(startDate.getTime());
+        const sollProTag = settings.wochenarbeitszeit / 5;
+
+        if (specialType === "delete") {
+          // --- Bulk Deletion Logic ---
+          if (
+            !confirm(
+              `Wirklich alle Einträge (Mo-Fr, keine Feiertage) von ${startDate.toLocaleDateString(
+                "de-DE"
+              )} bis ${endDate.toLocaleDateString(
+                "de-DE"
+              )} löschen?\n\nACHTUNG: Diese Aktion kann nicht rückgängig gemacht werden!`
+            )
+          ) {
+            return;
           }
-          currentDate.setDate(currentDate.getDate() + 1);
-        }
-        if (modified) {
-          const updatedHistory = Array.from(historyMap.values());
-          saveAndReload(updatedHistory); // This will recalculate balances and refresh views
-          alert(
-            `Bulk-Buchung erfolgreich. ${
-              skippedDays > 0
-                ? `(${skippedDays} Wochenend-/Feiertage übersprungen)`
-                : ""
-            }`
-          );
-          closeBulkModal(); // Close modal on success
+
+          while (currentDate <= endDate) {
+            const dayOfWeek = currentDate.getDay();
+            const holidayName = getHolidayName(
+              currentDate,
+              settings.bundesland
+            );
+            const currentDateStr = currentDate.toISOString().split("T")[0];
+
+            if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
+              if (historyMap.has(currentDateStr)) {
+                historyMap.delete(currentDateStr);
+                modified = true;
+                deletedCount++;
+              } else {
+                skippedDays++; // Skip if no entry exists for this valid day
+              }
+            } else {
+              skippedDays++; // Skip weekends and holidays
+            }
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+
+          if (modified) {
+            const updatedHistory = Array.from(historyMap.values());
+            saveAndReload(updatedHistory);
+            alert(
+              `${deletedCount} Einträge erfolgreich gelöscht. ${
+                skippedDays > 0
+                  ? `(${skippedDays} Tage übersprungen/kein Eintrag)`
+                  : ""
+              }`
+            );
+            closeBulkModal();
+          } else {
+            alert("Keine Einträge im ausgewählten Zeitraum gefunden.");
+            closeBulkModal();
+          }
         } else {
-          alert("Keine gültigen Werktage im Zeitraum gefunden.");
-          closeBulkModal(); // Close modal even if nothing changed
+          // --- Bulk Add/Overwrite Logic (Existing) ---
+          const typeLabel = {
+            urlaub: "Urlaub",
+            krank: "Krank",
+            schulung: "Schulung",
+            glaz: "GLAZ",
+          }[specialType];
+
+          if (
+            !confirm(
+              `Wirklich für ${startDate.toLocaleDateString(
+                "de-DE"
+              )} bis ${endDate.toLocaleDateString(
+                "de-DE"
+              )} Typ "${typeLabel}" für Mo-Fr (keine Feiertage) buchen?\n\nACHTUNG: Bestehende Einträge werden überschrieben!`
+            )
+          ) {
+            return;
+          }
+
+          while (currentDate <= endDate) {
+            const dayOfWeek = currentDate.getDay();
+            const holidayName = getHolidayName(
+              currentDate,
+              settings.bundesland
+            );
+            if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
+              const currentDateStr = currentDate.toISOString().split("T")[0];
+              const existingEntry = historyMap.get(currentDateStr);
+              let differenz = 0.0,
+                differenzTime = "0:00";
+              let isUrlaub = false,
+                isKrank = false,
+                isSchulung = false,
+                isGlaz = false;
+
+              switch (specialType) {
+                case "urlaub":
+                  isUrlaub = true;
+                  break;
+                case "krank":
+                  isKrank = true;
+                  break;
+                case "schulung":
+                  isSchulung = true;
+                  break;
+                case "glaz":
+                  isGlaz = true;
+                  differenz = -sollProTag;
+                  differenzTime = formatDecimalToTime(differenz);
+                  break;
+              }
+
+              const dayData = {
+                datum: currentDateStr,
+                differenz: differenz.toFixed(2),
+                differenzTime: differenzTime,
+                stundenkonto: "0.00", // Wird von saveAndReload neu berechnet
+                kommen: null,
+                gehen: null,
+                urlaub: isUrlaub,
+                krank: isKrank,
+                schulung: isSchulung,
+                glaz: isGlaz,
+                pcBuchung: false,
+                buero: existingEntry
+                  ? existingEntry.buero
+                  : $("buero-toggle").checked, // Default to main page setting if new
+                zusatzPause: "",
+              };
+              historyMap.set(currentDateStr, dayData);
+              modified = true;
+            } else {
+              skippedDays++;
+            }
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+
+          if (modified) {
+            const updatedHistory = Array.from(historyMap.values());
+            saveAndReload(updatedHistory);
+            alert(
+              `Bulk-Buchung erfolgreich. ${
+                skippedDays > 0
+                  ? `(${skippedDays} Wochenend-/Feiertage übersprungen)`
+                  : ""
+              }`
+            );
+            closeBulkModal();
+          } else {
+            alert("Keine gültigen Werktage im Zeitraum gefunden.");
+            closeBulkModal();
+          }
         }
       }
 
@@ -2124,7 +2187,7 @@
         height: 100vh;
       }
 
-      /* --- PAGE PADDING (Original) --- */
+      /* --- PAGE PADDING (Original - UNCHANGED) --- */
       .page {
         flex-grow: 1;
         overflow-y: auto;
@@ -2244,7 +2307,7 @@
       select {
         width: 100%;
         padding: 12px 15px;
-        font-size: 17px;
+        font-size: 17px; /* Base font size for inputs */
         border: 1px solid var(--input-border-color);
         border-radius: 8px;
         margin-bottom: 10px;
@@ -2324,7 +2387,7 @@
         margin-left: 1px;
       }
 
-      /* --- SLIDER STYLES (Original) --- */
+      /* --- SLIDER STYLES (Original - UNCHANGED) --- */
       .switch-container {
         display: flex;
         align-items: center;
@@ -2381,10 +2444,16 @@
       .diff-badge {
         padding: 3px 6px;
         border-radius: 5px;
-        font-size: 14px;
+        font-size: 15px; /* ADJUSTED: Slightly larger font size */
         font-weight: 500;
         display: inline-block;
         vertical-align: middle;
+      }
+      /* Ensure readonly inputs with color classes keep their font size */
+      input[readonly].positive-value,
+      input[readonly].negative-value,
+      input[readonly].zero-value {
+        font-size: 17px; /* Explicitly set to match other inputs */
       }
       .positive-value {
         background-color: var(--positive-value-bg) !important;
@@ -2471,6 +2540,7 @@
       .history-entry-content div:last-child {
         font-size: 15px;
         color: var(--secondary-text-color);
+        margin-top: 4px; /* ADDED: Padding between date and time/diff */
       }
       .history-entry-content.special-day[style*="--special-day-krank-bg"]
         div:last-child,
@@ -2576,6 +2646,11 @@
       }
       .close-button:active {
         filter: brightness(0.85);
+      }
+
+      /* Ensure detail modal buttons have consistent font size */
+      #detail-modal-actions .button {
+        font-size: 17px; /* Explicitly set font size */
       }
 
       #calendar-grid {
@@ -2690,7 +2765,7 @@
         margin-bottom: 0;
       }
 
-      /* --- BOTTOM NAV STYLES (Original) --- */
+      /* --- BOTTOM NAV STYLES (Original - UNCHANGED) --- */
       #bottom-nav {
         position: fixed;
         bottom: 0;
@@ -2937,15 +3012,13 @@
           <div id="month-summary">
             <span id="month-summary-content">Monatsdifferenz: --</span>
           </div>
-          <!-- NEUER Button für Bulk-Buchung -->
           <button
             id="open-bulk-modal-button"
             class="button"
             style="margin-top: 20px"
           >
-            Bulk-Buchung
+            Bulk-Buchung / Löschen
           </button>
-          <!-- ALTES Bulk-Buchungs-Formular entfernt -->
         </div>
       </div>
 
@@ -3165,12 +3238,12 @@
         </div>
       </div>
 
-      <!-- NEUES Bulk Booking Modal -->
+      <!-- Bulk Booking Modal (MODIFIED) -->
       <div id="bulk-booking-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button">×</button>
           <!-- onclick handled globally -->
-          <h3 id="bulk-modal-title">Bulk-Buchung</h3>
+          <h3 id="bulk-modal-title">Bulk-Buchung / Löschen</h3>
           <p
             style="
               font-size: 14px;
@@ -3178,8 +3251,8 @@
               margin-bottom: 15px;
             "
           >
-            Buchung für Mo-Fr (keine Feiertage). Bestehende Einträge im Zeitraum
-            werden überschrieben.
+            Aktion für Mo-Fr (keine Feiertage). Bestehende Einträge im Zeitraum
+            werden überschrieben oder gelöscht.
           </p>
           <div class="row">
             <div class="column">
@@ -3192,13 +3265,17 @@
             </div>
           </div>
           <div style="margin-bottom: 15px">
-            <label for="bulk-modal-special-day-type">Typ:</label>
+            <label for="bulk-modal-special-day-type">Aktion / Typ:</label>
             <select id="bulk-modal-special-day-type">
-              <option value="" disabled selected>Typ auswählen...</option>
-              <option value="urlaub">Urlaub</option>
-              <option value="krank">Krank</option>
-              <option value="schulung">Schulung</option>
-              <option value="glaz">GLAZ (Gleitzeitabbau)</option>
+              <option value="" disabled selected>Aktion auswählen...</option>
+              <option value="urlaub">Urlaub buchen</option>
+              <option value="krank">Krank buchen</option>
+              <option value="schulung">Schulung buchen</option>
+              <option value="glaz">GLAZ buchen</option>
+              <option value="delete" style="color: var(--hint-color)">
+                Einträge löschen
+              </option>
+              <!-- ADDED Delete Option -->
             </select>
           </div>
           <button
@@ -3206,12 +3283,12 @@
             class="button"
             style="margin-top: 10px"
           >
-            Bulk-Buchung anwenden
+            Aktion anwenden
           </button>
         </div>
       </div>
 
-      <!-- Bottom Navigation -->
+      <!-- Bottom Navigation (UNCHANGED) -->
       <nav id="bottom-nav">
         <a id="nav-main" class="nav-item active">
           <svg viewBox="0 0 24 24">
@@ -3246,7 +3323,7 @@
         <a id="nav-options" class="nav-item">
           <svg viewBox="0 0 24 24">
             <path
-              d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
+              d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
             />
           </svg>
           <span>Optionen</span>
