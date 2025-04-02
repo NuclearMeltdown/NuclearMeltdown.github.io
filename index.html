@@ -2124,13 +2124,14 @@
         height: 100vh;
       }
 
+      /* --- PAGE PADDING (Original) --- */
       .page {
         flex-grow: 1;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(65px + var(--safe-area-bottom))
-          calc(15px + var(--safe-area-right)); /* Adjusted nav height slightly */
+          calc(105px + var(--safe-area-bottom))
+          calc(15px + var(--safe-area-right)); /* Adjusted nav height */
         display: none;
       }
       .page.active {
@@ -2323,7 +2324,7 @@
         margin-left: 1px;
       }
 
-      /* --- SLIDER STYLES --- */
+      /* --- SLIDER STYLES (Original) --- */
       .switch-container {
         display: flex;
         align-items: center;
@@ -2337,7 +2338,7 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 51px; /* iOS standard width */
+        width: 65px; /* Original width */
         height: 31px;
         flex-shrink: 0;
       }
@@ -2355,15 +2356,15 @@
         bottom: 0;
         background-color: var(--slider-bg-color);
         transition: 0.4s;
-        border-radius: 15.5px; /* height / 2 */
+        border-radius: 15.5px;
       }
       .slider:before {
         position: absolute;
         content: "";
-        height: 27px; /* height - 4px */
-        width: 27px; /* height - 4px */
-        left: 2px; /* 2px padding */
-        bottom: 2px; /* 2px padding */
+        height: 27px;
+        width: 27px;
+        left: 2px;
+        bottom: 2px;
         background-color: white;
         transition: 0.4s;
         border-radius: 50%;
@@ -2373,7 +2374,7 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(20px); /* width - height */
+        transform: translateX(24px); /* Original travel distance */
       }
       /* --- END SLIDER STYLES --- */
 
@@ -2689,43 +2690,41 @@
         margin-bottom: 0;
       }
 
-      /* --- BOTTOM NAV STYLES --- */
+      /* --- BOTTOM NAV STYLES (Original) --- */
       #bottom-nav {
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
-        height: 50px; /* Standard iOS Tab Bar Height */
+        height: 30px; /* Original height */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
         justify-content: space-around;
-        align-items: flex-start; /* Align items to top for padding */
-        padding-top: 5px; /* Padding for icon */
-        padding-bottom: var(
-          --safe-area-bottom
-        ); /* Padding for home indicator */
+        align-items: flex-start;
+        padding-top: 5px;
+        padding-bottom: var(--safe-area-bottom);
         z-index: 1000;
       }
       .nav-item {
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center; /* Center content vertically */
+        justify-content: center;
         flex: 1;
         color: var(--nav-icon-color);
         text-decoration: none;
         font-size: 10px;
         cursor: pointer;
-        padding: 0 2px; /* Horizontal padding */
+        padding: 0 2px;
         text-align: center;
-        height: 100%; /* Fill the nav height */
+        height: 100%;
         box-sizing: border-box;
       }
       .nav-item svg {
         width: 24px;
         height: 24px;
-        margin-bottom: 2px; /* Space between icon and text */
+        margin-bottom: 2px;
         fill: currentColor;
       }
       .nav-item.active {
@@ -3247,7 +3246,7 @@
         <a id="nav-options" class="nav-item">
           <svg viewBox="0 0 24 24">
             <path
-              d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
+              d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"
             />
           </svg>
           <span>Optionen</span>
