@@ -643,65 +643,85 @@
       }
 
       function saveDay() {
-        updateCalculations();
+        updateCalculations(); // Stellt sicher, dass Differenz etc. aktuell sind
+
         const today = new Date();
         const dayOfWeek = today.getDay();
+
+        // Prüfen, ob Speichern am Wochenende erlaubt ist
         if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
-          alert("Speichern am Wochenende ist in den Optionen deaktiviert.");
-          return;
+        alert("Speichern am Wochenende ist in den Optionen deaktiviert.");
+         return;
         }
+
         const datum = today.toISOString().split("T")[0];
         const holidayName = getHolidayName(today, settings.bundesland);
+
+        // Prüfen, ob heute ein Feiertag ist
         if (holidayName) {
           alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`);
           return;
         }
+
         const adjustedKommen = getAdjustedKommenZeit();
-        const netArbeitszeit = calculateArbeitszeit();
+        const netArbeitszeit = calculateArbeitszeit(); // Wird für Violations benötigt
         const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null;
+
+        // Sicherstellen, dass Kommen und Gehen gesetzt sind
         if (!adjustedKommen || !currentGehen) {
           alert("Bitte Kommen- und Gehen-Zeit für die Speicherung angeben.");
           return;
         }
+
+        // Validierung: Gehen-Zeit muss nach (angepasster) Kommen-Zeit liegen
         let gehenCheck = new Date(currentGehen.getTime());
-        if (gehenCheck < adjustedKommen)
-          gehenCheck.setDate(gehenCheck.getDate() + 1);
+        if (gehenCheck < adjustedKommen) gehenCheck.setDate(gehenCheck.getDate() + 1); // Korrektur für Tagwechsel
+
         if (gehenCheck < adjustedKommen) {
           alert("Gehen-Zeit liegt vor der (ggf. angepassten) Kommen-Zeit!");
           return;
         }
+
+        // Prüfung auf Verstöße gegen Arbeitszeitregeln
         const violations = checkViolations(
           adjustedKommen,
           gehenCheck,
           netArbeitszeit
         );
         let needsConfirmation = false;
-        if (violations.any && !settings.allowNachtarbeit)
-          needsConfirmation = true;
+        if (violations.any && !settings.allowNachtarbeit) needsConfirmation = true; // Nur bestätigen, wenn Nachtarbeit nicht explizit erlaubt ist
+
         if (needsConfirmation) {
           if (
             !confirm(
-              "Es liegt ein Verstoß gegen die Gleitzeitregeln vor. Trotzdem speichern?"
+              "Es liegt ein Verstoß gegen die Gleitzeitregeln vor (z.B. Ruhezeit, Höchstarbeitszeit). Trotzdem speichern?"
             )
           )
             return;
         }
+
+        // Hole die berechnete Differenz aus dem UI
         const diffVal = parseFloat($("differenz").value) || 0;
         const diffTime = $("differenz-time").value || "0:00";
-        const newVal = parseFloat($("neues-konto").value) || 0;
+        // const newVal = parseFloat($("neues-konto").value) || 0; // ALT: Diese Zeile wird NICHT mehr benötigt
+
+        // Hole weitere Daten für den Eintrag
         const kommenStr = adjustedKommen.toISOString();
         const gehenStr = currentGehen.toISOString();
         const isBuero = $("buero-toggle").checked;
         const isPcBuchung = $("pc-buchung").checked;
         const additionalPauseValue = $("zusatzliche-pause").value || "";
+
         let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
+
+        // Erstelle das Datenobjekt für den Tag
         const dayData = {
           datum: datum,
-          differenz: diffVal.toFixed(2),
-          differenzTime: diffTime,
-          stundenkonto: newVal.toFixed(2),
+          differenz: diffVal.toFixed(2), // Korrekte Differenz speichern
+          differenzTime: diffTime, // Korrekte Differenz-Zeit speichern
+          stundenkonto: "0.00", // NEU: Platzhalter, wird von saveAndReload() korrekt berechnet
           kommen: kommenStr,
           gehen: gehenStr,
           urlaub: false,
@@ -712,6 +732,8 @@
           buero: isBuero,
           zusatzPause: additionalPauseValue,
         };
+
+        // Prüfen, ob Eintrag für heute schon existiert
         if (existingIndex !== -1) {
           if (
             !confirm(
@@ -719,13 +741,19 @@
             )
           )
             return;
+          // Überschreibe bestehenden Eintrag
           history[existingIndex] = dayData;
         } else {
+          // Füge neuen Eintrag hinzu
           history.push(dayData);
         }
+
+        // Speichere den aktualisierten Verlauf und lade/berechne alles neu
         saveAndReload(history);
+
         alert("Der Tag wurde gespeichert.");
       }
+
 
       function getWeekNumber(d) {
         d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
