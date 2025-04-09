@@ -116,6 +116,7 @@
         }
       }
 
+      // KORRIGIERT: Stellt sicher, dass stundenkonto als Zahl zurückgegeben wird
       function getHistory() {
         const history = JSON.parse(getFromLS("history", "[]"));
         history.forEach((entry) => {
@@ -125,12 +126,12 @@
           entry.glaz = entry.glaz || false;
           entry.pcBuchung = entry.pcBuchung || false;
           entry.buero = entry.buero || false;
-          // Wichtig: Stundenkonto als Zahl laden für Berechnungen
+          // Wichtig: Stundenkonto als Zahl laden für interne Berechnungen
           entry.stundenkonto = parseFloat(entry.stundenkonto || "0.0");
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
-        history.forEach((entry) => delete entry.dateObj);
+        history.forEach((entry) => delete entry.dateObj); // Temporäres Objekt entfernen
         return history;
       }
 
@@ -275,6 +276,7 @@
         $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
       }
 
+      // KORRIGIERT: Ruft jetzt saveAndReload auf, um den Verlauf neu zu berechnen
       function saveSettings() {
         storeToLS(
           "wochenarbeitszeitValue",
@@ -305,41 +307,13 @@
           settings.basisStundenkonto.toFixed(2);
 
         // WICHTIG: Neuberechnung des gesamten Verlaufs bei Änderung der Basis
-        recalculateAndUpdateHistory();
+        saveAndReload(getHistory()); // Übergibt die aktuelle History zur Neuberechnung
 
         // Update aktuelle Berechnungen und Ansichten
         updateCalculations();
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
-      }
-
-      // NEU: Funktion zur Neuberechnung des gesamten Verlaufs
-      function recalculateAndUpdateHistory() {
-        let history = getHistory(); // Hole die Rohdaten
-        // Sortiere nach Datum (wichtig!)
-        history.forEach((entry) => {
-          entry.dateObj = new Date(entry.datum + "T00:00:00");
-        });
-        history.sort((a, b) => a.dateObj - b.dateObj);
-        history.forEach((entry) => delete entry.dateObj);
-
-        // Berechne das Konto neu, beginnend mit der Basis
-        let currentKonto = settings.basisStundenkonto;
-        for (let i = 0; i < history.length; i++) {
-          const entry = history[i];
-          const diff = parseFloat(entry.differenz || 0); // Differenz aus dem Eintrag lesen
-          currentKonto += diff;
-          entry.stundenkonto = currentKonto; // Speichere das *berechnete* Konto (als Zahl)
-        }
-
-        // Speichere den neu berechneten Verlauf (Stundenkonto als String speichern)
-        const historyToStore = history.map((entry) => ({
-          ...entry,
-          stundenkonto: entry.stundenkonto.toFixed(2),
-        }));
-        storeToLS("history", JSON.stringify(historyToStore));
-        console.log("History recalculated and saved based on new basis.");
       }
 
       function init() {
@@ -351,7 +325,10 @@
         currentMonth = heute.getMonth();
 
         // Stelle sicher, dass der Verlauf initial korrekt berechnet ist
-        recalculateAndUpdateHistory();
+        // saveAndReload wird jetzt in saveSettings aufgerufen, falls sich die Basis ändert.
+        // Ein initialer Aufruf hier ist nicht nötig, da getHistory() die Daten lädt
+        // und saveAndReload bei Bedarf von saveSettings getriggert wird.
+        // Wenn keine History da ist, passiert eh nichts.
 
         updateCalculations();
         switchView("main");
@@ -390,13 +367,13 @@
         );
         $("bundesland-select").onchange = (e) => {
           settings.bundesland = e.target.value;
-          saveSettings(); // Ruft recalculateAndUpdateHistory auf
+          saveSettings(); // Ruft saveAndReload auf
         };
         $("wochenarbeitszeit-setting").onchange = (e) => {
           const val = parseFloat(e.target.value);
           if (!isNaN(val) && val > 0) {
             settings.wochenarbeitszeit = val;
-            saveSettings(); // Ruft recalculateAndUpdateHistory auf
+            saveSettings(); // Ruft saveAndReload auf
           } else {
             e.target.value = settings.wochenarbeitszeit.toFixed(1);
           }
@@ -405,7 +382,7 @@
           const val = parseFloat(e.target.value);
           if (!isNaN(val)) {
             settings.basisStundenkonto = val;
-            saveSettings(); // Ruft recalculateAndUpdateHistory auf
+            saveSettings(); // Ruft saveAndReload auf
           } else {
             e.target.value = settings.basisStundenkonto.toFixed(2);
           }
@@ -504,7 +481,7 @@
       }
 
       function calculateWorkingTime() {
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // Angepasste Kommen-Zeit für Anwesenheitsberechnung
         if (!ak || !gehenZeit) return { hours: 0, minutes: 0, totalHours: 0 };
         let gehenAdjusted = new Date(gehenZeit.getTime());
         if (gehenAdjusted < ak)
@@ -525,7 +502,7 @@
         return pausen;
       }
 
-      // KORRIGIERT: Pausen-Freeze-Logik
+      // KORRIGIERT: Pausen-Freeze-Logik für 9h
       function calculateNetArbeitszeitInternal() {
         const wTime = calculateWorkingTime(); // Anwesenheitszeit holen
         if (wTime.totalHours <= 0) return 0;
@@ -540,14 +517,12 @@
         }
 
         // KORRIGIERT: Pausen-Freeze-Logik für 9 Stunden
-        // Grenze: 9.5h (9:30) Anwesenheit bis 9.75h (9:45) Anwesenheit
         if (presenceHours > 9.5 && presenceHours <= 9.75) {
-          // Nettozeit wird auf 9.0 Stunden "eingefroren", nur die *zusätzliche* Pause wird abgezogen.
           const netTimeCappedAt9 = 9.0 - zusatzPause;
           return Math.max(0, netTimeCappedAt9);
         }
 
-        // Normaler Fall (außerhalb der Freeze-Zonen)
+        // Normaler Fall
         const autoPause = calculateAutoPauseForDuration(presenceHours);
         const totalPause = autoPause + zusatzPause;
         const netArbeitszeit = presenceHours - totalPause;
@@ -565,7 +540,7 @@
       }
 
       function calculateEndTimeFixpoint(desiredNet) {
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // Nutzt die ggf. angepasste Kommen-Zeit
         if (!ak) return "--:--";
         let presence = desiredNet;
         const additionalPauseMain = parsePauseInput("zusatzliche-pause");
@@ -589,8 +564,8 @@
             ? parseFloat((netArbeitszeit - sollProTag).toFixed(2))
             : 0;
 
-        const aktKontoVal = settings.basisStundenkonto; // Basis-Konto aus Settings
-        let newKto = parseFloat((aktKontoVal + diff).toFixed(2)); // Potenzielles neues Konto für *diesen* Tag
+        const aktKontoVal = settings.basisStundenkonto;
+        let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
 
         const wTime = calculateWorkingTime();
         const pausen = calculateDisplayPause(wTime.totalHours);
@@ -608,10 +583,9 @@
         )} (${sollProTag.toFixed(2)}h)`;
         $("differenz").value = diff.toFixed(2);
         $("differenz-time").value = formatDecimalToTime(diff);
-        $("neues-konto").value = newKto.toFixed(2); // Zeigt an, was das Konto *wäre*, wenn nur dieser Tag zählt
+        $("neues-konto").value = newKto.toFixed(2);
         $("neues-konto-time").value = formatDecimalToTime(newKto);
 
-        // Anzeige des Basis-Kontos
         $("aktuelles-konto").value = aktKontoVal.toFixed(2);
         $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoVal);
 
@@ -635,12 +609,11 @@
           else el.classList.add("zero-value");
         });
 
-        // --- Violation Checks (unverändert) ---
         let hinweisText = "";
         let showKommenMoon = false,
           showGehenMoon = false,
           showArbeitszeitMoon = false;
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // Angepasste Zeit für Violation Check
         const kommenField = $("kommen-display");
         const gehenField = $("gehen-display");
         kommenField.classList.remove("invalid-time");
@@ -649,6 +622,7 @@
         $("gehen-moon").style.display = "none";
         $("arbeitszeit-moon").style.display = "none";
 
+        // Violation Check mit angepasster Kommen-Zeit
         const violations = checkViolations(ak, gehenZeit, netArbeitszeit);
 
         if (violations.arbeitszeit && netArbeitszeit > 0) {
@@ -710,9 +684,9 @@
         return violations;
       }
 
-      // KORRIGIERT: saveDay speichert nur die Daten des Tages, saveAndReload macht die Neuberechnung
+      // KORRIGIERT: Ruft saveAndReload auf, um den Verlauf neu zu berechnen
       function saveDay() {
-        updateCalculations(); // Stellt sicher, dass alle Werte aktuell sind
+        updateCalculations();
         const today = new Date();
         const dayOfWeek = today.getDay();
         if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
@@ -726,9 +700,9 @@
           return;
         }
 
-        const netArbeitszeit = calculateArbeitszeit(); // Mit korrekter Pausenlogik
-        const adjustedKommen = getAdjustedKommenZeit(); // Angepasste Kommen-Zeit für Violation Check
-        const originalKommen = kommenZeit ? new Date(kommenZeit.getTime()) : null; // Originale Kommen-Zeit für Speicherung
+        const netArbeitszeit = calculateArbeitszeit();
+        const adjustedKommen = getAdjustedKommenZeit(); // Für Violation Check
+        const originalKommen = kommenZeit ? new Date(kommenZeit.getTime()) : null; // Für Speicherung
         const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null;
 
         if (!originalKommen || !currentGehen) {
@@ -740,9 +714,8 @@
         if (gehenCheck < originalKommen)
           gehenCheck.setDate(gehenCheck.getDate() + 1);
 
-        // Violation Check mit angepasster Kommen-Zeit
         const violations = checkViolations(
-          adjustedKommen,
+          adjustedKommen, // Check mit ggf. angepasster Kommen-Zeit
           gehenCheck,
           netArbeitszeit
         );
@@ -759,28 +732,27 @@
             return;
         }
 
-        // Differenz für diesen Tag berechnen
         const sollProTag = settings.wochenarbeitszeit / 5;
         const diffVal = parseFloat((netArbeitszeit - sollProTag).toFixed(2));
         const diffTime = formatDecimalToTime(diffVal);
 
-        const kommenStr = originalKommen.toISOString(); // Originale Kommen-Zeit speichern
-        const gehenStr = currentGehen.toISOString(); // Originale Gehen-Zeit speichern
+        const kommenStr = originalKommen.toISOString();
+        const gehenStr = currentGehen.toISOString();
         const isBuero = $("buero-toggle").checked;
         const isPcBuchung = $("pc-buchung").checked;
         const additionalPauseValue = $("zusatzliche-pause").value || "";
 
-        let history = getHistory();
+        let history = getHistory(); // Holt aktuell berechnete History
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
 
         const dayData = {
           datum: datum,
-          differenz: diffVal.toFixed(2), // Korrekte Differenz speichern
+          differenz: diffVal.toFixed(2),
           differenzTime: diffTime,
           stundenkonto: "0.00", // Platzhalter, wird in saveAndReload berechnet
-          kommen: kommenStr, // Original Kommen
-          gehen: gehenStr, // Original Gehen
+          kommen: kommenStr,
+          gehen: gehenStr,
           urlaub: false,
           krank: false,
           schulung: false,
@@ -790,6 +762,8 @@
           zusatzPause: additionalPauseValue,
         };
 
+        // Temporäres Array für saveAndReload erstellen
+        let tempHistory = [...history];
         if (existingIndex !== -1) {
           if (
             !confirm(
@@ -797,13 +771,13 @@
             )
           )
             return;
-          history[existingIndex] = dayData;
+          tempHistory[existingIndex] = dayData;
         } else {
-          history.push(dayData);
+          tempHistory.push(dayData);
         }
 
         // Speichere den aktualisierten Verlauf und berechne alles neu
-        saveAndReload(history);
+        saveAndReload(tempHistory);
 
         alert("Der Tag wurde gespeichert.");
       }
@@ -850,7 +824,7 @@
       function loadHistory() {
         const historyList = $("history-list");
         historyList.innerHTML = "";
-        let history = getHistory(); // Holt die aktuell berechnete History
+        let history = getHistory(); // Holt aktuell berechnete History
         const weekStartDateUTC = getDateOfISOWeek(
           currentWeekNo,
           currentWeekYear
@@ -942,14 +916,13 @@
                 entry.zusatzPause || ""
               );
               const netTime = calculateNetArbeitszeitFromEntryData(
-                entry.kommen, // ISO String
-                entry.gehen, // ISO String
+                entry.kommen,
+                entry.gehen,
                 additionalPauseSaved,
                 entry.pcBuchung
               );
-              // Violation Check mit *originalen* Zeiten
               const violations = checkViolations(
-                kommenLokalOriginal,
+                kommenLokalOriginal, // Check mit original Kommen
                 gehenLokal,
                 netTime
               );
@@ -969,7 +942,7 @@
                 }
               }
               entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${formatTime(
-                kommenLokalOriginal // Original Kommen anzeigen
+                kommenLokalOriginal
               )} - ${formatTime(
                 gehenLokal
               )} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${
@@ -1056,9 +1029,9 @@
         return Math.max(0, presenceHours - totalPause);
       }
 
-      // KORRIGIERT: Ruft saveAndReload auf, um den Verlauf neu zu berechnen
+      // KORRIGIERT: Ruft saveAndReload auf
       function deleteEntryByDate(dateStr) {
-        let history = getHistory();
+        let history = getHistory(); // Holt aktuell berechnete History
         const index = history.findIndex((e) => e.datum === dateStr);
         if (index !== -1) {
           const displayDate = new Date(
@@ -1069,8 +1042,9 @@
               `Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`
             )
           ) {
-            history.splice(index, 1);
-            saveAndReload(history); // Neuberechnung des Verlaufs nach Löschen
+            // Temporäres Array ohne den gelöschten Eintrag
+            let tempHistory = history.filter((e, i) => i !== index);
+            saveAndReload(tempHistory); // Neuberechnung nach Löschen
           }
         }
       }
@@ -1117,13 +1091,12 @@
           alert("Buchung am Wochenende ist in den Optionen deaktiviert.");
           return;
         }
-        const history = getHistory(); // Holt aktuell berechnete History
+        const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
         $("add-day-modal-title").textContent = entry
           ? `Buchung ändern: ${weekdayName}, ${displayDate}`
           : `${weekdayName}, ${displayDate}`;
         if (entry) {
-          // Original Kommen/Gehen anzeigen
           $("add-day-kommen").value = entry.kommen
             ? formatTime(new Date(entry.kommen))
             : "";
@@ -1174,7 +1147,7 @@
         $("pc-buchung-add-day").disabled = disabled;
       }
 
-      // KORRIGIERT: Ruft saveAndReload auf, um den Verlauf neu zu berechnen
+      // KORRIGIERT: Ruft saveAndReload auf
       function addManualDay() {
         const dateValStr = $("add-day-modal").getAttribute("data-date");
         if (!dateValStr) {
@@ -1208,7 +1181,7 @@
         const additionalPauseManualValue = $(
           "add-day-zusatzliche-pause"
         ).value;
-        let history = getHistory();
+        let history = getHistory(); // Holt aktuell berechnete History
         const existingIndex = history.findIndex((e) => e.datum === dateValStr);
         const displayDate = realDate.toLocaleDateString("de-DE");
         const sollProTag = settings.wochenarbeitszeit / 5;
@@ -1245,9 +1218,10 @@
           dayData.pcBuchung = false;
           dayData.zusatzPause = "";
 
-          if (existingIndex !== -1) history[existingIndex] = dayData;
-          else history.push(dayData);
-          saveAndReload(history); // Neuberechnung nach Hinzufügen/Ändern
+          let tempHistory = [...history];
+          if (existingIndex !== -1) tempHistory[existingIndex] = dayData;
+          else tempHistory.push(dayData);
+          saveAndReload(tempHistory);
           alert(`${label} für ${displayDate} gespeichert.`);
           return;
         }
@@ -1268,7 +1242,6 @@
         if (gehenDateManual < kommenDateManual)
           gehenDateManual.setDate(gehenDateManual.getDate() + 1);
 
-        // Nettozeit für diesen Tag berechnen (mit korrekter Pausenlogik)
         const additionalPauseManualHours = parsePauseInput(
           "add-day-zusatzliche-pause"
         );
@@ -1279,9 +1252,8 @@
           isPcBuchungAddDay
         );
 
-        // Violation Check mit *originalen* Zeiten
         const violations = checkViolations(
-          kommenDateManual,
+          kommenDateManual, // Check mit original Kommen
           gehenDateManual,
           netManual
         );
@@ -1298,8 +1270,8 @@
 
         dayData.differenz = diffValManual.toFixed(2);
         dayData.differenzTime = diffTimeManual;
-        dayData.kommen = kommenDateManual.toISOString(); // Original Kommen speichern
-        dayData.gehen = gehenDateManual.toISOString(); // Original Gehen speichern
+        dayData.kommen = kommenDateManual.toISOString();
+        dayData.gehen = gehenDateManual.toISOString();
         dayData.pcBuchung = isPcBuchungAddDay;
         dayData.zusatzPause = additionalPauseManualValue;
         dayData.urlaub = false;
@@ -1307,9 +1279,10 @@
         dayData.schulung = false;
         dayData.glaz = false;
 
-        if (existingIndex !== -1) history[existingIndex] = dayData;
-        else history.push(dayData);
-        saveAndReload(history); // Neuberechnung nach Hinzufügen/Ändern
+        let tempHistory = [...history];
+        if (existingIndex !== -1) tempHistory[existingIndex] = dayData;
+        else tempHistory.push(dayData);
+        saveAndReload(tempHistory);
         alert(`Arbeitstag für ${displayDate} gespeichert.`);
       }
 
@@ -1326,36 +1299,53 @@
         return resultDate;
       }
 
-      // KORRIGIERT: saveAndReload berechnet den gesamten Verlauf neu und speichert ihn.
+      // KORRIGIERT: Berechnet den Verlauf neu und speichert ihn korrekt
       function saveAndReload(history) {
-        // 1. Sortiere den übergebenen Verlauf nach Datum
+        // 1. Stelle sicher, dass 'history' ein Array ist (wichtig bei leerem LS)
+        if (!Array.isArray(history)) {
+          console.error("saveAndReload received non-array:", history);
+          history = []; // Fallback auf leeres Array
+        }
+
+        // 2. Sortiere den übergebenen Verlauf nach Datum
         history.forEach((entry) => {
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
 
-        // 2. Berechne das Stundenkonto für jeden Eintrag neu, beginnend mit der Basis
+        // 3. Berechne das Stundenkonto für jeden Eintrag neu, beginnend mit der Basis
         let currentKonto = settings.basisStundenkonto;
         for (let i = 0; i < history.length; i++) {
           const entry = history[i];
+          // Stelle sicher, dass differenz eine Zahl ist
           const diff = parseFloat(entry.differenz || 0);
-          currentKonto += diff;
-          entry.stundenkonto = currentKonto; // Speichere als Zahl für interne Konsistenz
+          if (isNaN(diff)) {
+            console.warn(
+              `Invalid differenz found for entry ${entry.datum}: ${entry.differenz}. Treating as 0.`
+            );
+            currentKonto += 0;
+          } else {
+            currentKonto += diff;
+          }
+          entry.stundenkonto = currentKonto; // Speichere als Zahl
         }
 
-        // 3. Bereite den Verlauf für die Speicherung vor (Konto als String)
+        // 4. Bereite den Verlauf für die Speicherung vor (Konto als String)
         const historyToStore = history.map((entry) => ({
           ...entry,
-          stundenkonto: entry.stundenkonto.toFixed(2), // Konvertiere zu String mit 2 Dezimalstellen
+          // Stelle sicher, dass stundenkonto eine Zahl ist, bevor toFixed aufgerufen wird
+          stundenkonto: (
+            typeof entry.stundenkonto === "number" ? entry.stundenkonto : 0
+          ).toFixed(2),
         }));
 
-        // 4. Speichere den neu berechneten Verlauf im LocalStorage
+        // 5. Speichere den neu berechneten Verlauf im LocalStorage
         storeToLS("history", JSON.stringify(historyToStore));
         console.log("History recalculated and saved.");
 
-        // 5. Aktualisiere die Hauptansicht und andere Ansichten
-        updateCalculations(); // Aktualisiert Differenz, Neues Konto etc. basierend auf Basis-Konto
+        // 6. Aktualisiere die Hauptansicht und andere Ansichten
+        updateCalculations();
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
@@ -1369,7 +1359,7 @@
         if (modal) modal.style.display = "none";
       }
 
-      // KORRIGIERT: Zeigt das korrekt berechnete Stundenkonto aus dem Eintrag an
+      // KORRIGIERT: Liest das Stundenkonto als Zahl aus dem Eintrag
       function showDayDetails(dateStr) {
         const history = getHistory(); // Holt aktuell berechnete History
         const entry = history.find((e) => e.datum === dateStr);
@@ -1393,8 +1383,8 @@
             : diffVal < -0.001
             ? "negative-value"
             : "zero-value";
-        // KORRIGIERT: Stundenkonto direkt aus dem (neu berechneten) Eintrag lesen
-        const kontoDecimal = entry.stundenkonto; // Ist jetzt eine Zahl
+        // KORRIGIERT: Stundenkonto ist jetzt eine Zahl im entry Objekt
+        const kontoDecimal = entry.stundenkonto;
         const kontoFormatted = formatDecimalToTime(kontoDecimal);
         const holidayName = getHolidayName(entryDate, settings.bundesland);
 
@@ -1463,11 +1453,11 @@
 
               const pausenVal = totalH - netCalculated;
               pausenLabel =
-                pausenVal >= 0 // >= 0 für den Fall, dass Pause genau 0 ist
+                pausenVal >= 0
                   ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(
                       2
                     )}h)`
-                  : "N/A"; // Sollte nicht passieren
+                  : "N/A";
               if (additionalPauseSaved > 0)
                 pausenLabel += ` (inkl. ${formatDecimalToTime(
                   additionalPauseSaved
@@ -1476,7 +1466,7 @@
           }
 
           const violations = checkViolations(
-            kommenLokalOriginal,
+            kommenLokalOriginal, // Check mit original Kommen
             gehenLokal,
             netCalculated
           );
@@ -1561,7 +1551,7 @@
         return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
       }
       function loadMonthData() {
-        const history = getHistory(); // Holt aktuell berechnete History
+        const history = getHistory();
         const monthData = history.filter((entry) => {
           const entryDate = new Date(entry.datum + "T12:00:00");
           return (
@@ -1735,7 +1725,7 @@
         };
       }
 
-      // KORRIGIERT: Ruft saveAndReload auf, um den Verlauf neu zu berechnen
+      // KORRIGIERT: Ruft saveAndReload auf
       function applyBulkBooking() {
         const startDateStr = $("bulk-modal-start-date").value,
           endDateStr = $("bulk-modal-end-date").value,
@@ -1756,8 +1746,13 @@
           return;
         }
 
-        let history = getHistory(); // Holt aktuell berechnete History
-        const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
+        let history = getHistory();
+        // Erstelle eine Kopie des Arrays, um sie zu modifizieren
+        let tempHistory = [...history];
+        const historyMap = new Map(
+          tempHistory.map((entry, index) => [entry.datum, { entry, index }])
+        ); // Speichere Index für einfaches Ersetzen
+
         let modified = false;
         let skippedDays = 0;
         let affectedCount = 0;
@@ -1777,6 +1772,7 @@
             return;
           }
 
+          let indicesToDelete = [];
           while (currentDate <= endDate) {
             const dayOfWeek = currentDate.getDay();
             const holidayName = getHolidayName(
@@ -1787,7 +1783,7 @@
 
             if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
               if (historyMap.has(currentDateStr)) {
-                historyMap.delete(currentDateStr);
+                indicesToDelete.push(historyMap.get(currentDateStr).index);
                 modified = true;
                 affectedCount++;
               }
@@ -1797,9 +1793,12 @@
             currentDate.setDate(currentDate.getDate() + 1);
           }
 
+          // Lösche Einträge von hinten nach vorne, um Indexprobleme zu vermeiden
+          indicesToDelete.sort((a, b) => b - a);
+          indicesToDelete.forEach((index) => tempHistory.splice(index, 1));
+
           if (modified) {
-            const updatedHistory = Array.from(historyMap.values());
-            saveAndReload(updatedHistory); // Neuberechnung nach Löschen
+            saveAndReload(tempHistory);
             alert(
               `${affectedCount} Einträge erfolgreich gelöscht. ${
                 skippedDays > 0 ? `(${skippedDays} Tage übersprungen)` : ""
@@ -1840,7 +1839,7 @@
             );
             if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
               const currentDateStr = currentDate.toISOString().split("T")[0];
-              const existingEntry = historyMap.get(currentDateStr);
+              const existingData = historyMap.get(currentDateStr);
               let differenz = 0.0,
                 differenzTime = "0:00";
               let isUrlaub = false,
@@ -1877,10 +1876,17 @@
                 schulung: isSchulung,
                 glaz: isGlaz,
                 pcBuchung: false,
-                buero: existingEntry ? existingEntry.buero : false,
+                buero: existingData ? existingData.entry.buero : false,
                 zusatzPause: "",
               };
-              historyMap.set(currentDateStr, dayData);
+
+              if (existingData) {
+                // Ersetze bestehenden Eintrag im temporären Array
+                tempHistory[existingData.index] = dayData;
+              } else {
+                // Füge neuen Eintrag zum temporären Array hinzu
+                tempHistory.push(dayData);
+              }
               modified = true;
               affectedCount++;
             } else {
@@ -1890,8 +1896,7 @@
           }
 
           if (modified) {
-            const updatedHistory = Array.from(historyMap.values());
-            saveAndReload(updatedHistory); // Neuberechnung nach Bulk-Add
+            saveAndReload(tempHistory); // Neuberechnung nach Bulk-Add/Update
             alert(
               `Bulk-Buchung für ${affectedCount} Tage erfolgreich. ${
                 skippedDays > 0
@@ -2083,7 +2088,7 @@
         alert("Verlauf & Optionen exportiert.");
       }
 
-      // KORRIGIERT: Ruft saveAndReload auf, um importierten Verlauf neu zu berechnen
+      // KORRIGIERT: Ruft saveAndReload auf
       function importHistoryFromJson() {
         const input = document.createElement("input");
         input.type = "file";
@@ -2133,7 +2138,7 @@
                 datum: entry.datum,
                 differenz: entry.differenz || "0.00",
                 differenzTime: entry.differenzTime || "0:00",
-                stundenkonto: "0.00", // Platzhalter, wird neu berechnet
+                stundenkonto: "0.00", // Platzhalter
                 kommen: entry.kommen || null,
                 gehen: entry.gehen || null,
                 urlaub: !!entry.urlaub,
@@ -2153,6 +2158,7 @@
 
               if (confirm(confirmationMessage)) {
                 if (importedSettings) {
+                  // Wende importierte Settings an
                   settings.wochenarbeitszeit = parseFloat(
                     importedSettings.wochenarbeitszeit || 38
                   );
@@ -2165,7 +2171,8 @@
                     !!importedSettings.allowWochenende;
                   settings.allowNachtarbeit =
                     !!importedSettings.allowNachtarbeit;
-                  // Speichere importierte Settings (ruft KEINE Neuberechnung auf)
+
+                  // Speichere importierte Settings direkt in LS
                   storeToLS(
                     "wochenarbeitszeitValue",
                     settings.wochenarbeitszeit.toString()
@@ -2183,8 +2190,9 @@
                     "allowNachtarbeit",
                     settings.allowNachtarbeit ? "true" : "false"
                   );
-                  loadOptions(); // Lade Optionen in die UI
-                  // Aktualisiere Basis-Konto Anzeige im Hauptrechner
+
+                  // Lade Optionen in die UI und aktualisiere Hauptansicht
+                  loadOptions();
                   $("aktuelles-konto").value =
                     settings.basisStundenkonto.toFixed(2);
                   $("wochenarbeitszeit").value =
@@ -2219,7 +2227,7 @@
     </script>
 
     <style>
-      /* Styles zurückgesetzt auf Originalwerte aus deinem Code */
+      /* Styles exakt wie im Originalcode */
       :root {
         /* Light Mode */
         --system-background-light: #f2f2f7;
@@ -2343,13 +2351,13 @@
         height: 100vh;
       }
 
-      /* --- PAGE PADDING (Zurückgesetzt auf Originalwert) --- */
+      /* --- PAGE PADDING (Originalwert) --- */
       .page {
         flex-grow: 1;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(60px + var(--safe-area-bottom)) /* 40px Nav + 5px Padding + 5px Puffer + safe-area */
+          calc(60px + var(--safe-area-bottom)) /* Originalwert */
           calc(15px + var(--safe-area-right));
         display: none;
       }
@@ -2543,7 +2551,7 @@
         margin-left: 1px;
       }
 
-      /* --- SLIDER STYLES (Zurückgesetzt auf Originalwerte) --- */
+      /* --- SLIDER STYLES (Originalwert) --- */
       .switch-container {
         display: flex;
         align-items: center;
@@ -2557,7 +2565,7 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 51px; /* Originalwert (iOS Standard) */
+        width: 51px; /* Originalwert */
         height: 31px;
         flex-shrink: 0;
       }
@@ -2593,7 +2601,7 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(20px); /* Originalwert für 51px Breite */
+        transform: translateX(20px); /* Originalwert */
       }
       /* --- END SLIDER STYLES --- */
 
@@ -2919,7 +2927,7 @@
         margin-bottom: 0;
       }
 
-      /* --- BOTTOM NAV STYLES (Zurückgesetzt auf Originalwerte) --- */
+      /* --- BOTTOM NAV STYLES (Originalwert) --- */
       #bottom-nav {
         position: fixed;
         bottom: 0;
@@ -2930,11 +2938,11 @@
         border-top: 0.5px solid var(--separator-color);
         display: flex;
         justify-content: space-around;
-        align-items: flex-start;
-        padding-top: 5px;
+        align-items: flex-start; /* Originalwert */
+        padding-top: 5px; /* Originalwert */
         padding-bottom: calc(
           5px + var(--safe-area-bottom)
-        ); /* Original Padding + Safe Area */
+        ); /* Originalwert + Safe Area */
         z-index: 1000;
       }
       .nav-item {
