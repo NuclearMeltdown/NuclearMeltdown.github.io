@@ -418,10 +418,6 @@
         kommenZeit = parseTime($("kommen-display").value);
         gehenZeit = parseTime($("gehen-display").value);
         storeInputsToLocalStorage();
-        const currentKontoValue = $("aktuelles-konto").value;
-        if (!isNaN(parseFloat(currentKontoValue))) {
-          storeToLS("aktuellesStundenkonto", parseFloat(currentKontoValue).toFixed(2));
-          }
         updateCalculations();
       }
 
