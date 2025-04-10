@@ -1639,14 +1639,12 @@
         const history = getHistory(); // Holt History mit korrekten Kontoständen
         const entry = history.find((e) => e.datum === dateStr);
         if (!entry) return;
-
         const entryDate = new Date(dateStr + "T12:00:00");
         const dispDate = entryDate.toLocaleDateString("de-DE");
         const weekdayName = entryDate.toLocaleDateString("de-DE", {
           weekday: "long",
         });
         $("detail-modal-title").textContent = `Details: ${weekdayName}, ${dispDate}`;
-
         let detailsHTML = "",
           pausenLabel = "N/A",
           anwesenheitLabel = "N/A",
@@ -1664,18 +1662,10 @@
         const kontoFormatted = formatDecimalToTime(kontoVal);
         const kontoDecimal = kontoVal.toFixed(2);
         const holidayName = getHolidayName(entryDate, settings.bundesland);
-
-        const editBtnElement = $("detail-edit-button");
-        const deleteBtnElement = $("detail-delete-button");
-
-        // Standardmäßig Buttons anzeigen, außer bei Feiertag
-        editBtnElement.style.display = "block";
-        deleteBtnElement.style.display = "block";
-
         if (holidayName) {
           detailsHTML = `<p><strong>Datum:</strong> ${dispDate}</p><p><strong>Status:</strong> ${holidayName} (Feiertag)</p>`;
-          editBtnElement.style.display = "none"; // Buttons ausblenden
-          deleteBtnElement.style.display = "none";
+          $("detail-edit-button").style.display = "none";
+          $("detail-delete-button").style.display = "none";
         } else if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
           const statusText = entry.urlaub
             ? "Urlaub"
@@ -1686,6 +1676,8 @@
             : "GLAZ";
           detailsHTML = `<p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
           pcBuchungChecked = false;
+          $("detail-edit-button").style.display = "block";
+          $("detail-delete-button").style.display = "block";
         } else {
           const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
           const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
@@ -1706,6 +1698,7 @@
               anwesenheitLabel = `${Math.floor(totalH)}:${pad(
                 Math.round((totalH % 1) * 60)
               )} (${totalH.toFixed(2)}h)`;
+              // Verwende die konsistente, korrigierte Funktion
               netCalculated = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -1714,10 +1707,13 @@
               nettoLabel = `${formatDecimalToTime(
                 netCalculated
               )} (${netCalculated.toFixed(2)}h)`;
+              // Berechne die effektive Pause (nutzt korrigierte Nettozeit)
               const pausenVal = calculateDisplayPause(totalH, netCalculated);
               pausenLabel =
                 pausenVal > 0
-                  ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)`
+                  ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(
+                      2
+                    )}h)`
                   : "0 Min";
               if (additionalPauseSaved > 0)
                 pausenLabel += ` (inkl. ${formatDecimalToTime(
@@ -1751,38 +1747,22 @@
           } (${
             entry.differenz
           }h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
+          $("detail-edit-button").style.display = "block";
+          $("detail-delete-button").style.display = "block";
         }
-
-        // Setze den HTML-Inhalt des Modals
         $("detail-content").innerHTML = detailsHTML;
-
-        // --- KORREKTUR: Event Listener für Modal-Buttons ---
-        // 1. Klone die Buttons, um alte Listener zu entfernen
-        const newEditBtn = editBtnElement.cloneNode(true);
-        editBtnElement.parentNode.replaceChild(newEditBtn, editBtnElement);
-
-        const newDeleteBtn = deleteBtnElement.cloneNode(true);
-        deleteBtnElement.parentNode.replaceChild(newDeleteBtn, deleteBtnElement);
-
-        // 2. Füge neue Listener zu den geklonten Buttons hinzu (nur wenn sie sichtbar sind)
-        if (newEditBtn.style.display !== "none") {
-          newEditBtn.addEventListener("click", () => {
-            closeDetailModal();
-            showAddDayModal(dateStr); // Öffnet Modal zum Ändern
-          });
-        }
-        if (newDeleteBtn.style.display !== "none") {
-          newDeleteBtn.addEventListener("click", () => {
-            closeDetailModal();
-            deleteEntryByDate(dateStr); // Löscht und berechnet neu
-          });
-        }
-        // --- ENDE KORREKTUR ---
-
-        // Zeige das Modal an
+        const editBtn = $("detail-edit-button");
+        const deleteBtn = $("detail-delete-button");
+        editBtn.onclick = () => {
+          closeDetailModal();
+          showAddDayModal(dateStr); // Öffnet Modal zum Ändern
+        };
+        deleteBtn.onclick = () => {
+          closeDetailModal();
+          deleteEntryByDate(dateStr); // Löscht und berechnet neu
+        };
         $("detail-modal").style.display = "flex";
       }
-
 
       function closeDetailModal() {
         const modal = $("detail-modal");
