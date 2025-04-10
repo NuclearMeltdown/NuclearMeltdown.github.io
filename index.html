@@ -1554,7 +1554,8 @@
 
       // --- ÜBERARBEITETE saveAndReload Funktion (Logik unverändert) ---
       function saveAndReload(history) {
-            if (!Array.isArray(history)) {
+        console.log("--- saveAndReload START ---"); // Logging zur Sicherheit beibehalten
+        if (!Array.isArray(history)) {
             console.error("saveAndReload: Received non-array history:", history);
             alert("Interner Fehler: Ungültige Daten für saveAndReload.");
             return;
@@ -1608,7 +1609,6 @@
 
           if (!foundStartDate && entryDateStr >= startDate) {
             // Dies ist der erste Eintrag am oder nach dem Startdatum
-            // Das Konto *nach* diesem Eintrag ist 'startKonto + diff'.
             currentKonto = startKonto + diff;
             entry.stundenkonto = currentKonto.toFixed(2);
             foundStartDate = true; // Ab jetzt gilt die Kette ab dem Startdatum
@@ -1616,19 +1616,16 @@
             // Dies ist ein Eintrag nach dem Startdatum ODER alle Einträge, wenn kein Startdatum gesetzt war
             let prevKonto;
             if (i === 0) {
-              // Wenn dies der allererste Eintrag ist UND wir schon 'foundStartDate' sind
-              // (d.h. kein Startdatum gesetzt oder Startdatum liegt vor diesem Eintrag),
-              // basiert die Berechnung auf dem initialen Startwert.
+              // Erster Eintrag der History, kein Startdatum oder Startdatum davor
               prevKonto = startKonto;
             } else {
-              // Ansonsten basiert die Berechnung auf dem Stundenkonto des *direkten Vorgängers*.
+              // Basiert auf dem Vorgänger
               prevKonto = parseFloat(history[i - 1].stundenkonto || 0);
             }
             currentKonto = prevKonto + diff;
             entry.stundenkonto = currentKonto.toFixed(2);
           } else {
             // Dies ist ein Eintrag *vor* dem Startdatum
-            // Diese Kette wird separat berechnet, beginnend bei 0.
             let prevKontoBeforeStart;
             if (i === 0) {
               // Der allererste Eintrag vor dem Startdatum beginnt bei 0.
@@ -1637,8 +1634,6 @@
               // Folgeeinträge vor dem Startdatum basieren auf dem Vorgänger in dieser Kette.
               prevKontoBeforeStart = parseFloat(history[i - 1].stundenkonto || 0);
             }
-            // Wichtig: Diese Berechnung beeinflusst *nicht* die Variable `currentKonto`,
-            // die für die Kette *ab* dem Startdatum verwendet wird.
             entry.stundenkonto = (prevKontoBeforeStart + diff).toFixed(2);
           }
         }
@@ -1652,13 +1647,11 @@
         } catch (storeError) {
           console.error("saveAndReload: Error storing history to LS:", storeError);
           alert("Fehler beim Speichern des Verlaufs im Local Storage.");
-          // Nicht abbrechen, UI trotzdem versuchen zu aktualisieren
         }
 
         // 5. Aktualisiere das Readonly-Feld auf der Hauptseite mit dem letzten Kontostand
         console.log("saveAndReload: Updating main page account display...");
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-        // Nehme den letzten berechneten Wert ODER den Startwert, wenn History leer ist
         const latestKonto = latestEntry
           ? parseFloat(latestEntry.stundenkonto || 0)
           : startKonto;
@@ -1679,28 +1672,18 @@
             console.error("saveAndReload: Error during updateCalculations:", calcError);
         }
 
-        // 7. Schließe Modals und lade ggf. aktuelle Ansicht neu
-        console.log("saveAndReload: Closing modals and reloading view if necessary...");
+        // 7. Schließe Modals und lade die aktuelle Ansicht neu
+        console.log("saveAndReload: Closing modals and refreshing view...");
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
         try {
-          if (currentView === "history") {
-              console.log("saveAndReload: Reloading history view.");
-              loadHistory(); // Lädt die Verlaufsansicht neu
-          }
-          if (currentView === "month") {
-              console.log("saveAndReload: Reloading month view.");
-              loadMonthData(); // Lädt die Monatsansicht neu
-          }
-          if (currentView === "stats") {
-              console.log("saveAndReload: Reloading stats view.");
-              calculateAndDisplayStats(); // Lädt die Statistikansicht neu
-          }
+            console.log("saveAndReload: Refreshing current view:", currentView);
+            // Erzwinge ein Neuzeichnen der aktuellen Ansicht, indem switchView erneut aufgerufen wird.
+            switchView(currentView);
         } catch (viewLoadError) {
-          console.error("saveAndReload: Error reloading current view:", viewLoadError);
+            console.error("saveAndReload: Error refreshing current view:", viewLoadError);
         }
-        console.log("--- saveAndReload END ---");
       }
 
       function closeDetailModal() {
@@ -3393,7 +3376,7 @@
             class="button"
             style="margin-top: 20px"
           >
-            Bulk-Buchung / Löschen
+            Bulk-Buchung
           </button>
         </div>
       </div>
