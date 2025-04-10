@@ -285,27 +285,32 @@
         [currentWeekYear, currentWeekNo] = getWeekNumber(heute);
         currentMonthYear = heute.getFullYear();
         currentMonth = heute.getMonth();
-        const lastKonto = getFromLS("aktuellesStundenkonto");
-        if (lastKonto) {
-          $("aktuelles-konto").value = parseFloat(lastKonto).toFixed(2);
+
+        // Lade den letzten Kontostand, aber setze ihn NICHT mehr direkt ins Input-Feld
+        let lastKontoValue = 0;
+        const lastKontoStored = getFromLS("aktuellesStundenkonto");
+        if (lastKontoStored) {
+          lastKontoValue = parseFloat(lastKontoStored);
         } else {
           const history = getHistory();
           if (history.length > 0) {
             const lastEntry = history[history.length - 1];
             if (lastEntry.stundenkonto) {
-              $("aktuelles-konto").value = parseFloat(
-                lastEntry.stundenkonto
-              ).toFixed(2);
+              lastKontoValue = parseFloat(lastEntry.stundenkonto);
+              // Speichere den Wert aus der History, falls er nicht separat gespeichert war
               storeToLS("aktuellesStundenkonto", lastEntry.stundenkonto);
             }
           }
         }
-        updateCalculations();
+        // Setze den Wert im read-only Feld initial (wird später von updateCalculations überschrieben)
+        $("aktuelles-konto").value = lastKontoValue.toFixed(2);
+
+        updateCalculations(); // Dies wird das Feld korrekt basierend auf Berechnungen füllen
         switchView("main");
         setupEventListeners();
         closeAddDayModal();
         closeDetailModal();
-        closeBulkModal(); // Ensure it's closed initially
+        closeBulkModal();
       }
 
       function setupEventListeners() {
@@ -319,9 +324,8 @@
         $("pc-buchung").onchange = onInputChange;
         $("buero-toggle").onchange = onInputChange;
         $("zusatzliche-pause").oninput = onInputChange;
-        $("aktuelles-konto").onchange = onInputChange;
+        // $("aktuelles-konto").onchange = onInputChange; // DIESE ZEILE ENTFERNEN/AUSKOMMENTIEREN
         document.querySelectorAll(".close-button").forEach((btn) => {
-          // Adjusted to handle different modals
           btn.onclick = () => {
             const modal = btn.closest(".modal");
             if (modal) modal.style.display = "none";
@@ -332,12 +336,8 @@
         $("krank-toggle").onchange = () => toggleSpecialDay("krank");
         $("schulung-toggle").onchange = () => toggleSpecialDay("schulung");
         $("glaz-toggle").onchange = () => toggleSpecialDay("glaz");
-        // New listeners for bulk booking modal
         $("open-bulk-modal-button").addEventListener("click", showBulkModal);
-        $("apply-bulk-modal-button").addEventListener(
-          "click",
-          applyBulkBooking
-        );
+        $("apply-bulk-modal-button").addEventListener("click", applyBulkBooking);
         $("bundesland-select").onchange = (e) => {
           settings.bundesland = e.target.value;
           saveSettings();
@@ -359,13 +359,13 @@
           settings.allowNachtarbeit = e.target.checked;
           saveSettings();
         };
-        $("export-button-options").addEventListener(
+        $("export-button-options").addEventListener("click", exportHistoryToJson);
+        $("import-button-options").addEventListener("click", importHistoryFromJson);
+
+        // NEUER LISTENER für den Korrektur-Button
+        $("korrektur-anwenden-button").addEventListener(
           "click",
-          exportHistoryToJson
-        );
-        $("import-button-options").addEventListener(
-          "click",
-          importHistoryFromJson
+          applyBalanceCorrection
         );
       }
 
@@ -389,16 +389,11 @@
       function storeInputsToLocalStorage() {
         storeToLS("kommenZeitValue", $("kommen-display").value);
         storeToLS("gehenZeitValue", $("gehen-display").value);
-        storeToLS(
-          "pcBuchungChecked",
-          $("pc-buchung").checked ? "true" : "false"
-        );
-        storeToLS(
-          "bueroChecked",
-          $("buero-toggle").checked ? "true" : "false"
-        );
+        storeToLS("pcBuchungChecked", $("pc-buchung").checked ? "true" : "false");
+        storeToLS("bueroChecked", $("buero-toggle").checked ? "true" : "false");
         storeToLS("zusatzlichePauseValue", $("zusatzliche-pause").value);
-        storeToLS("aktuellesStundenkonto", $("aktuelles-konto").value);
+        // storeToLS("aktuellesStundenkonto", $("aktuelles-konto").value); // DIESE ZEILE ENTFERNEN/AUSKOMMENTIEREN
+        // Der Wert wird jetzt nur noch nach Berechnungen in saveAndReload/applyBalanceCorrection gespeichert.
       }
 
       function setZeit(type) {
@@ -1285,55 +1280,185 @@
         return parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
       }
 
+      function applyBalanceCorrection() {
+        const korrekturDatumStr = $("korrektur-datum").value;
+        const korrekturWertInput = $("korrektur-wert").value;
+
+        if (!korrekturDatumStr) {
+          alert("Bitte geben Sie das Datum an, für das die Korrektur gelten soll.");
+          return;
+        }
+        if (korrekturWertInput === "" || isNaN(parseFloat(korrekturWertInput))) {
+          alert("Bitte geben Sie einen gültigen numerischen Kontostand ein.");
+          return;
+        }
+
+        const korrekturWert = parseFloat(korrekturWertInput);
+        const korrekturDate = new Date(korrekturDatumStr + "T12:00:00"); // Mitte des Tages
+
+        if (
+          !confirm(
+            `Soll das Stundenkonto am Ende des ${korrekturDate.toLocaleDateString(
+              "de-DE"
+            )} wirklich auf ${korrekturWert.toFixed(
+              2
+            )} Stunden gesetzt werden?\n\nACHTUNG: Alle nachfolgenden Einträge im Verlauf werden unwiderruflich neu berechnet!`
+          )
+        ) {
+          return;
+        }
+
+        let history = getHistory(); // Holt die sortierte History
+
+        // Finde den Index des Eintrags für das angegebene Datum
+        const correctionIndex = history.findIndex(
+          (e) => e.datum === korrekturDatumStr
+        );
+
+        if (correctionIndex === -1) {
+          // Versuch, einen "virtuellen" Korrektureintrag zu erstellen, wenn der Tag fehlt
+          // Dies ist komplexer, da die Differenz für diesen Tag fehlt.
+          // Einfachere Lösung: Korrektur nur an vorhandenen Tagen erlauben.
+          alert(
+            "Fehler: Für das angegebene Datum wurde kein Eintrag im Verlauf gefunden. Die Korrektur kann derzeit nur auf einen existierenden Tag angewendet werden."
+          );
+          // Alternativ könnte man hier einen Platzhalter-Eintrag einfügen,
+          // aber das erfordert mehr Überlegungen zur Handhabung der Differenz.
+          return;
+
+          /* // Beispiel für Einfügen (komplexer):
+              const newEntry = {
+                  datum: korrekturDatumStr,
+                  differenz: "0.00", // Unbekannt, muss evtl. manuell gesetzt werden?
+                  differenzTime: "0:00",
+                  stundenkonto: korrekturWert.toFixed(2),
+                  kommen: null, gehen: null, urlaub: false, krank: false, schulung: false, glaz: false,
+                  pcBuchung: false, buero: false, zusatzPause: ""
+              };
+              history.push(newEntry);
+              // History muss neu sortiert werden!
+              history.forEach(entry => { entry.dateObj = new Date(entry.datum + "T00:00:00"); });
+              history.sort((a, b) => a.dateObj - b.dateObj);
+              history.forEach(entry => delete entry.dateObj);
+              */
+        } else {
+          // Setze den Stundenkonto-Wert für den gefundenen Eintrag
+          history[correctionIndex].stundenkonto = korrekturWert.toFixed(2);
+        }
+
+        // Rufe saveAndReload auf. Diese Funktion MUSS die Neuberechnung
+        // ab dem korrigierten Eintrag korrekt durchführen.
+        saveAndReload(history);
+
+        // Leere die Eingabefelder nach erfolgreicher Anwendung
+        $("korrektur-datum").value = "";
+        $("korrektur-wert").value = "";
+
+        alert(
+          `Stundenkonto erfolgreich korrigiert und Verlauf ab ${korrekturDate.toLocaleDateString(
+            "de-DE"
+          )} neu berechnet.`
+        );
+
+        // Optional: Zur Hauptseite wechseln oder Ansicht aktualisieren
+        // switchView('main'); // Oder lasse den User auf der Optionsseite
+        if (currentView === "history") loadHistory();
+        if (currentView === "month") loadMonthData();
+        if (currentView === "stats") calculateAndDisplayStats();
+        // updateCalculations() wird bereits von saveAndReload aufgerufen
+      }
+
       function saveAndReload(history) {
+        // 1. Sortieren (wichtig, falls die übergebene History nicht sortiert war)
         history.forEach((entry) => {
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
-        let previousKonto =
-          parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+
+        // 2. Finde den Kontostand *vor* dem ersten Eintrag in der übergebenen Liste
+        let previousKonto = 0; // Default, falls keine Vorgänger existieren
         if (history.length > 0) {
-          const firstDate = history[0].datum;
+          const firstDateStr = history[0].datum;
+          const firstDate = new Date(firstDateStr + "T00:00:00");
+
+          // Suche im *gesamten* alten LocalStorage-Verlauf nach dem letzten Eintrag *vor* dem ersten neuen
+          // Wichtig: Wir brauchen den *originalen* Verlauf für diese Suche
           const originalHistory = JSON.parse(getFromLS("history", "[]"));
           const relevantOriginalHistory = originalHistory.filter(
-            (entry) =>
-              new Date(entry.datum + "T00:00:00") <
-              new Date(firstDate + "T00:00:00")
+            (entry) => new Date(entry.datum + "T00:00:00") < firstDate
           );
+
           if (relevantOriginalHistory.length > 0) {
             relevantOriginalHistory.sort(
               (a, b) => new Date(b.datum) - new Date(a.datum)
             );
+            // Nimm den Kontostand des letzten Eintrags davor
             previousKonto = parseFloat(
-              relevantOriginalHistory[0].stundenkonto || 0
+              relevantOriginalHistory[0].stundenkonto || "0"
             );
           } else {
-            previousKonto =
-              parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+            // Wenn es keine Einträge davor gibt, ist der Startwert 0
+            // (oder ein explizit gespeicherter Initialwert, falls vorhanden)
+            previousKonto = parseFloat(getFromLS("initialKontoValue", "0")); // Beispiel für Startwert
           }
+        } else {
+          // Wenn die übergebene History leer ist, setze Konto auf 0 oder Startwert
+          previousKonto = parseFloat(getFromLS("initialKontoValue", "0"));
         }
+
+        // 3. Berechne alle Kontostände in der übergebenen Liste neu
         for (let i = 0; i < history.length; i++) {
           const entry = history[i];
           const diff = parseFloat(entry.differenz || 0);
-          if (i === 0) entry.stundenkonto = (previousKonto + diff).toFixed(2);
-          else {
-            const prevEntryKonto = parseFloat(history[i - 1].stundenkonto || 0);
-            entry.stundenkonto = (prevEntryKonto + diff).toFixed(2);
+
+          // Finde den Index des Eintrags im *originalen* Verlauf, um zu prüfen,
+          // ob dieser Eintrag der manuell korrigierte war.
+          // Dies ist nötig, falls die Korrektur nicht am ersten Tag der übergebenen Liste war.
+          const originalHistoryForCheck = JSON.parse(getFromLS("history", "[]"));
+          const originalIndex = originalHistoryForCheck.findIndex(
+            (e) => e.datum === entry.datum
+          );
+          const wasCorrectedManually =
+            originalIndex !== -1 &&
+            originalHistoryForCheck[originalIndex].stundenkonto !==
+              entry.stundenkonto && // Prüfen, ob der Wert geändert wurde
+            $("korrektur-datum").value === entry.datum; // Sicherstellen, dass es die aktuelle Korrektur war (optional, aber sicherer)
+
+          let baseKonto;
+          if (i === 0) {
+            baseKonto = previousKonto;
+          } else {
+            // Nimm den (potenziell gerade erst berechneten oder korrigierten) Wert des Vorgängers
+            baseKonto = parseFloat(history[i - 1].stundenkonto || "0");
           }
+
+          // WICHTIG: Wenn dieser Eintrag manuell korrigiert wurde,
+          // überschreibe ihn NICHT mit der Neuberechnung, sondern behalte den manuellen Wert.
+          // Für alle *anderen* Einträge, berechne den Kontostand neu.
+          // Die Korrektur in applyBalanceCorrection setzt den Wert *bevor* saveAndReload gerufen wird.
+          // Wir müssen hier also nur sicherstellen, dass die Neuberechnung korrekt aufsetzt.
+          // Die Logik ist: Der Kontostand von Tag `i` ist der Stand von `i-1` plus die Differenz von `i`.
+          // Das funktioniert auch, wenn `i-1` der korrigierte Tag war.
+          entry.stundenkonto = (baseKonto + diff).toFixed(2);
         }
+
+        // 4. Speichere die neu berechnete History
         storeToLS("history", JSON.stringify(history));
-        const latestEntry =
-          history.length > 0 ? history[history.length - 1] : null;
+
+        // 5. Aktualisiere den globalen "aktuellesStundenkonto"-Wert und die Anzeige
+        const latestEntry = history.length > 0 ? history[history.length - 1] : null;
         const latestKonto = latestEntry
-          ? parseFloat(latestEntry.stundenkonto || 0)
-          : parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
-        $("aktuelles-konto").value = latestKonto.toFixed(2);
-        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2));
-        updateCalculations();
+          ? parseFloat(latestEntry.stundenkonto || "0")
+          : previousKonto; // Wenn History leer, nimm den letzten bekannten Wert davor
+        $("aktuelles-konto").value = latestKonto.toFixed(2); // Update read-only field
+        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2)); // Speichere den *tatsächlichen* letzten Stand
+
+        // 6. Aktualisiere Berechnungen und schließe Modals etc.
+        updateCalculations(); // Wichtig, um abhängige Felder zu aktualisieren
         closeAddDayModal();
         closeDetailModal();
-        closeBulkModal(); // Close bulk modal too if it was open
+        closeBulkModal();
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
@@ -2945,7 +3070,7 @@
                   id="aktuelles-konto"
                   value="0"
                   step="0.01"
-                  onchange="onInputChange()"
+                  readonly
                 />
               </div>
               <div class="column">
@@ -3156,6 +3281,37 @@
                 >Nacht-/Randzeiten tolerieren (keine Warnung, 🌙 statt !)</span
               >
             </div>
+          </div>
+          <div class="section">
+            <h3>Stundenkonto</h3>
+            <p
+              style="
+                font-size: 14px;
+                color: var(--secondary-text-color);
+                margin-bottom: 15px;
+              "
+            >
+              Hier können Sie das Stundenkonto manuell anpassen. Geben Sie das
+              Datum an, an dessen Ende der neue Kontostand gelten soll. Alle
+              nachfolgenden Einträge im Verlauf werden neu berechnet.
+            </p>
+            <div class="row">
+              <div class="column">
+                <label for="korrektur-datum">Datum der Korrektur:</label>
+                <input type="date" id="korrektur-datum" />
+              </div>
+              <div class="column">
+                <label for="korrektur-wert">Neuer Kontostand (Std):</label>
+                <input type="number" id="korrektur-wert" step="0.01" />
+              </div>
+            </div>
+            <button
+              id="korrektur-anwenden-button"
+              class="button"
+              style="margin-top: 10px"
+            >
+              Korrektur anwenden & Verlauf neu berechnen
+            </button>
           </div>
           <div class="section">
             <h3>Daten</h3>
