@@ -468,30 +468,44 @@
       }
 
       function calculateArbeitszeit() {
-        const wTime = calculateWorkingTime();
-        if (wTime.totalHours <= 0) return 0;
-        const pausen = calculateGesamtPause(wTime.totalHours);
-        const netArbeitszeit = wTime.totalHours - pausen;
-        return Math.max(0, netArbeitszeit);
-      }
+  const wTime = calculateWorkingTime(); // Anwesenheitszeit holen
+  if (wTime.totalHours <= 0) return 0;
 
-      function calculateEndTimeFixpoint(desiredNet) {
-        const ak = getAdjustedKommenZeit();
-        if (!ak) return "--:--";
-        let presence = desiredNet;
-        const additionalPauseMain = parsePauseInput("zusatzliche-pause");
-        for (let i = 0; i < 5; i++) {
-          const prevPresence = presence;
-          let pausen = additionalPauseMain;
-          if (prevPresence > 9) pausen += 0.75;
-          else if (prevPresence > 6) pausen += 0.5;
-          presence = desiredNet + pausen;
-          if (Math.abs(presence - prevPresence) < 1e-9) break;
-        }
-        const endTime = new Date(ak.getTime());
-        endTime.setMinutes(endTime.getMinutes() + Math.round(presence * 60));
-        return formatTime(endTime);
-      }
+  const presenceHours = wTime.totalHours;
+  const additionalPause = parsePauseInput("zusatzliche-pause");
+
+  // 1. Bestimme die gesetzliche Pause basierend auf der Anwesenheit,
+  //    aber berücksichtige, dass sie erst *nach* den Pausenfenstern voll greift.
+  let statutoryPause = 0;
+  if (presenceHours > 9.75) {
+    // Nach 9h 45min Anwesenheit -> 45min Pause
+    statutoryPause = 0.75;
+  } else if (presenceHours > 6.5) {
+    // Nach 6h 30min Anwesenheit -> 30min Pause
+    statutoryPause = 0.5;
+  }
+  // Zwischen 6:00 und 6:30 sowie 9:00 und 9:30 Anwesenheit ist die gesetzliche Pause hier noch 0.
+  // Zwischen 6:30 und 9:45 Anwesenheit ist sie 0.5.
+
+  // 2. Berechne die vorläufige Nettozeit
+  let netArbeitszeit = presenceHours - additionalPause - statutoryPause;
+
+  // 3. Wende die "Einfrier"-Logik an
+  //    Die Nettozeit darf während der Pausenfenster nicht über den Schwellenwert steigen.
+  if (presenceHours > 6.0 && presenceHours <= 6.5) {
+    // Anwesenheit zwischen 6:01 und 6:30 -> Nettozeit auf max. 6.0 begrenzen
+    netArbeitszeit = Math.min(netArbeitszeit, 6.0);
+  } else if (presenceHours > 9.5 && presenceHours <= 9.75) {
+    // Anwesenheit zwischen 9:31 und 9:45 -> Nettozeit auf max. 9.0 begrenzen
+    // Wichtig: In diesem Fenster wurde oben mit statutoryPause = 0.5 gerechnet.
+    // Beispiel: Anwesenheit 9.75h, Zusatzpause 0 -> Vorläufig Netto = 9.75 - 0 - 0.5 = 9.25
+    //         -> Begrenzung auf 9.0 greift.
+    netArbeitszeit = Math.min(netArbeitszeit, 9.0);
+  }
+
+  // Stelle sicher, dass die Nettozeit nicht negativ wird
+  return Math.max(0, netArbeitszeit);
+}
 
       function updateEndTimes() {
         if (!kommenZeit) {
