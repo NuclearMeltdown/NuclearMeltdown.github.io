@@ -2282,7 +2282,7 @@
             : "zero-value"
         }">${formatDecimalToTime(totalDiff)} (${totalDiff.toFixed(
           2
-        )}h)</span></li><li>Arbeitstage: <span>${workDays}</span></li><li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li><li>&nbsp;&nbsp;&nbsp;Home: <span>${homeDays}</span></li><li>Urlaub: <span>${vacationDays}</span></li><li>Krank: <span>${sickDays}</span></li><li>Schulung: <span>${trainingDays}</span></li><li>GLAZ: <span>${glazDays}</span></li><li>Feiertage: <span>${holidayCount}</span></li>`;
+        )}h)</span></li><li>Arbeitstage: <span>${workDays}</span></li><li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li><li>&nbsp;&nbsp;&nbsp;Home: <span>${homeDays}</span></li><li>Urlaub: <span>${vacationDays}</span></li><li>Krank: <span>${sickDays}</span></li><li>Schulung: <span>${trainingDays}</span></li><li>GLAZ: <span>${glazDays}</span></li><li>Feiertage (Mo-Fr): <span>${holidayCount}</span></li>`;
       }
 
       function exportHistoryToJson() {
@@ -3255,7 +3255,7 @@
                 />
                 <span class="slider"></span>
               </label>
-              <span>PC-Buchung</span>
+              <span>PC-Buchung (-8 Min)</span>
             </div>
             <div class="switch-container">
               <label class="switch">
@@ -3377,11 +3377,11 @@
                 <input type="text" id="end-time-4h" readonly />
               </div>
               <div class="column">
-                <label>6h:</label>
+                <label>6h (+Pause):</label>
                 <input type="text" id="end-time-6h" readonly />
               </div>
               <div class="column">
-                <label>9h:</label>
+                <label>9h (+Pause):</label>
                 <input type="text" id="end-time-9h" readonly />
               </div>
             </div>
@@ -3498,7 +3498,7 @@
                 <input type="checkbox" id="wochenende-toggle" />
                 <span class="slider"></span>
               </label>
-              <span>Wochenendarbeit erlauben</span>
+              <span>Wochenendarbeit erlauben (Sa/So anzeigen & buchen)</span>
             </div>
             <div class="switch-container">
               <label class="switch">
@@ -3506,7 +3506,7 @@
                 <span class="slider"></span>
               </label>
               <span
-                >Nacht-/Randzeiten tolerieren</span
+                >Nacht-/Randzeiten tolerieren (keine Warnung, 🌙 statt !)</span
               >
             </div>
           </div>
@@ -3558,10 +3558,10 @@
             <h3>Daten</h3>
             <div class="import-export-buttons">
               <button id="export-button-options" class="button">
-                Export
+                Export (Verlauf + Optionen)
               </button>
               <button id="import-button-options" class="button">
-                Import
+                Import (Verlauf + Optionen)
               </button>
             </div>
             <p
@@ -3632,7 +3632,7 @@
               <input type="checkbox" id="pc-buchung-add-day" />
               <span class="slider"></span>
             </label>
-            <span>PC-Buchung</span>
+            <span>PC-Buchung (-8 Min)</span>
           </div>
           <div class="switch-container">
             <label class="switch">
@@ -3684,7 +3684,7 @@
               />
               <span class="slider"></span>
             </label>
-            <span>GLAZ</span>
+            <span>GLAZ (Gleitzeitabbau)</span>
           </div>
           <button
             class="button"
@@ -3700,7 +3700,7 @@
       <div id="bulk-booking-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button">×</button>
-          <h3 id="bulk-modal-title">Bulk-Buchung</h3>
+          <h3 id="bulk-modal-title">Bulk-Buchung / Löschen</h3>
           <p
             style="
               font-size: 14px;
