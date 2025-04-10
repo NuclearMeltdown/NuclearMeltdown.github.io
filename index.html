@@ -510,16 +510,46 @@
       function calculateEndTimeFixpoint(desiredNet) {
         const ak = getAdjustedKommenZeit();
         if (!ak) return "--:--";
-        let presence = desiredNet;
+
+        let presence = desiredNet; // Start guess for presence time
         const additionalPauseMain = parsePauseInput("zusatzliche-pause");
+
+        // Iterative calculation to find the stable presence time
         for (let i = 0; i < 5; i++) {
+          // Limit iterations to prevent infinite loops
           const prevPresence = presence;
-          let pausen = additionalPauseMain;
-          if (prevPresence > 9) pausen += 0.75;
-          else if (prevPresence > 6) pausen += 0.5;
-          presence = desiredNet + pausen;
-          if (Math.abs(presence - prevPresence) < 1e-9) break;
+          let statutoryPause = 0;
+
+          // --- MODIFIED PAUSE LOGIC ---
+          // Check if we are specifically calculating for the 9h net target
+          if (desiredNet === 9) {
+            // For the 9h net target, ONLY consider the 0.5h break,
+            // even if the presence guess temporarily exceeds 9h during iteration.
+            // The extra 0.25h break is NOT relevant for reaching *exactly* 9h net.
+            if (prevPresence > 6) {
+              statutoryPause = 0.5;
+            }
+          } else {
+            // Standard pause logic for all other targets (4h, 6h, 10h, Soll)
+            if (prevPresence > 9) {
+              statutoryPause = 0.75; // 45 min
+            } else if (prevPresence > 6) {
+              statutoryPause = 0.5; // 30 min
+            }
+          }
+          // --- END MODIFIED PAUSE LOGIC ---
+
+          const totalPause = additionalPauseMain + statutoryPause;
+          presence = desiredNet + totalPause; // Update presence guess
+
+          // Check for convergence
+          if (Math.abs(presence - prevPresence) < 1 / 600) {
+            // Converged (difference less than 0.1 minutes)
+            break;
+          }
         }
+
+        // Calculate final end time based on the converged presence duration
         const endTime = new Date(ak.getTime());
         endTime.setMinutes(endTime.getMinutes() + Math.round(presence * 60));
         return formatTime(endTime);
