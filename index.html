@@ -257,79 +257,6 @@
       }
       // --- ENDE Feiertagslogik ---
 
-      function recalculateHistoryBeforeStartDate() {
-        const startDate = settings.startStundenkontoDate;
-        if (!startDate) {
-          alert(
-            "Bitte zuerst ein Startdatum im Arbeitszeitkonto festlegen, um diese Funktion nutzen zu können."
-          );
-          return;
-        }
-
-        if (
-          !confirm(
-            "Wirklich alle Stundenkonten vor dem Startdatum neu berechnen?\n\nACHTUNG: Diese Aktion ist potentiell irreversibel!"
-          )
-        ) {
-          return;
-        }
-
-        let history = getHistory();
-        let currentKonto = 0; // Startwert VOR dem Startdatum ist immer 0
-
-        // Sortiere die History nach Datum (wichtig für die korrekte Berechnung)
-        history.forEach((entry) => {
-          entry.dateObj = new Date(entry.datum + "T00:00:00");
-        });
-        history.sort((a, b) => a.dateObj - b.dateObj);
-        history.forEach((entry) => delete entry.dateObj);
-
-        // Filtere Einträge VOR dem Startdatum
-        const entriesBeforeStartDate = history.filter((entry) => entry.datum < startDate);
-
-        if (entriesBeforeStartDate.length === 0) {
-          alert("Keine Einträge vor dem Startdatum gefunden.");
-          return;
-        }
-
-        // Berechne das Stundenkonto für jeden Eintrag VOR dem Startdatum neu
-        for (let i = 0; i < entriesBeforeStartDate.length; i++) {
-          const entry = entriesBeforeStartDate[i];
-          const diff = parseFloat(entry.differenz || 0);
-
-          if (i === 0) {
-            currentKonto = diff; // Startet bei 0 + diff
-          } else {
-            const prevEntry = entriesBeforeStartDate[i - 1];
-            currentKonto = parseFloat(prevEntry.stundenkonto || 0) + diff;
-          }
-
-          entry.stundenkonto = currentKonto.toFixed(2);
-        }
-
-        // Aktualisiere die Stundenkonten in der originalen History (nur vor Startdatum)
-        for (let i = 0; i < entriesBeforeStartDate.length; i++) {
-          const entryBefore = entriesBeforeStartDate[i];
-          const originalIndex = history.findIndex((e) => e.datum === entryBefore.datum);
-          if (originalIndex !== -1) {
-            history[originalIndex].stundenkonto = entryBefore.stundenkonto;
-          }
-        }
-
-        // Speichere die aktualisierte History und lade die Ansicht neu
-        storeToLS("history", JSON.stringify(history));
-
-        alert(
-          `${entriesBeforeStartDate.length} Stundenkonten vor dem ${startDate} neu berechnet.`
-        );
-
-        // Seite neu laden, um alle Berechnungen und Anzeigen zu aktualisieren
-        saveAndReload(history); // Verwendet das bestehende saveAndReload um das aktuelle Konto zu aktualisieren und die UI zu refreshen
-
-        switchView("main"); // Gehe zur Hauptseite zurück
-      }
-
-
       function loadSettings() {
         settings.wochenarbeitszeit = parseFloat(
           getFromLS("wochenarbeitszeitValue", "38")
@@ -572,10 +499,6 @@
           }
         };
         $("start-stundenkonto-date").onchange = (e) => saveSettings(); // Trigger saveSettings
-        $("recalculate-before-start-date").addEventListener(
-          "click",
-          recalculateHistoryBeforeStartDate
-        );
 
         $("export-button-options").addEventListener(
           "click",
@@ -3544,15 +3467,6 @@
                   id="start-stundenkonto-date"
                   style="height: 44px;"
                 />
-              </div>
-            </div>
-              <button
-                id="recalculate-before-start-date"
-                class="button"
-                style="margin-top: 10px"
-              >
-              Verlauf vor Startdatum neu berechnen
-            </button>
               </div>
             </div>
           </div>
