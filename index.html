@@ -1095,19 +1095,20 @@
 
       function loadHistory() {
         const historyList = $("history-list");
-        historyList.innerHTML = ""; // Clear previous list
-        let history = getHistory(); // Contains calculated account balances from saveAndReload
-
-        const weekStartDateUTC = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        const daysToShow = settings.allowWochenende ? 6 : 4; // 0=Mon to 4=Fri or 6=Sun
+        historyList.innerHTML = "";
+        let history = getHistory(); // Enthält bereits die berechneten Kontostände von saveAndReload
+        const weekStartDateUTC = getDateOfISOWeek(
+          currentWeekNo,
+          currentWeekYear
+        );
+        const daysToShow = settings.allowWochenende ? 6 : 4;
         const weekEndDate = new Date(weekStartDateUTC);
         weekEndDate.setUTCDate(weekStartDateUTC.getUTCDate() + daysToShow);
-
         const optionsDate = {
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
-          timeZone: "Europe/Berlin", // Use specific timezone for consistency
+          timeZone: "Europe/Berlin",
         };
         const weekRange = `${weekStartDateUTC.toLocaleDateString(
           "de-DE",
@@ -1115,36 +1116,35 @@
         )} - ${weekEndDate.toLocaleDateString("de-DE", optionsDate)}`;
         $("week-info").textContent = `KW ${currentWeekNo} / ${currentWeekYear}`;
         $("week-range").textContent = weekRange;
-
         const optionsWeekday = { weekday: "long", timeZone: "Europe/Berlin" };
         let weeklyTotalDiff = 0;
-
         for (let dayOffset = 0; dayOffset <= daysToShow; dayOffset++) {
           const currentDateUTC = new Date(weekStartDateUTC.getTime());
           currentDateUTC.setUTCDate(weekStartDateUTC.getUTCDate() + dayOffset);
-          const currentDateStr = currentDateUTC.toISOString().split("T")[0]; // YYYY-MM-DD format
-
-          const displayDate = currentDateUTC.toLocaleDateString("de-DE", optionsDate);
-          const weekdayName = currentDateUTC.toLocaleDateString("de-DE", optionsWeekday);
-
+          const currentDateStr = currentDateUTC.toISOString().split("T")[0];
+          const displayDate = currentDateUTC.toLocaleDateString(
+            "de-DE",
+            optionsDate
+          );
+          const weekdayName = currentDateUTC.toLocaleDateString(
+            "de-DE",
+            optionsWeekday
+          );
           const entry = history.find((e) => e.datum === currentDateStr);
-          const holidayName = getHolidayName(currentDateUTC, settings.bundesland);
-
+          const holidayName = getHolidayName(
+            currentDateUTC,
+            settings.bundesland
+          );
           const li = document.createElement("li");
           li.classList.add("history-item");
-
           const entryContentDiv = document.createElement("div");
           entryContentDiv.classList.add("history-entry-content");
-
           const actionsDiv = document.createElement("div");
           actionsDiv.classList.add("history-actions");
-
           if (holidayName) {
             entryContentDiv.classList.add("holiday-day");
             entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${holidayName}</div>`;
-            // No actions for holidays
           } else if (entry) {
-            // Existing entry
             let locationEmoji = entry.buero ? "🏢" : "🏠";
             let specialDayText = entry.urlaub
               ? "Urlaub"
@@ -1155,7 +1155,6 @@
               : entry.glaz
               ? "GLAZ"
               : "";
-
             const diffVal = parseFloat(entry.differenz) || 0;
             weeklyTotalDiff += diffVal;
             const diffClass =
@@ -1164,7 +1163,6 @@
                 : diffVal < -0.001
                 ? "negative-value"
                 : "zero-value";
-
             if (specialDayText) {
               let bgColor = entry.krank
                 ? "var(--special-day-krank-bg)"
@@ -1182,23 +1180,33 @@
                 : "";
               entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${specialDayText} ${locationEmoji} ${diffDisplay}</div>`;
             } else {
-              // Normal work day entry
-              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
+              const kommenLokal = entry.kommen
+                ? new Date(entry.kommen)
+                : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
+              // Verwende die konsistente Berechnungsfunktion (korrigiert)
               const netTime = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
                 additionalPauseSaved
               );
-              const violations = checkViolations(kommenLokal, gehenLokal, netTime);
+              const violations = checkViolations(
+                kommenLokal,
+                gehenLokal,
+                netTime
+              );
               let violationMark = "",
                 moonMark = "";
               if (violations.any) {
                 if (settings.allowNachtarbeit) {
-                  if (violations.kommen || violations.gehen || violations.arbeitszeit)
+                  if (
+                    violations.kommen ||
+                    violations.gehen ||
+                    violations.arbeitszeit
+                  )
                     moonMark = ' <span class="moon-mark">🌙</span>';
                 } else {
                   violationMark = ' <span class="violation-mark">!</span>';
@@ -1210,47 +1218,19 @@
               )} - ${formatTime(
                 gehenLokal
               )} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${
-                entry.differenzTime // Use stored differenzTime
+                entry.differenzTime // Verwende gespeicherte differenzTime
               }</span>${violationMark} ${moonMark}</div>`;
             }
-
-            // --- MODIFIED PART: Add buttons using addEventListener ---
-            const infoButton = document.createElement("button");
-            infoButton.classList.add("inline-button");
-            infoButton.textContent = "i";
-            // Use a closure to capture the correct entry.datum for this specific button
-            infoButton.addEventListener("click", () => showDayDetails(entry.datum));
-
-            const deleteButton = document.createElement("button");
-            deleteButton.classList.add("delete-button");
-            deleteButton.textContent = "×";
-            // Use a closure to capture the correct entry.datum for this specific button
-            deleteButton.addEventListener("click", () => deleteEntryByDate(entry.datum));
-
-            actionsDiv.appendChild(infoButton);
-            actionsDiv.appendChild(deleteButton);
-            // --- END OF MODIFIED PART ---
+            actionsDiv.innerHTML = `<button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button><button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>`;
           } else {
-            // No entry for this day
             entryContentDiv.classList.add("no-data");
             entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>Kein Eintrag</div>`;
-
-            // --- MODIFIED PART: Add "+" button using addEventListener ---
-            const addButton = document.createElement("button");
-            addButton.classList.add("inline-button", "add-button");
-            addButton.textContent = "+";
-            // Use a closure to capture the correct currentDateStr for this specific button
-            addButton.addEventListener("click", () => showAddDayModal(currentDateStr));
-            actionsDiv.appendChild(addButton);
-            // --- END OF MODIFIED PART ---
+            actionsDiv.innerHTML = `<button class="inline-button add-button" onclick="showAddDayModal('${currentDateStr}')">+</button>`;
           }
-
           li.appendChild(entryContentDiv);
           li.appendChild(actionsDiv);
           historyList.appendChild(li);
-        } // End of loop through days
-
-        // Update weekly summary (unchanged)
+        }
         const diffClassSummary =
           weeklyTotalDiff > 0.001
             ? "positive-value"
@@ -1260,10 +1240,8 @@
         $("weekly-summary-content").innerHTML = `Gesamtdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(
           weeklyTotalDiff
         )} (${weeklyTotalDiff.toFixed(2)}h)</span>`;
-
-        updateWeekNavigation(); // Update prev/next buttons (unchanged)
+        updateWeekNavigation();
       }
-
 
       function parsePauseInputFromString(val) {
         if (!val) return 0;
