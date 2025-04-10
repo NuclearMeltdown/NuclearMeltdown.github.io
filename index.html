@@ -60,9 +60,6 @@
         bundesland: "NATIONAL", // Default: Nur bundesweite Feiertage
         allowWochenende: false,
         allowNachtarbeit: false,
-        // NEU: Startwerte für das Arbeitszeitkonto
-        startStundenkontoValue: 0,
-        startStundenkontoDate: null, // Format YYYY-MM-DD
       };
 
       // Hilfsfunktionen
@@ -128,12 +125,6 @@
           entry.glaz = entry.glaz || false;
           entry.pcBuchung = entry.pcBuchung || false;
           entry.buero = entry.buero || false;
-          // Ensure differenzTime exists for older entries
-          if (!entry.differenzTime) {
-            entry.differenzTime = formatDecimalToTime(
-              parseFloat(entry.differenz || 0)
-            );
-          }
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
@@ -141,7 +132,7 @@
         return history;
       }
 
-      // --- Feiertagslogik (UNVERÄNDERT) ---
+      // --- Feiertagslogik ---
       const holidays = {
         NATIONAL: {
           "01-01": "Neujahr",
@@ -264,33 +255,10 @@
         settings.bundesland = getFromLS("bundesland", "NATIONAL");
         settings.allowWochenende = getFromLS("allowWochenende") === "true";
         settings.allowNachtarbeit = getFromLS("allowNachtarbeit") === "true";
-        // NEU: Startkonto laden
-        settings.startStundenkontoValue = parseFloat(
-          getFromLS("startStundenkontoValue", "0")
-        );
-        settings.startStundenkontoDate = getFromLS("startStundenkontoDate"); // Kann null sein
-
         $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
-        // Optionsseite wird in loadOptions() befüllt
       }
 
       function saveSettings() {
-        // Prüfen, ob sich konto-relevante Settings geändert haben
-        const oldWochenAZ = settings.wochenarbeitszeit;
-        const oldStartKonto = settings.startStundenkontoValue;
-        const oldStartDate = settings.startStundenkontoDate;
-
-        settings.wochenarbeitszeit = parseFloat(
-          $("wochenarbeitszeit-setting").value
-        );
-        settings.bundesland = $("bundesland-select").value;
-        settings.allowWochenende = $("wochenende-toggle").checked;
-        settings.allowNachtarbeit = $("nachtarbeit-toggle").checked;
-        settings.startStundenkontoValue = parseFloat(
-          $("start-stundenkonto-value").value
-        );
-        settings.startStundenkontoDate = $("start-stundenkonto-date").value;
-
         storeToLS(
           "wochenarbeitszeitValue",
           settings.wochenarbeitszeit.toString()
@@ -304,31 +272,10 @@
           "allowNachtarbeit",
           settings.allowNachtarbeit ? "true" : "false"
         );
-        // NEU: Startkonto speichern
-        storeToLS(
-          "startStundenkontoValue",
-          settings.startStundenkontoValue.toString()
-        );
-        storeToLS("startStundenkontoDate", settings.startStundenkontoDate);
-
         $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
-
-        // NEU: Neuberechnung anstoßen, wenn relevante Settings geändert wurden
-        const needsRecalc =
-          oldWochenAZ !== settings.wochenarbeitszeit ||
-          oldStartKonto !== settings.startStundenkontoValue ||
-          oldStartDate !== settings.startStundenkontoDate;
-
-        if (needsRecalc) {
-          console.log("Recalculating history due to settings change...");
-          saveAndReload(getHistory()); // Ruft saveAndReload mit aktueller History auf
-        } else {
-          // Nur UI Updates, wenn keine Neuberechnung nötig
-          updateCalculations();
-          if (currentView === "history") loadHistory();
-          if (currentView === "month") loadMonthData();
-          if (currentView === "stats") calculateAndDisplayStats();
-        }
+        updateCalculations();
+        if (currentView === "history") loadHistory();
+        if (currentView === "month") loadMonthData();
       }
 
       function init() {
@@ -338,115 +285,27 @@
         [currentWeekYear, currentWeekNo] = getWeekNumber(heute);
         currentMonthYear = heute.getFullYear();
         currentMonth = heute.getMonth();
-
-        // NEU: Initiales Setzen des Readonly-Kontofeldes
-        // Führe eine initiale "trockene" Neuberechnung durch, um den aktuellen Stand zu ermitteln
-        const history = getHistory();
-        const lastKonto = calculateCurrentKontoFromHistory(history);
-        $("aktuelles-konto").value = lastKonto.toFixed(2);
-        $("aktuelles-konto-time").value = formatDecimalToTime(lastKonto);
-        colorKontoField(lastKonto); // Färbung anwenden
-
-        updateCalculations(); // Berechnet aktuelle Differenz etc.
+        const lastKonto = getFromLS("aktuellesStundenkonto");
+        if (lastKonto) {
+          $("aktuelles-konto").value = parseFloat(lastKonto).toFixed(2);
+        } else {
+          const history = getHistory();
+          if (history.length > 0) {
+            const lastEntry = history[history.length - 1];
+            if (lastEntry.stundenkonto) {
+              $("aktuelles-konto").value = parseFloat(
+                lastEntry.stundenkonto
+              ).toFixed(2);
+              storeToLS("aktuellesStundenkonto", lastEntry.stundenkonto);
+            }
+          }
+        }
+        updateCalculations();
         switchView("main");
         setupEventListeners();
         closeAddDayModal();
         closeDetailModal();
-        closeBulkModal();
-      }
-
-      // NEU: Hilfsfunktion zur Färbung des Kontofeldes
-      function colorKontoField(kontoValue) {
-        const el = $("aktuelles-konto");
-        const elTime = $("aktuelles-konto-time");
-        if (!el || !elTime) return;
-        [el, elTime].forEach((element) => {
-          element.classList.remove(
-            "positive-value",
-            "negative-value",
-            "zero-value"
-          );
-          if (kontoValue > 0.001) element.classList.add("positive-value");
-          else if (kontoValue < -0.001)
-            element.classList.add("negative-value");
-          else element.classList.add("zero-value");
-        });
-      }
-
-      // NEU: Funktion, um den aktuellen Kontostand basierend auf History und Settings zu ermitteln
-      function calculateCurrentKontoFromHistory(history) {
-        if (history.length === 0) {
-          // Wenn keine History, nimm den Startwert (oder 0)
-          return settings.startStundenkontoValue || 0;
-        }
-
-        // Führe die Logik von saveAndReload (Berechnungsteil) durch, ohne zu speichern
-        let currentKonto = settings.startStundenkontoValue || 0;
-        let foundStartDate = !settings.startStundenkontoDate; // True if no start date set
-
-        for (let i = 0; i < history.length; i++) {
-          const entry = history[i];
-          const entryDateStr = entry.datum;
-          const diff = parseFloat(entry.differenz || 0);
-
-          if (!foundStartDate && entryDateStr >= settings.startStundenkontoDate) {
-            // Erster Eintrag am oder nach dem Startdatum
-            currentKonto = settings.startStundenkontoValue + diff;
-            foundStartDate = true;
-          } else if (foundStartDate) {
-            // Nachfolgende Einträge nach dem Startdatum
-            currentKonto += diff;
-          } else {
-            // Einträge vor dem Startdatum (relative Kette, hier vereinfacht: ignoriert für Endwert)
-            // Für eine präzisere Anzeige müsste man hier ab 0 oder dem allerersten Eintrag rechnen.
-            // Da wir nur den *letzten* Stand brauchen, reicht es, ab dem Startdatum zu rechnen.
-            // Wenn kein Startdatum gesetzt ist, wird die Kette von Anfang an aufgebaut.
-            if (i === 0) {
-              currentKonto = diff; // Startet bei 0 + diff des ersten Eintrags
-            } else {
-              // Hier bräuchte man den vorherigen Wert, aber da wir nur den Endwert wollen,
-              // und die Kette sowieso am Startdatum neu beginnt, können wir dies überspringen,
-              // *solange* foundStartDate false ist.
-              // Wenn kein Startdatum gesetzt ist, wird die Kette normal durchlaufen.
-              if (!settings.startStundenkontoDate) {
-                 // Wenn kein Startdatum, dann normale Kette von Anfang an
-                 if (i > 0) {
-                    // Finde den vorherigen berechneten Wert (simuliert)
-                    let prevKontoSim = 0;
-                    if (i === 1) prevKontoSim = parseFloat(history[0].differenz || 0);
-                    else {
-                        // Simuliere Kette bis zum vorigen Element
-                        prevKontoSim = history.slice(0, i).reduce((sum, current) => sum + parseFloat(current.differenz || 0), 0);
-                    }
-                    currentKonto = prevKontoSim + diff;
-                 } else {
-                    currentKonto = diff; // Erster Eintrag
-                 }
-              }
-            }
-          }
-          // Speichere den simulierten Wert temporär für die nächste Iteration, falls kein Startdatum gesetzt
-          if (!settings.startStundenkontoDate) {
-              entry.tempKonto = currentKonto; // Nur für die Simulation innerhalb dieser Funktion
-          }
-        }
-
-        // Bereinige temporäre Eigenschaft
-         if (!settings.startStundenkontoDate) {
-             history.forEach(e => delete e.tempKonto);
-         }
-
-
-        // Wenn kein Startdatum gesetzt wurde ODER das Startdatum vor dem ersten Eintrag liegt,
-        // ist currentKonto der kumulierte Wert des letzten Eintrags.
-        // Wenn das Startdatum nach dem letzten Eintrag liegt, ist es der Startwert.
-        // Wenn das Startdatum zwischen Einträgen liegt, ist es der kumulierte Wert ab dem Startdatum.
-        if (!foundStartDate && settings.startStundenkontoDate) {
-          // Startdatum liegt nach allen Einträgen
-          return settings.startStundenkontoValue;
-        }
-
-        return currentKonto; // Der zuletzt berechnete Wert
+        closeBulkModal(); // Ensure it's closed initially
       }
 
       function setupEventListeners() {
@@ -460,8 +319,9 @@
         $("pc-buchung").onchange = onInputChange;
         $("buero-toggle").onchange = onInputChange;
         $("zusatzliche-pause").oninput = onInputChange;
-        // $("aktuelles-konto").onchange = onInputChange; // ENTFERNT: Feld ist readonly
+        $("aktuelles-konto").onchange = onInputChange;
         document.querySelectorAll(".close-button").forEach((btn) => {
+          // Adjusted to handle different modals
           btn.onclick = () => {
             const modal = btn.closest(".modal");
             if (modal) modal.style.display = "none";
@@ -472,34 +332,33 @@
         $("krank-toggle").onchange = () => toggleSpecialDay("krank");
         $("schulung-toggle").onchange = () => toggleSpecialDay("schulung");
         $("glaz-toggle").onchange = () => toggleSpecialDay("glaz");
+        // New listeners for bulk booking modal
         $("open-bulk-modal-button").addEventListener("click", showBulkModal);
         $("apply-bulk-modal-button").addEventListener(
           "click",
           applyBulkBooking
         );
-        // Options Listener
-        $("bundesland-select").onchange = (e) => saveSettings(); // Trigger saveSettings
+        $("bundesland-select").onchange = (e) => {
+          settings.bundesland = e.target.value;
+          saveSettings();
+        };
         $("wochenarbeitszeit-setting").onchange = (e) => {
           const val = parseFloat(e.target.value);
           if (!isNaN(val) && val > 0) {
-            saveSettings(); // Trigger saveSettings
+            settings.wochenarbeitszeit = val;
+            saveSettings();
           } else {
-            e.target.value = settings.wochenarbeitszeit.toFixed(1); // Reset bei ungültiger Eingabe
+            e.target.value = settings.wochenarbeitszeit.toFixed(1);
           }
         };
-        $("wochenende-toggle").onchange = (e) => saveSettings(); // Trigger saveSettings
-        $("nachtarbeit-toggle").onchange = (e) => saveSettings(); // Trigger saveSettings
-        // NEU: Listener für Startkonto-Felder
-        $("start-stundenkonto-value").onchange = (e) => {
-          const val = parseFloat(e.target.value);
-          if (!isNaN(val)) {
-            saveSettings(); // Trigger saveSettings
-          } else {
-            e.target.value = settings.startStundenkontoValue.toFixed(2); // Reset
-          }
+        $("wochenende-toggle").onchange = (e) => {
+          settings.allowWochenende = e.target.checked;
+          saveSettings();
         };
-        $("start-stundenkonto-date").onchange = (e) => saveSettings(); // Trigger saveSettings
-
+        $("nachtarbeit-toggle").onchange = (e) => {
+          settings.allowNachtarbeit = e.target.checked;
+          saveSettings();
+        };
         $("export-button-options").addEventListener(
           "click",
           exportHistoryToJson
@@ -525,7 +384,6 @@
         $("buero-toggle").checked = getFromLS("bueroChecked") === "true";
         const storedPause = getFromLS("zusatzlichePauseValue");
         if (storedPause) $("zusatzliche-pause").value = storedPause;
-        // aktuelles-konto wird in init() gesetzt
       }
 
       function storeInputsToLocalStorage() {
@@ -540,7 +398,7 @@
           $("buero-toggle").checked ? "true" : "false"
         );
         storeToLS("zusatzlichePauseValue", $("zusatzliche-pause").value);
-        // storeToLS("aktuellesStundenkonto", $("aktuelles-konto").value); // ENTFERNT
+        storeToLS("aktuellesStundenkonto", $("aktuelles-konto").value);
       }
 
       function setZeit(type) {
@@ -591,11 +449,10 @@
         const ak = getAdjustedKommenZeit();
         if (!ak || !gehenZeit) return { hours: 0, minutes: 0, totalHours: 0 };
         let gehenAdjusted = new Date(gehenZeit.getTime());
-        // Berücksichtige Nachtarbeit (Tagwechsel)
         if (gehenAdjusted < ak)
           gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
         const diffMs = gehenAdjusted - ak;
-        if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 }; // Sollte nicht passieren nach Anpassung
+        if (diffMs < 0) return { hours: 0, minutes: 0, totalHours: 0 };
         const totalMinutes = Math.floor(diffMs / (1000 * 60));
         const hh = Math.floor(totalMinutes / 60);
         const mm = totalMinutes % 60;
@@ -603,140 +460,38 @@
         return { hours: hh, minutes: mm, totalHours: totalH };
       }
 
-      // --- NEUE PAUSENLOGIK ---
-      function calculateNetArbeitszeit(totalPresenceHours, manualPauseHours) {
-        if (totalPresenceHours <= 0) return 0;
-
-        // 1. Bestimme die *gesetzlich erforderliche* automatische Pause
-        let requiredAutoPauseHours = 0;
-        if (totalPresenceHours > 9) {
-          requiredAutoPauseHours = 0.75; // 45 Minuten
-        } else if (totalPresenceHours > 6) {
-          requiredAutoPauseHours = 0.5; // 30 Minuten
-        }
-
-        // 2. Berechne die Brutto-Arbeitszeit (Anwesenheit - Pausen)
-        const grossWorkHours =
-          totalPresenceHours - manualPauseHours - requiredAutoPauseHours;
-
-        // 3. Wende die Capping-Logik an
-        let netArbeitszeit;
-        const epsilon = 1e-9; // Kleine Toleranz für Fließkommavergleiche
-
-        if (
-          totalPresenceHours > 6 + epsilon &&
-          totalPresenceHours <= 6.5 + epsilon
-        ) {
-          // Zwischen 6:01 und 6:30 Anwesenheit -> Netto = max 6:00
-          netArbeitszeit = Math.min(grossWorkHours, 6.0);
-        } else if (
-          totalPresenceHours > 9.5 + epsilon &&
-          totalPresenceHours <= 9.75 + epsilon
-        ) {
-          // Zwischen 9:31 und 9:45 Anwesenheit -> Netto = max 9:00
-          // (Da 30min Pause schon bei >6h abgezogen wurden, entspricht dies 9h Netto)
-          netArbeitszeit = Math.min(grossWorkHours, 9.0);
-        } else {
-          // Normalfall
-          netArbeitszeit = grossWorkHours;
-        }
-
-        // Stelle sicher, dass die Nettozeit nicht negativ ist
-        return Math.max(0, netArbeitszeit);
+      function calculateGesamtPause(totalHours) {
+        let pausen = parsePauseInput("zusatzliche-pause");
+        if (totalHours > 9) pausen += 0.75;
+        else if (totalHours > 6) pausen += 0.5;
+        return pausen;
       }
-      // --- ENDE NEUE PAUSENLOGIK ---
 
-      // Wrapper für die Hauptseitenberechnung
       function calculateArbeitszeit() {
-        const wTime = calculateWorkingTime(); // Anwesenheit
-        const manualPause = parsePauseInput("zusatzliche-pause");
-        return calculateNetArbeitszeit(wTime.totalHours, manualPause);
-      }
-
-      // Wrapper für die Berechnung aus gespeicherten Daten (History, Stats, Details)
-      function calculateNetArbeitszeitFromEntryData(
-        kommenLokal,
-        gehenLokal,
-        additionalPauseHours = 0
-      ) {
-        if (!kommenLokal || !gehenLokal) return 0;
-        let gehenAdjusted = new Date(gehenLokal.getTime());
-        if (gehenAdjusted < kommenLokal)
-          gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-        const diffMs = gehenAdjusted - kommenLokal;
-        if (diffMs < 0) return 0;
-        const totalPresenceHours = diffMs / (1000 * 60 * 60);
-        return calculateNetArbeitszeit(totalPresenceHours, additionalPauseHours);
-      }
-
-      // Diese Funktion berechnet nur noch die *anzuzeigende* Gesamtpause
-      function calculateDisplayPause(totalPresenceHours, netArbeitszeit) {
-        if (totalPresenceHours <= 0 || netArbeitszeit < 0) return 0;
-        // Die tatsächliche Pause ist die Differenz aus Anwesenheit und Nettozeit
-        const effectivePause = totalPresenceHours - netArbeitszeit;
-        return Math.max(0, effectivePause); // Sicherstellen, dass Pause nicht negativ ist
+        const wTime = calculateWorkingTime();
+        if (wTime.totalHours <= 0) return 0;
+        const pausen = calculateGesamtPause(wTime.totalHours);
+        const netArbeitszeit = wTime.totalHours - pausen;
+        return Math.max(0, netArbeitszeit);
       }
 
       function calculateEndTimeFixpoint(desiredNet) {
         const ak = getAdjustedKommenZeit();
         if (!ak) return "--:--";
-
-        const manualPauseMain = parsePauseInput("zusatzliche-pause");
-        let presenceEstimate = desiredNet; // Startschätzung für Anwesenheit
-
-        // Iterativer Ansatz, um die Anwesenheit zu finden, die zur gewünschten Nettozeit führt
-        for (let i = 0; i < 10; i++) { // Mehr Iterationen für Stabilität
-            const prevPresence = presenceEstimate;
-
-            // Berechne Nettozeit für die *geschätzte* Anwesenheit
-            const currentNet = calculateNetArbeitszeit(prevPresence, manualPauseMain);
-
-            // Passe die Schätzung an: Differenz zur Zielzeit + aktuelle Anwesenheit
-            // Wenn currentNet < desiredNet, muss die Anwesenheit erhöht werden.
-            // Wenn currentNet > desiredNet, muss die Anwesenheit verringert werden.
-            // Die Anpassung sollte die Pausen berücksichtigen.
-            const diffNet = desiredNet - currentNet;
-            // Grobe Anpassung: Erhöhe/verringere Anwesenheit um die Netto-Differenz
-            // Dies konvergiert, da Pausen monoton mit der Anwesenheit steigen (oder gleich bleiben)
-            presenceEstimate += diffNet;
-
-             // Verhindere negative Anwesenheit
-            presenceEstimate = Math.max(0, presenceEstimate);
-
-            // Prüfe auf Konvergenz
-            if (Math.abs(presenceEstimate - prevPresence) < 1 / 600) { // Konvergenz auf 0.1 Minuten
-                 // Finale Prüfung mit der konvergierten Anwesenheit
-                 const finalNet = calculateNetArbeitszeit(presenceEstimate, manualPauseMain);
-                 // Wenn die finale Nettozeit leicht abweicht (durch Capping),
-                 // muss die Anwesenheit ggf. noch minimal justiert werden.
-                 // Beispiel: Ziel 6:00, Konvergenz bei 6:30 Anwesenheit -> Netto 6:00. Passt.
-                 // Beispiel: Ziel 6:01, Konvergenz bei 6:30 -> Netto 6:00. Falsch.
-                 //           -> Erhöhe Anwesenheit leicht (z.B. auf 6:31) -> Netto 6:01. Passt.
-                 if (Math.abs(finalNet - desiredNet) > 1/600) {
-                     if (finalNet < desiredNet && desiredNet === 6.0 && presenceEstimate <= 6.5) {
-                         // Sonderfall: Ziel 6:00, aber Capping greift. Anwesenheit muss <= 6:30 sein.
-                         // Die Konvergenz sollte hier korrekt sein.
-                     } else if (finalNet < desiredNet && desiredNet === 9.0 && presenceEstimate <= 9.75) {
-                         // Sonderfall: Ziel 9:00, aber Capping greift. Anwesenheit muss <= 9:45 sein.
-                         // Die Konvergenz sollte hier korrekt sein.
-                     }
-                      else if (finalNet < desiredNet) {
-                         // Netto zu niedrig, erhöhe Anwesenheit minimal über die Capping-Grenze
-                         if (presenceEstimate <= 6.5 + 1e-9) presenceEstimate = 6.5 + 1/60; // Springe auf 6:31
-                         else if (presenceEstimate <= 9.75 + 1e-9) presenceEstimate = 9.75 + 1/60; // Springe auf 9:46
-                         else presenceEstimate += (desiredNet - finalNet); // Normale Anpassung
-                     }
-                 }
-                 break; // Konvergiert
-            }
+        let presence = desiredNet;
+        const additionalPauseMain = parsePauseInput("zusatzliche-pause");
+        for (let i = 0; i < 5; i++) {
+          const prevPresence = presence;
+          let pausen = additionalPauseMain;
+          if (prevPresence > 9) pausen += 0.75;
+          else if (prevPresence > 6) pausen += 0.5;
+          presence = desiredNet + pausen;
+          if (Math.abs(presence - prevPresence) < 1e-9) break;
         }
-
-
         const endTime = new Date(ak.getTime());
-        endTime.setMinutes(endTime.getMinutes() + Math.round(presenceEstimate * 60));
+        endTime.setMinutes(endTime.getMinutes() + Math.round(presence * 60));
         return formatTime(endTime);
       }
-
 
       function updateEndTimes() {
         if (!kommenZeit) {
@@ -757,31 +512,21 @@
       }
 
       function updateCalculations() {
-        const netArbeitszeit = calculateArbeitszeit(); // Nutzt neue Logik
+        const netArbeitszeit = calculateArbeitszeit();
         const sollProTag = settings.wochenarbeitszeit / 5;
         let diff =
           netArbeitszeit > 0
             ? parseFloat((netArbeitszeit - sollProTag).toFixed(2))
             : 0;
-
-        // NEU: Lese aktuellen Kontostand aus dem Readonly-Feld
         const aktKontoVal = parseFloat($("aktuelles-konto").value) || 0;
         let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
-
-        const wTime = calculateWorkingTime(); // Anwesenheit
-        // NEU: Berechne die anzuzeigende Pause als Differenz
-        const displayPausen = calculateDisplayPause(
-          wTime.totalHours,
-          netArbeitszeit
-        );
-        const pausenMin = Math.round(displayPausen * 60);
-
+        const wTime = calculateWorkingTime();
+        const pausen = calculateGesamtPause(wTime.totalHours);
+        const pausenMin = Math.round(pausen * 60);
         $("anwesend-zeit").value = `${wTime.hours}:${pad(
           wTime.minutes
         )} (${wTime.totalHours.toFixed(2)}h)`;
-        $("pausenzeit").value = `${pausenMin} Min (${displayPausen.toFixed(
-          2
-        )}h)`;
+        $("pausenzeit").value = `${pausenMin} Min (${pausen.toFixed(2)}h)`;
         $("arbeitszeit").value = `${formatDecimalToTime(
           netArbeitszeit
         )} (${netArbeitszeit.toFixed(2)}h)`;
@@ -792,16 +537,13 @@
         $("differenz-time").value = formatDecimalToTime(diff);
         $("neues-konto").value = newKto.toFixed(2);
         $("neues-konto-time").value = formatDecimalToTime(newKto);
-        $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoVal); // Aktualisiere Zeitformat des aktuellen Kontos
-
-        // Färbung der Felder
-        colorKontoField(aktKontoVal); // Färbe aktuelles Konto
+        $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoVal);
         const fieldsToColor = [
           { id: "differenz", value: diff },
           { id: "differenz-time", value: diff },
           { id: "neues-konto", value: newKto },
           { id: "neues-konto-time", value: newKto },
-          // { id: "aktuelles-konto-time", value: aktKontoVal }, // Wird schon von colorKontoField gemacht
+          { id: "aktuelles-konto-time", value: aktKontoVal },
         ];
         fieldsToColor.forEach((item) => {
           const el = $(item.id);
@@ -816,7 +558,6 @@
           else el.classList.add("zero-value");
         });
 
-        // Hinweise und Nachtmodus-Icons (unverändert)
         let hinweisText = "";
         let showKommenMoon = false,
           showGehenMoon = false,
@@ -861,7 +602,6 @@
         updateEndTimes();
       }
 
-      // Diese Funktion wird nicht mehr für die Netto-Berechnung verwendet, nur noch für die Anzeige
       function calculateAutoPauseForDuration(totalHours) {
         if (totalHours > 9) return 0.75;
         if (totalHours > 6) return 0.5;
@@ -887,18 +627,10 @@
           violations.kommen = true;
           violations.any = true;
         }
-        // Gehen-Prüfung: Nur > 20 Uhr prüfen, da Nachtarbeit über Mitternacht möglich ist
-        const gehenLocalHour = gehenDate.getHours(); // Stunde der originalen Gehen-Zeit
-        if (gehenLocalHour >= 20 || (gehenLocalHour < kommenDate.getHours() && gehenAdjusted.getDate() > kommenDate.getDate())) {
-             // Nach 20 Uhr ODER am nächsten Tag vor der Kommen-Zeit (impliziert nach Mitternacht)
-             // Die zweite Bedingung ist etwas ungenau, aber deckt den Fall ab, dass man z.B. um 1 Uhr geht.
-             // Eine genauere Prüfung wäre komplexer.
-             if (gehenStunde > 20 || gehenStunde < 6) { // Prüfe die Stunde relativ zum Tagesbeginn (0-24+)
-                violations.gehen = true;
-                violations.any = true;
-             }
+        if (gehenStunde > 20) {
+          violations.gehen = true;
+          violations.any = true;
         }
-
         if ((arbeitszeit > 0 && arbeitszeit < 4) || arbeitszeit > 10) {
           violations.arbeitszeit = true;
           violations.any = true;
@@ -907,7 +639,7 @@
       }
 
       function saveDay() {
-        updateCalculations(); // Stellt sicher, dass Differenz aktuell ist
+        updateCalculations();
         const today = new Date();
         const dayOfWeek = today.getDay();
         if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
@@ -921,7 +653,7 @@
           return;
         }
         const adjustedKommen = getAdjustedKommenZeit();
-        const netArbeitszeit = calculateArbeitszeit(); // Holt die korrekte Nettozeit
+        const netArbeitszeit = calculateArbeitszeit();
         const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null;
         if (!adjustedKommen || !currentGehen) {
           alert("Bitte Kommen- und Gehen-Zeit für die Speicherung angeben.");
@@ -950,9 +682,9 @@
           )
             return;
         }
-        const diffVal = parseFloat($("differenz").value) || 0; // Wird in updateCalculations berechnet
-        const diffTime = formatDecimalToTime(diffVal); // Formatieren der Differenz
-        // const newVal = parseFloat($("neues-konto").value) || 0; // Nicht mehr direkt speichern
+        const diffVal = parseFloat($("differenz").value) || 0;
+        const diffTime = $("differenz-time").value || "0:00";
+        const newVal = parseFloat($("neues-konto").value) || 0;
         const kommenStr = adjustedKommen.toISOString();
         const gehenStr = currentGehen.toISOString();
         const isBuero = $("buero-toggle").checked;
@@ -964,8 +696,8 @@
         const dayData = {
           datum: datum,
           differenz: diffVal.toFixed(2),
-          differenzTime: diffTime, // Korrekt formatiert speichern
-          stundenkonto: "0.00", // Platzhalter, wird von saveAndReload berechnet
+          differenzTime: diffTime,
+          stundenkonto: newVal.toFixed(2),
           kommen: kommenStr,
           gehen: gehenStr,
           urlaub: false,
@@ -987,7 +719,7 @@
         } else {
           history.push(dayData);
         }
-        saveAndReload(history); // Speichert und berechnet das Konto neu
+        saveAndReload(history);
         alert("Der Tag wurde gespeichert.");
       }
 
@@ -1026,16 +758,12 @@
           settings.wochenarbeitszeit.toFixed(1);
         $("wochenende-toggle").checked = settings.allowWochenende;
         $("nachtarbeit-toggle").checked = settings.allowNachtarbeit;
-        // NEU: Startkonto-Felder befüllen
-        $("start-stundenkonto-value").value =
-          settings.startStundenkontoValue.toFixed(2);
-        $("start-stundenkonto-date").value = settings.startStundenkontoDate || ""; // Leer, wenn null
       }
 
       function loadHistory() {
         const historyList = $("history-list");
         historyList.innerHTML = "";
-        let history = getHistory(); // Enthält bereits die berechneten Kontostände von saveAndReload
+        let history = getHistory();
         const weekStartDateUTC = getDateOfISOWeek(
           currentWeekNo,
           currentWeekYear
@@ -1126,7 +854,6 @@
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
-              // Verwende die konsistente Berechnungsfunktion
               const netTime = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -1157,7 +884,7 @@
               )} - ${formatTime(
                 gehenLokal
               )} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${
-                entry.differenzTime // Verwende gespeicherte differenzTime
+                entry.differenzTime
               }</span>${violationMark} ${moonMark}</div>`;
             }
             actionsDiv.innerHTML = `<button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button><button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>`;
@@ -1196,7 +923,22 @@
         }
       }
 
-      // calculateNetArbeitszeitFromEntryData wurde bereits angepasst
+      function calculateNetArbeitszeitFromEntryData(
+        kommenLokal,
+        gehenLokal,
+        additionalPauseHours = 0
+      ) {
+        if (!kommenLokal || !gehenLokal) return 0;
+        let gehenAdjusted = new Date(gehenLokal.getTime());
+        if (gehenAdjusted < kommenLokal)
+          gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
+        const diffMs = gehenAdjusted - kommenLokal;
+        if (diffMs < 0) return 0;
+        const totalH = diffMs / (1000 * 60 * 60);
+        const autoPause = calculateAutoPauseForDuration(totalH);
+        const totalPause = autoPause + additionalPauseHours;
+        return Math.max(0, totalH - totalPause);
+      }
 
       function deleteEntryByDate(dateStr) {
         let history = getHistory();
@@ -1211,7 +953,7 @@
             )
           ) {
             history.splice(index, 1);
-            saveAndReload(history); // Löschen erfordert Neuberechnung
+            saveAndReload(history);
           }
         }
       }
@@ -1351,12 +1093,12 @@
         const existingIndex = history.findIndex((e) => e.datum === dateValStr);
         const displayDate = realDate.toLocaleDateString("de-DE");
         const sollProTag = settings.wochenarbeitszeit / 5;
-        // const lastKontoPlaceholder = "0.00"; // Nicht mehr nötig
+        const lastKontoPlaceholder = "0.00";
         let dayData = {
           datum: dateValStr,
           differenz: "0.00",
           differenzTime: "0:00",
-          stundenkonto: "0.00", // Platzhalter
+          stundenkonto: lastKontoPlaceholder,
           kommen: null,
           gehen: null,
           urlaub: isUrlaub,
@@ -1369,9 +1111,6 @@
         };
         if (isUrlaub || isKrank || isSchulung) {
           let label = isUrlaub ? "Urlaub" : isKrank ? "Krank" : "Schulung";
-          // Differenz ist 0 für diese Tage
-          dayData.differenz = "0.00";
-          dayData.differenzTime = "0:00";
           if (existingIndex !== -1) history[existingIndex] = dayData;
           else history.push(dayData);
           saveAndReload(history);
@@ -1389,7 +1128,6 @@
           alert(`${label} für ${displayDate} gespeichert.`);
           return;
         }
-        // Normaler Arbeitstag
         const kommenVal = $("add-day-kommen").value,
           gehenVal = $("add-day-gehen").value;
         if (!kommenVal || !gehenVal) {
@@ -1409,8 +1147,6 @@
           adjustedKommenManual.setMinutes(
             adjustedKommenManual.getMinutes() - 8
           );
-
-        // Berechne Anwesenheit
         const diffMsManual = gehenDateManual - adjustedKommenManual;
         if (diffMsManual < 0) {
           alert("Angepasste Kommen-Zeit liegt nach Gehen-Zeit!");
@@ -1420,13 +1156,9 @@
         const additionalPauseManualHours = parsePauseInput(
           "add-day-zusatzliche-pause"
         );
-
-        // Berechne Nettozeit mit der neuen Logik
-        const netManual = calculateNetArbeitszeit(
-          totalHManual,
-          additionalPauseManualHours
-        );
-
+        const autoPauseManual = calculateAutoPauseForDuration(totalHManual);
+        const pausenManual = autoPauseManual + additionalPauseManualHours;
+        const netManual = Math.max(0, totalHManual - pausenManual);
         const violations = checkViolations(
           adjustedKommenManual,
           gehenDateManual,
@@ -1443,7 +1175,7 @@
         const diffTimeManual = formatDecimalToTime(diffValManual);
         dayData.differenz = diffValManual.toFixed(2);
         dayData.differenzTime = diffTimeManual;
-        dayData.kommen = adjustedKommenManual.toISOString(); // Speichere angepasste Zeit
+        dayData.kommen = adjustedKommenManual.toISOString();
         dayData.gehen = gehenDateManual.toISOString();
         dayData.pcBuchung = isPcBuchungAddDay;
         dayData.zusatzPause = additionalPauseManualValue;
@@ -1458,6 +1190,7 @@
       }
 
       function parseTimeForDate(timeStr, targetDate) {
+        // targetDate ist jetzt ein Date Objekt für den korrekten Tag, lokale Zeit Mitternacht
         if (!timeStr || !targetDate) return null;
         const match = timeStr.match(/^(\d{2}):(\d{2})$/);
         if (!match) return null;
@@ -1465,90 +1198,84 @@
         const mm = parseInt(match[2], 10);
         if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
           return null;
+
+        // Erstelle eine Kopie des Zieldatums, um das Original nicht zu ändern
         const resultDate = new Date(targetDate.getTime());
+        // Setze die Stunden und Minuten in der lokalen Zeitzone
         resultDate.setHours(hh, mm, 0, 0);
         return resultDate;
       }
 
-      // findLastKontoBeforeDate ist nicht mehr direkt nötig, da saveAndReload die Kette aufbaut
+      function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
+        const targetDate = new Date(dateStr + "T00:00:00");
+        const relevantHistory = history
+          .filter(
+            (entry, index) =>
+              index !== excludeIndex &&
+              new Date(entry.datum + "T00:00:00") < targetDate
+          )
+          .sort((a, b) => new Date(b.datum) - new Date(a.datum));
+        if (
+          relevantHistory.length > 0 &&
+          relevantHistory[0].stundenkonto !== undefined
+        )
+          return parseFloat(relevantHistory[0].stundenkonto) || 0;
+        return parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+      }
 
-      // --- ÜBERARBEITETE saveAndReload Funktion ---
       function saveAndReload(history) {
-        // 1. Sortieren nach Datum (wichtig für korrekte Berechnung)
         history.forEach((entry) => {
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
-
-        // 2. Hole Startwert und Startdatum aus den Settings
-        const startKonto = settings.startStundenkontoValue || 0;
-        const startDate = settings.startStundenkontoDate; // YYYY-MM-DD oder null
-
-        // 3. Berechne das Stundenkonto für jeden Eintrag neu
-        let currentKonto = startKonto; // Startwert initialisieren
-        let foundStartDate = !startDate; // True, wenn kein Startdatum gesetzt ist
-
-        for (let i = 0; i < history.length; i++) {
-          const entry = history[i];
-          const entryDateStr = entry.datum;
-          const diff = parseFloat(entry.differenz || 0);
-
-          if (!foundStartDate && entryDateStr >= startDate) {
-            // Dies ist der erste Eintrag am oder nach dem Startdatum
-            // Das Konto *vor* diesem Eintrag war 'startKonto'.
-            // Das Konto *nach* diesem Eintrag ist 'startKonto + diff'.
-            currentKonto = startKonto + diff;
-            entry.stundenkonto = currentKonto.toFixed(2);
-            foundStartDate = true;
-          } else if (foundStartDate) {
-            // Dies ist ein Eintrag nach dem Startdatum (oder alle Einträge, wenn kein Startdatum)
-            // Das Konto wird basierend auf dem *vorherigen* Eintrag berechnet.
-            const prevKonto = parseFloat(history[i - 1].stundenkonto || 0);
-            currentKonto = prevKonto + diff;
-            entry.stundenkonto = currentKonto.toFixed(2);
+        let previousKonto =
+          parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+        if (history.length > 0) {
+          const firstDate = history[0].datum;
+          const originalHistory = JSON.parse(getFromLS("history", "[]"));
+          const relevantOriginalHistory = originalHistory.filter(
+            (entry) =>
+              new Date(entry.datum + "T00:00:00") <
+              new Date(firstDate + "T00:00:00")
+          );
+          if (relevantOriginalHistory.length > 0) {
+            relevantOriginalHistory.sort(
+              (a, b) => new Date(b.datum) - new Date(a.datum)
+            );
+            previousKonto = parseFloat(
+              relevantOriginalHistory[0].stundenkonto || 0
+            );
           } else {
-            // Dies ist ein Eintrag *vor* dem Startdatum
-            // Diese Kette wird separat berechnet, beginnend bei 0 (oder einem früheren Startpunkt, falls implementiert)
-            // Für Einfachheit starten wir hier bei 0 für den allerersten Eintrag vor dem Startdatum.
-            if (i === 0) {
-              currentKonto = diff; // Startet bei 0 + diff
-            } else {
-              const prevKonto = parseFloat(history[i - 1].stundenkonto || 0);
-              currentKonto = prevKonto + diff;
-            }
-            entry.stundenkonto = currentKonto.toFixed(2);
-            // WICHTIG: currentKonto hier nicht global überschreiben, da es nur für die Kette *vor* dem Startdatum gilt.
-            // Die Kette wird am Startdatum sowieso mit 'startKonto' neu initialisiert.
+            previousKonto =
+              parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
           }
         }
-
-        // 4. Speichere die aktualisierte History im Local Storage
+        for (let i = 0; i < history.length; i++) {
+          const entry = history[i];
+          const diff = parseFloat(entry.differenz || 0);
+          if (i === 0) entry.stundenkonto = (previousKonto + diff).toFixed(2);
+          else {
+            const prevEntryKonto = parseFloat(history[i - 1].stundenkonto || 0);
+            entry.stundenkonto = (prevEntryKonto + diff).toFixed(2);
+          }
+        }
         storeToLS("history", JSON.stringify(history));
-
-        // 5. Aktualisiere das Readonly-Feld auf der Hauptseite mit dem letzten Kontostand
         const latestEntry =
           history.length > 0 ? history[history.length - 1] : null;
         const latestKonto = latestEntry
           ? parseFloat(latestEntry.stundenkonto || 0)
-          : startKonto; // Wenn History leer, zeige Startkonto an
-
+          : parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
         $("aktuelles-konto").value = latestKonto.toFixed(2);
-        $("aktuelles-konto-time").value = formatDecimalToTime(latestKonto);
-        colorKontoField(latestKonto); // Färbung anwenden
-
-        // 6. Aktualisiere die Berechnungen auf der Hauptseite (Differenz etc.)
+        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2));
         updateCalculations();
-
-        // 7. Schließe Modals und lade ggf. aktuelle Ansicht neu
         closeAddDayModal();
         closeDetailModal();
-        closeBulkModal();
+        closeBulkModal(); // Close bulk modal too if it was open
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
       }
-      // --- ENDE ÜBERARBEITETE saveAndReload Funktion ---
 
       function closeAddDayModal() {
         const modal = $("add-day-modal");
@@ -1556,7 +1283,7 @@
       }
 
       function showDayDetails(dateStr) {
-        const history = getHistory(); // Holt History mit korrekten Kontoständen
+        const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
         if (!entry) return;
         const entryDate = new Date(dateStr + "T12:00:00");
@@ -1578,9 +1305,10 @@
             : diffVal < -0.001
             ? "negative-value"
             : "zero-value";
-        const kontoVal = parseFloat(entry.stundenkonto || 0); // Lese berechneten Wert
-        const kontoFormatted = formatDecimalToTime(kontoVal);
-        const kontoDecimal = kontoVal.toFixed(2);
+        const kontoFormatted = formatDecimalToTime(
+          parseFloat(entry.stundenkonto || 0)
+        );
+        const kontoDecimal = parseFloat(entry.stundenkonto || 0).toFixed(2);
         const holidayName = getHolidayName(entryDate, settings.bundesland);
         if (holidayName) {
           detailsHTML = `<p><strong>Datum:</strong> ${dispDate}</p><p><strong>Status:</strong> ${holidayName} (Feiertag)</p>`;
@@ -1607,18 +1335,16 @@
             entry.zusatzPause || ""
           );
           let netCalculated = 0;
-          let totalH = 0; // Anwesenheit
           if (kommenLokal && gehenLokal) {
             let gehenAdjusted = new Date(gehenLokal.getTime());
             if (gehenAdjusted < kommenLokal)
               gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
             const diffMs = gehenAdjusted - kommenLokal;
             if (diffMs >= 0) {
-              totalH = diffMs / (1000 * 60 * 60);
+              const totalH = diffMs / (1000 * 60 * 60);
               anwesenheitLabel = `${Math.floor(totalH)}:${pad(
                 Math.round((totalH % 1) * 60)
               )} (${totalH.toFixed(2)}h)`;
-              // Verwende die konsistente Funktion
               netCalculated = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -1627,8 +1353,7 @@
               nettoLabel = `${formatDecimalToTime(
                 netCalculated
               )} (${netCalculated.toFixed(2)}h)`;
-              // Berechne die effektive Pause
-              const pausenVal = calculateDisplayPause(totalH, netCalculated);
+              const pausenVal = totalH - netCalculated;
               pausenLabel =
                 pausenVal > 0
                   ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(
@@ -1675,11 +1400,11 @@
         const deleteBtn = $("detail-delete-button");
         editBtn.onclick = () => {
           closeDetailModal();
-          showAddDayModal(dateStr); // Öffnet Modal zum Ändern
+          showAddDayModal(dateStr);
         };
         deleteBtn.onclick = () => {
           closeDetailModal();
-          deleteEntryByDate(dateStr); // Löscht und berechnet neu
+          deleteEntryByDate(dateStr);
         };
         $("detail-modal").style.display = "flex";
       }
@@ -1689,13 +1414,15 @@
         if (modal) modal.style.display = "none";
       }
 
-      // --- Bulk Booking Modal Functions (UNVERÄNDERT) ---
+      // --- Bulk Booking Modal Functions ---
       function showBulkModal() {
+        // Optional: Clear fields on open
         $("bulk-modal-start-date").value = "";
         $("bulk-modal-end-date").value = "";
-        $("bulk-modal-special-day-type").value = "";
+        $("bulk-modal-special-day-type").value = ""; // Reset dropdown
         $("bulk-booking-modal").style.display = "flex";
       }
+
       function closeBulkModal() {
         const modal = $("bulk-booking-modal");
         if (modal) modal.style.display = "none";
@@ -1723,7 +1450,7 @@
         return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
       }
       function loadMonthData() {
-        const history = getHistory(); // Holt History mit korrekten Kontoständen
+        const history = getHistory();
         const monthData = history.filter((entry) => {
           const entryDate = new Date(entry.datum + "T12:00:00");
           return (
@@ -1742,8 +1469,8 @@
         const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
         let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth);
         firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
-        const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-        calendarGrid.style.gridTemplateColumns = `repeat(7, 1fr)`;
+        const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]; // Always show all headers
+        calendarGrid.style.gridTemplateColumns = `repeat(7, 1fr)`; // Always 7 columns
 
         weekdays.forEach((wd) => {
           const headerCell = document.createElement("div");
@@ -1752,6 +1479,7 @@
           calendarGrid.appendChild(headerCell);
         });
         for (let i = 0; i < firstDayIndex; i++) {
+          // Always add empty cells for 7-day layout
           const emptyCell = document.createElement("div");
           emptyCell.classList.add("calendar-day", "empty");
           calendarGrid.appendChild(emptyCell);
@@ -1762,7 +1490,7 @@
           const currentDateObj = new Date(
             Date.UTC(currentMonthYear, currentMonth, day)
           );
-          const dayOfWeek = currentDateObj.getUTCDay();
+          const dayOfWeek = currentDateObj.getUTCDay(); // 0=Sun, 6=Sat
           const cell = document.createElement("div");
           cell.classList.add("calendar-day");
           const cellContent = document.createElement("div");
@@ -1786,7 +1514,7 @@
             cell.onclick = () =>
               alert(
                 `${currentDateObj.toLocaleDateString("de-DE")}: ${holidayName}`
-              );
+              ); // Info click
           } else if (entry) {
             cell.classList.add("has-entry");
             const diffVal = parseFloat(entry.differenz) || 0;
@@ -1819,7 +1547,6 @@
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
-              // Verwende konsistente Funktion
               const netTime = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -1842,19 +1569,21 @@
             cellContent.classList.add(diffClass);
             cellContent.title = titleText;
             cellContent.innerHTML = day + moonMark;
-            cell.onclick = () => showDayDetails(currentDateStr);
+            cell.onclick = () => showDayDetails(currentDateStr); // Click to show details
           } else if (isWeekend) {
             cell.classList.add("weekend");
             cellContent.classList.add("weekend-text");
             if (settings.allowWochenende) {
-              cell.classList.add("no-entry");
+              // Only allow adding if enabled
+              cell.classList.add("no-entry"); // Make it look clickable
               cell.onclick = () => showAddDayModal(currentDateStr);
               cellContent.title = "Klicken zum Hinzufügen";
             } else {
-              cellContent.title = "Wochenende";
-              cell.style.cursor = "default";
+              cellContent.title = "Wochenende"; // Just indicate weekend
+              cell.style.cursor = "default"; // Non-clickable cursor
             }
           } else {
+            // Weekday, no entry, not holiday
             cell.classList.add("no-entry");
             cell.onclick = () => showAddDayModal(currentDateStr);
             cellContent.title = "Klicken zum Hinzufügen";
@@ -1921,7 +1650,7 @@
         const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
         let modified = false;
         let skippedDays = 0;
-        let affectedCount = 0; // Zählt hinzugefügte/gelöschte Tage
+        let deletedCount = 0;
         let currentDate = new Date(startDate.getTime());
         const sollProTag = settings.wochenarbeitszeit / 5;
 
@@ -1951,33 +1680,33 @@
               if (historyMap.has(currentDateStr)) {
                 historyMap.delete(currentDateStr);
                 modified = true;
-                affectedCount++;
+                deletedCount++;
               } else {
-                // Kein Eintrag zum Löschen vorhanden, nicht zählen als übersprungen
+                skippedDays++; // Skip if no entry exists for this valid day
               }
             } else {
-              skippedDays++; // Zähle Wochenenden/Feiertage als übersprungen
+              skippedDays++; // Skip weekends and holidays
             }
             currentDate.setDate(currentDate.getDate() + 1);
           }
 
           if (modified) {
             const updatedHistory = Array.from(historyMap.values());
-            saveAndReload(updatedHistory); // Neuberechnung nach Löschung
+            saveAndReload(updatedHistory);
             alert(
-              `${affectedCount} Einträge erfolgreich gelöscht.${
-                skippedDays > 0 ? ` (${skippedDays} Tage übersprungen)` : ""
+              `${deletedCount} Einträge erfolgreich gelöscht. ${
+                skippedDays > 0
+                  ? `(${skippedDays} Tage übersprungen/kein Eintrag)`
+                  : ""
               }`
             );
             closeBulkModal();
           } else {
-            alert(
-              "Keine Einträge im ausgewählten Zeitraum zum Löschen gefunden."
-            );
+            alert("Keine Einträge im ausgewählten Zeitraum gefunden.");
             closeBulkModal();
           }
         } else {
-          // --- Bulk Add/Overwrite Logic ---
+          // --- Bulk Add/Overwrite Logic (Existing) ---
           const typeLabel = {
             urlaub: "Urlaub",
             krank: "Krank",
@@ -2034,7 +1763,7 @@
                 datum: currentDateStr,
                 differenz: differenz.toFixed(2),
                 differenzTime: differenzTime,
-                stundenkonto: "0.00", // Platzhalter
+                stundenkonto: "0.00", // Wird von saveAndReload neu berechnet
                 kommen: null,
                 gehen: null,
                 urlaub: isUrlaub,
@@ -2042,15 +1771,13 @@
                 schulung: isSchulung,
                 glaz: isGlaz,
                 pcBuchung: false,
-                // Behalte Büro/Homeoffice-Status bei, wenn Eintrag existiert, sonst Standard
                 buero: existingEntry
                   ? existingEntry.buero
-                  : $("buero-toggle").checked,
+                  : $("buero-toggle").checked, // Default to main page setting if new
                 zusatzPause: "",
               };
               historyMap.set(currentDateStr, dayData);
               modified = true;
-              affectedCount++;
             } else {
               skippedDays++;
             }
@@ -2059,11 +1786,11 @@
 
           if (modified) {
             const updatedHistory = Array.from(historyMap.values());
-            saveAndReload(updatedHistory); // Neuberechnung nach Bulk-Buchung
+            saveAndReload(updatedHistory);
             alert(
-              `${affectedCount} Tage erfolgreich als ${typeLabel} gebucht.${
+              `Bulk-Buchung erfolgreich. ${
                 skippedDays > 0
-                  ? ` (${skippedDays} Wochenend-/Feiertage übersprungen)`
+                  ? `(${skippedDays} Wochenend-/Feiertage übersprungen)`
                   : ""
               }`
             );
@@ -2077,7 +1804,7 @@
 
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
-        const history = getHistory(); // Holt History mit korrekten Kontoständen
+        const history = getHistory();
         const today = new Date();
         let startDate, endDate;
         today.setHours(12, 0, 0, 0);
@@ -2145,10 +1872,9 @@
         }
         const filteredHistory = history.filter((entry) => {
           const entryDate = new Date(entry.datum + "T12:00:00");
-          // Inklusive Start- und Enddatum filtern
           return (
-            entryDate.getTime() >= startDate.getTime() &&
-            entryDate.getTime() <= endDate.getTime()
+            entryDate.setHours(0, 0, 0, 0) >= startDate.setHours(0, 0, 0, 0) &&
+            entryDate.setHours(0, 0, 0, 0) <= endDate.setHours(0, 0, 0, 0)
           );
         });
         let totalNetHours = 0,
@@ -2161,22 +1887,16 @@
           trainingDays = 0,
           glazDays = 0,
           holidayCount = 0;
-
-        // Zähle Feiertage im Zeitraum
-        let tempDate = new Date(startDate);
+        let currentDate = new Date(startDate);
         const endCheckDate = new Date(endDate);
-        while (tempDate <= endCheckDate) {
-            const holidayName = getHolidayName(tempDate, settings.bundesland);
-            const dayOfWeek = tempDate.getDay();
-            if (holidayName && dayOfWeek !== 0 && dayOfWeek !== 6) {
-                holidayCount++;
-            }
-            tempDate.setDate(tempDate.getDate() + 1);
-        }
-
-
-        // Verarbeite gefilterte Einträge
-        filteredHistory.forEach(entry => {
+        const dateMap = new Map(filteredHistory.map((e) => [e.datum, e]));
+        while (currentDate <= endCheckDate) {
+          const currentDateStr = currentDate.toISOString().split("T")[0];
+          const entry = dateMap.get(currentDateStr);
+          const holidayName = getHolidayName(currentDate, settings.bundesland);
+          const dayOfWeek = currentDate.getDay();
+          if (holidayName && dayOfWeek !== 0 && dayOfWeek !== 6) holidayCount++;
+          if (entry) {
             totalDiff += parseFloat(entry.differenz || 0);
             if (entry.urlaub) vacationDays++;
             else if (entry.krank) sickDays++;
@@ -2189,7 +1909,6 @@
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
-              // Verwende konsistente Funktion
               const netHours = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -2199,9 +1918,9 @@
               if (entry.buero) officeDays++;
               else homeDays++;
             }
-        });
-
-
+          }
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
         const avgDailyHours = workDays > 0 ? totalNetHours / workDays : 0;
         const statsContent = $("stats-content");
         if (filteredHistory.length === 0 && holidayCount === 0) {
@@ -2233,12 +1952,10 @@
           alert("Keine Daten zum Export.");
           return;
         }
-        // Entferne temporäre Objekte vor dem Export
         const exportHistory = history.map((entry) => {
           const { dateObj, ...rest } = entry;
           return rest;
         });
-        // Füge die aktuellen Einstellungen hinzu (inkl. Startkonto)
         const exportData = { settings: settings, history: exportHistory };
         const jsonData = JSON.stringify(exportData, null, 2);
         const blob = new Blob([jsonData], { type: "application/json" });
@@ -2268,50 +1985,32 @@
               const importedJson = JSON.parse(e.target.result);
               let importedHistory = [],
                 importedSettings = null;
-
-              // Prüfe auf neues Format (Objekt mit settings & history)
-              if (
+              if (Array.isArray(importedJson)) {
+                importedHistory = importedJson;
+                alert("Altes Format erkannt (nur Verlauf).");
+              } else if (
                 typeof importedJson === "object" &&
                 importedJson !== null &&
-                Array.isArray(importedJson.history) &&
-                typeof importedJson.settings === "object" &&
-                importedJson.settings !== null
+                Array.isArray(importedJson.history)
               ) {
                 importedHistory = importedJson.history;
-                importedSettings = importedJson.settings;
-                console.log("Neues Importformat erkannt (History + Settings).");
-              }
-              // Prüfe auf altes Format (nur Array)
-              else if (Array.isArray(importedJson)) {
-                importedHistory = importedJson;
-                importedSettings = null; // Keine Settings im alten Format
-                alert(
-                  "Altes Importformat erkannt (nur Verlauf). Einstellungen werden nicht übernommen."
-                );
+                importedSettings = importedJson.settings || {};
               } else {
-                throw new Error("Unbekanntes oder ungültiges Importformat.");
+                throw new Error("Unbekanntes Importformat.");
               }
-
-              // Grundlegende Validierung der History-Daten
               if (
                 importedHistory.length > 0 &&
                 (importedHistory[0].datum === undefined ||
-                  // Stundenkonto muss nicht mehr zwingend da sein, wird neu berechnet
+                  importedHistory[0].stundenkonto === undefined ||
                   importedHistory[0].differenz === undefined)
               ) {
-                throw new Error(
-                  "Ungültige Verlaufsdaten (fehlendes Datum oder Differenz)."
-                );
+                throw new Error("Ungültige Verlaufsdaten.");
               }
-
-              // Bereinige und standardisiere importierte Einträge
               const sanitizedHistory = importedHistory.map((entry) => ({
                 datum: entry.datum,
                 differenz: entry.differenz || "0.00",
-                differenzTime:
-                  entry.differenzTime ||
-                  formatDecimalToTime(parseFloat(entry.differenz || 0)),
-                stundenkonto: "0.00", // Wird immer neu berechnet
+                differenzTime: entry.differenzTime || "0:00",
+                stundenkonto: entry.stundenkonto || "0.00",
                 kommen: entry.kommen || null,
                 gehen: entry.gehen || null,
                 urlaub: entry.urlaub || false,
@@ -2319,18 +2018,14 @@
                 schulung: entry.schulung || false,
                 glaz: entry.glaz || false,
                 pcBuchung: entry.pcBuchung || false,
-                buero: entry.buero || false, // Default false, wenn nicht vorhanden
+                buero: entry.buero || false,
                 zusatzPause: entry.zusatzPause || "",
               }));
-
-              let confirmationMessage = `Wirklich ${sanitizedHistory.length} Einträge importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`;
-              if (importedSettings) {
+              let confirmationMessage = `Wirklich ${sanitizedHistory.length} Einträge importieren? ACHTUNG: Alle Daten werden überschrieben!`;
+              if (importedSettings)
                 confirmationMessage +=
-                  "\n\nGespeicherte Einstellungen werden ebenfalls übernommen.";
-              }
-
+                  "\n\nGespeicherte Einstellungen werden übernommen.";
               if (confirm(confirmationMessage)) {
-                // Übernehme Einstellungen, falls vorhanden
                 if (importedSettings) {
                   settings.wochenarbeitszeit = parseFloat(
                     importedSettings.wochenarbeitszeit || 38
@@ -2341,48 +2036,11 @@
                     !!importedSettings.allowWochenende;
                   settings.allowNachtarbeit =
                     !!importedSettings.allowNachtarbeit;
-                  // Übernehme Startkonto-Einstellungen
-                  settings.startStundenkontoValue = parseFloat(
-                    importedSettings.startStundenkontoValue || 0
-                  );
-                  settings.startStundenkontoDate =
-                    importedSettings.startStundenkontoDate || null;
-
-                  // Speichere die importierten Einstellungen sofort
-                  storeToLS(
-                    "wochenarbeitszeitValue",
-                    settings.wochenarbeitszeit.toString()
-                  );
-                  storeToLS("bundesland", settings.bundesland);
-                  storeToLS(
-                    "allowWochenende",
-                    settings.allowWochenende ? "true" : "false"
-                  );
-                  storeToLS(
-                    "allowNachtarbeit",
-                    settings.allowNachtarbeit ? "true" : "false"
-                  );
-                  storeToLS(
-                    "startStundenkontoValue",
-                    settings.startStundenkontoValue.toString()
-                  );
-                  storeToLS(
-                    "startStundenkontoDate",
-                    settings.startStundenkontoDate || ""
-                  ); // Speichere leer wenn null
-
-                  // Aktualisiere Options-UI
-                  loadOptions();
-                  // Aktualisiere Wochenarbeitszeit-Anzeige auf Hauptseite
-                  $("wochenarbeitszeit").value =
-                    settings.wochenarbeitszeit.toFixed(1);
+                  saveSettings(); // Save imported settings
                 }
-
-                // Speichere die bereinigte History und löse Neuberechnung aus
-                saveAndReload(sanitizedHistory);
-
-                alert("Daten erfolgreich importiert und neu berechnet.");
-                switchView("main"); // Wechsle zur Hauptansicht
+                saveAndReload(sanitizedHistory); // Save imported history & recalculate
+                alert("Daten importiert.");
+                switchView("main"); // Switch to main view after import
               }
             } catch (error) {
               console.error("Importfehler:", error);
@@ -2405,7 +2063,6 @@
       document.addEventListener("DOMContentLoaded", init);
     </script>
 
-    <!-- CSS (UNVERÄNDERT) -->
     <style>
       :root {
         /* Light Mode */
@@ -2536,8 +2193,8 @@
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(60px + var(--safe-area-bottom)) /* Adjusted nav height */
-          calc(15px + var(--safe-area-right));
+          calc(105px + var(--safe-area-bottom))
+          calc(15px + var(--safe-area-right)); /* Adjusted nav height */
         display: none;
       }
       .page.active {
@@ -2681,14 +2338,8 @@
       }
       input[type="time"]::-webkit-calendar-picker-indicator,
       input[type="date"]::-webkit-calendar-picker-indicator {
-        display: block; /* Show picker for date */
-        opacity: 0.6;
-        cursor: pointer;
+        display: none;
       }
-       input[type="time"]::-webkit-calendar-picker-indicator {
-           display: none; /* Hide for time */
-       }
-
 
       .row {
         display: flex;
@@ -2746,13 +2397,11 @@
       .switch-container span {
         margin-left: 10px;
         font-size: 17px;
-        flex-grow: 1; /* Allow text to wrap */
-        line-height: 1.3;
       }
       .switch {
         position: relative;
         display: inline-block;
-        width: 51px; /* iOS Standard width */
+        width: 65px; /* Original width */
         height: 31px;
         flex-shrink: 0;
       }
@@ -2770,12 +2419,12 @@
         bottom: 0;
         background-color: var(--slider-bg-color);
         transition: 0.4s;
-        border-radius: 15.5px; /* height / 2 */
+        border-radius: 15.5px;
       }
       .slider:before {
         position: absolute;
         content: "";
-        height: 27px; /* height - 4px */
+        height: 27px;
         width: 27px;
         left: 2px;
         bottom: 2px;
@@ -2788,18 +2437,17 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(20px); /* width - height */
+        transform: translateX(24px); /* Original travel distance */
       }
       /* --- END SLIDER STYLES --- */
 
       .diff-badge {
         padding: 3px 6px;
         border-radius: 5px;
-        font-size: 15px;
+        font-size: 15px; /* ADJUSTED: Slightly larger font size */
         font-weight: 500;
         display: inline-block;
         vertical-align: middle;
-        color: var(--button-text-color); /* Default text color for badges */
       }
       /* Ensure readonly inputs with color classes keep their font size */
       input[readonly].positive-value,
@@ -2813,11 +2461,11 @@
       }
       .negative-value {
         background-color: var(--negative-value-bg) !important;
-        color: #000000 !important; /* Dark text on orange */
+        color: #000000 !important;
       }
       .zero-value {
         background-color: var(--zero-value-bg) !important;
-        color: #000000 !important; /* Dark text on green */
+        color: #000000 !important;
       }
 
       #hinweis {
@@ -2894,15 +2542,18 @@
         color: var(--secondary-text-color);
         margin-top: 4px; /* ADDED: Padding between date and time/diff */
       }
-      /* Ensure text color overrides secondary if background is set */
-      .history-entry-content.holiday-day div:last-child,
       .history-entry-content.special-day[style*="--special-day-krank-bg"]
         div:last-child,
       .history-entry-content.special-day[style*="--special-day-urlaub-bg"]
-        div:last-child,
+        div:last-child {
+        color: var(--special-day-text);
+      }
       .history-entry-content.special-day[style*="--special-day-glaz-bg"]
         div:last-child {
-        color: inherit; /* Inherit from parent (.history-entry-content) */
+        color: var(--special-day-glaz-text);
+      }
+      .history-entry-content.holiday-day div:last-child {
+        color: var(--holiday-text);
       }
       .violation-mark {
         color: var(--hint-color);
@@ -2964,8 +2615,6 @@
         box-sizing: border-box;
         position: relative;
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-        max-height: 90vh; /* Limit height */
-        overflow-y: auto; /* Allow scrolling within modal */
       }
       .modal-content h3 {
         margin-top: 0;
@@ -3106,11 +2755,6 @@
         font-weight: 500;
         color: var(--secondary-text-color);
       }
-      /* Ensure badge color overrides secondary text color in stats */
-      #stats-content li span:last-child .diff-badge {
-         color: inherit; /* Inherit color from badge class */
-      }
-
 
       .import-export-buttons {
         display: flex;
@@ -3127,21 +2771,21 @@
         bottom: 0;
         left: 0;
         right: 0;
-        height: 50px; /* Slightly increased height for labels */
+        height: 40px; /* Original height */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
         justify-content: space-around;
-        align-items: flex-start; /* Align items to top */
-        padding-top: 5px; /* Padding for icon */
-        padding-bottom: calc(5px + var(--safe-area-bottom)); /* Padding + safe area */
+        align-items: flex-start;
+        padding-top: 5px;
+        padding-bottom: var(--safe-area-bottom);
         z-index: 1000;
       }
       .nav-item {
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center; /* Center content vertically */
+        justify-content: center;
         flex: 1;
         color: var(--nav-icon-color);
         text-decoration: none;
@@ -3149,7 +2793,7 @@
         cursor: pointer;
         padding: 0 2px;
         text-align: center;
-        height: 100%; /* Fill available height */
+        height: 100%;
         box-sizing: border-box;
       }
       .nav-item svg {
@@ -3237,9 +2881,9 @@
                 <input
                   type="number"
                   id="aktuelles-konto"
-                  value="0.00"
+                  value="0"
                   step="0.01"
-                  readonly <!-- NEU: Readonly -->
+                  onchange="onInputChange()"
                 />
               </div>
               <div class="column">
@@ -3330,7 +2974,7 @@
         </div>
       </div>
 
-      <!-- History Page (HTML unverändert) -->
+      <!-- History Page -->
       <div id="history-page" class="page">
         <div class="container">
           <h1>Verlauf</h1>
@@ -3352,7 +2996,7 @@
         </div>
       </div>
 
-      <!-- Month Page (HTML unverändert) -->
+      <!-- Month Page -->
       <div id="month-page" class="page">
         <div class="container">
           <h1>Monatsübersicht</h1>
@@ -3378,7 +3022,7 @@
         </div>
       </div>
 
-      <!-- Stats Page (HTML unverändert) -->
+      <!-- Stats Page -->
       <div id="stats-page" class="page">
         <div class="container">
           <h1>Statistik</h1>
@@ -3451,37 +3095,6 @@
               >
             </div>
           </div>
-          <!-- NEU: Abschnitt für Startkonto -->
-          <div class="section">
-            <h3>Arbeitszeitkonto</h3>
-            <p
-              style="
-                font-size: 14px;
-                color: var(--secondary-text-color);
-                margin-bottom: 15px;
-              "
-            >
-              Lege hier einen Startwert für das Stundenkonto fest. Alle Einträge
-              ab dem Startdatum werden basierend auf diesem Wert neu berechnet.
-              Lass das Datum leer, um den Wert ab dem ersten Eintrag anzuwenden.
-            </p>
-            <div class="row">
-              <div class="column">
-                <label for="start-stundenkonto-value"
-                  >Startwert Konto (Std):</label
-                >
-                <input
-                  type="number"
-                  id="start-stundenkonto-value"
-                  step="0.01"
-                />
-              </div>
-              <div class="column">
-                <label for="start-stundenkonto-date">Startdatum:</label>
-                <input type="date" id="start-stundenkonto-date" />
-              </div>
-            </div>
-          </div>
           <div class="section">
             <h3>Daten</h3>
             <div class="import-export-buttons">
@@ -3500,17 +3113,17 @@
               "
             >
               Beim Import werden alle vorhandenen Daten überschrieben. Der
-              Export enthält den Verlauf und die aktuellen Einstellungen (inkl.
-              Startkonto).
+              Export enthält den Verlauf und die aktuellen Einstellungen.
             </p>
           </div>
         </div>
       </div>
 
-      <!-- Detail-Modal (HTML unverändert) -->
+      <!-- Detail-Modal -->
       <div id="detail-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button">×</button>
+          <!-- onclick handled globally -->
           <h3 id="detail-modal-title">Details</h3>
           <div id="detail-content"></div>
           <div
@@ -3525,7 +3138,7 @@
         </div>
       </div>
 
-      <!-- Add Day Modal (HTML unverändert) -->
+      <!-- Add Day Modal -->
       <div
         id="add-day-modal"
         class="modal"
@@ -3534,6 +3147,7 @@
       >
         <div class="modal-content">
           <button class="close-button">×</button>
+          <!-- onclick handled globally -->
           <h3 id="add-day-modal-title">Manuelle Buchung</h3>
           <div class="row">
             <div class="column">
@@ -3624,10 +3238,11 @@
         </div>
       </div>
 
-      <!-- Bulk Booking Modal (HTML unverändert) -->
+      <!-- Bulk Booking Modal (MODIFIED) -->
       <div id="bulk-booking-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button">×</button>
+          <!-- onclick handled globally -->
           <h3 id="bulk-modal-title">Bulk-Buchung / Löschen</h3>
           <p
             style="
@@ -3660,6 +3275,7 @@
               <option value="delete" style="color: var(--hint-color)">
                 Einträge löschen
               </option>
+              <!-- ADDED Delete Option -->
             </select>
           </div>
           <button
@@ -3672,7 +3288,7 @@
         </div>
       </div>
 
-      <!-- Bottom Navigation (HTML unverändert) -->
+      <!-- Bottom Navigation (UNCHANGED) -->
       <nav id="bottom-nav">
         <a id="nav-main" class="nav-item active">
           <svg viewBox="0 0 24 24">
