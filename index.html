@@ -3457,129 +3457,130 @@
         </div>
       </div>
 
-      <!-- Options Page -->
-      <div id="options-page" class="page">
-        <div class="container">
-          <h1>Optionen</h1>
-          <div class="section">
-            <h3>Allgemein</h3>
-            <div style="margin-bottom: 15px">
-              <label for="wochenarbeitszeit-setting"
-                >Wochenarbeitszeit (Std):</label
-              >
-              <input type="number" id="wochenarbeitszeit-setting" step="0.1" />
-            </div>
-            <div style="margin-bottom: 15px">
-              <label for="bundesland-select"
-                >Bundesland (für Feiertage):</label
-              >
-              <select id="bundesland-select">
-                <option value="NATIONAL">Bundesweit</option>
-                <option value="BW">Baden-Württemberg</option>
-                <option value="BY">Bayern</option>
-                <option value="BE">Berlin</option>
-                <option value="BB">Brandenburg</option>
-                <option value="HB">Bremen</option>
-                <option value="HH">Hamburg</option>
-                <option value="HE">Hessen</option>
-                <option value="MV">Mecklenburg-Vorpommern</option>
-                <option value="NI">Niedersachsen</option>
-                <option value="NW">Nordrhein-Westfalen</option>
-                <option value="RP">Rheinland-Pfalz</option>
-                <option value="SL">Saarland</option>
-                <option value="SN">Sachsen</option>
-                <option value="ST">Sachsen-Anhalt</option>
-                <option value="SH">Schleswig-Holstein</option>
-                <option value="TH">Thüringen</option>
-              </select>
-            </div>
-            <div class="switch-container">
-              <label class="switch">
-                <input type="checkbox" id="wochenende-toggle" />
-                <span class="slider"></span>
-              </label>
-              <span>Wochenendarbeit erlauben (Sa/So anzeigen & buchen)</span>
-            </div>
-            <div class="switch-container">
-              <label class="switch">
-                <input type="checkbox" id="nachtarbeit-toggle" />
-                <span class="slider"></span>
-              </label>
-              <span
-                >Nacht-/Randzeiten tolerieren (keine Warnung, 🌙 statt !)</span
-              >
-            </div>
-          </div>
-          <!-- Abschnitt für Startkonto -->
-          <div class="section">
-            <h3>Arbeitszeitkonto</h3>
-            <p
-              style="
-                font-size: 14px;
-                color: var(--secondary-text-color);
-                margin-bottom: 15px;
-              "
-            >
-              Lege hier einen Startwert für das Stundenkonto fest. Alle Einträge
-              ab dem Startdatum werden basierend auf diesem Wert neu berechnet.
-              Lass das Datum leer, um den Wert ab dem ersten Eintrag anzuwenden.
-            </p>
-            <!-- Input Felder für Startkonto. CSS sorgt für konsistente Höhe. -->
-            <div class="row">
-              <div class="column">
-                <label for="start-stundenkonto-value"
-                  >Startwert Konto (Std):</label
-                >
-                <input
-                  type="number"
-                  id="start-stundenkonto-value"
-                  step="0.01"
-                  style="height: 44px;"
-                />
+            <!-- Options Page -->
+            <div id="options-page" class="page">
+              <div class="container">
+                <h1>Optionen</h1>
+                <div class="section">
+                  <h3>Allgemein</h3>
+                  <div style="margin-bottom: 15px">
+                    <label for="wochenarbeitszeit-setting"
+                      >Wochenarbeitszeit (Std):</label
+                    >
+                    <input type="number" id="wochenarbeitszeit-setting" step="0.1" />
+                  </div>
+                  <div style="margin-bottom: 15px">
+                    <label for="bundesland-select"
+                      >Bundesland (für Feiertage):</label
+                    >
+                    <select id="bundesland-select">
+                      <option value="NATIONAL">Bundesweit</option>
+                      <option value="BW">Baden-Württemberg</option>
+                      <option value="BY">Bayern</option>
+                      <option value="BE">Berlin</option>
+                      <option value="BB">Brandenburg</option>
+                      <option value="HB">Bremen</option>
+                      <option value="HH">Hamburg</option>
+                      <option value="HE">Hessen</option>
+                      <option value="MV">Mecklenburg-Vorpommern</option>
+                      <option value="NI">Niedersachsen</option>
+                      <option value="NW">Nordrhein-Westfalen</option>
+                      <option value="RP">Rheinland-Pfalz</option>
+                      <option value="SL">Saarland</option>
+                      <option value="SN">Sachsen</option>
+                      <option value="ST">Sachsen-Anhalt</option>
+                      <option value="SH">Schleswig-Holstein</option>
+                      <option value="TH">Thüringen</option>
+                    </select>
+                  </div>
+                  <div class="switch-container">
+                    <label class="switch">
+                      <input type="checkbox" id="wochenende-toggle" />
+                      <span class="slider"></span>
+                    </label>
+                    <span>Wochenendarbeit erlauben (Sa/So anzeigen & buchen)</span>
+                  </div>
+                  <div class="switch-container">
+                    <label class="switch">
+                      <input type="checkbox" id="nachtarbeit-toggle" />
+                      <span class="slider"></span>
+                    </label>
+                    <span
+                      >Nacht-/Randzeiten tolerieren (keine Warnung, 🌙 statt !)</span
+                    >
+                  </div>
+                </div>
+                <!-- Abschnitt für Startkonto -->
+                <div class="section">
+                  <h3>Arbeitszeitkonto</h3>
+                  <p
+                    style="
+                      font-size: 14px;
+                      color: var(--secondary-text-color);
+                      margin-bottom: 15px;
+                    "
+                  >
+                    Lege hier einen Startwert für das Stundenkonto fest. Alle Einträge
+                    ab dem Startdatum werden basierend auf diesem Wert neu berechnet.
+                    Lass das Datum leer, um den Wert ab dem ersten Eintrag anzuwenden.
+                  </p>
+                  <!-- Input Felder für Startkonto. CSS sorgt für konsistente Höhe. -->
+                  <div class="row">
+                    <div class="column">
+                      <label for="start-stundenkonto-value"
+                        >Startwert Konto (Std):</label
+                      >
+                      <input
+                        type="number"
+                        id="start-stundenkonto-value"
+                        step="0.01"
+                        style="height: 44px;"
+                      />
+                    </div>
+                    <div class="column">
+                      <label for="start-stundenkonto-date">Startdatum:</label>
+                      <input
+                        type="date"
+                        id="start-stundenkonto-date"
+                        style="height: 44px;"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    id="recalculate-before-start-date"
+                    class="button"
+                    style="margin-top: 10px"
+                  >
+                    Verlauf neu berechnen
+                  </button>
+                </div>
+                <div class="section">
+                  <h3>Daten</h3>
+                  <div class="import-export-buttons">
+                    <button id="export-button-options" class="button">
+                      Export (Verlauf + Optionen)
+                    </button>
+                    <button id="import-button-options" class="button">
+                      Import (Verlauf + Optionen)
+                    </button>
+                  </div>
+                  <p
+                    style="
+                      font-size: 14px;
+                      color: var(--secondary-text-color);
+                      margin-top: 10px;
+                    "
+                  >
+                    Beim Import werden alle vorhandenen Daten überschrieben. Der
+                    Export enthält den Verlauf und die aktuellen Einstellungen (inkl.
+                    Startkonto).
+                  </p>
+                </div>
               </div>
-              <div class="column">
-                <label for="start-stundenkonto-date">Startdatum:</label>
-                <input
-                  type="date"
-                  id="start-stundenkonto-date"
-                  style="height: 44px;"
-                />
-              </div>
             </div>
-            <button
-              id="recalculate-before-start-date"
-              class="button"
-              style="margin-top: 10px"
-            >
-              Verlauf neu berechnen
-            </button>
-          </div>
-          <div class="section">
-            <h3>Daten</h3>
-            <div class="import-export-buttons">
-              <button id="export-button-options" class="button">
-                Export (Verlauf + Optionen)
-              </button>
-              <button id="import-button-options" class="button">
-                Import (Verlauf + Optionen)
-              </button>
-            </div>
-            <p
-              style="
-                font-size: 14px;
-                color: var(--secondary-text-color);
-                margin-top: 10px;
-              "
-            >
-              Beim Import werden alle vorhandenen Daten überschrieben. Der
-              Export enthält den Verlauf und die aktuellen Einstellungen (inkl.
-              Startkonto).
-            </p>
-          </div>
-        </div>
-      </div>
-     
-            <!-- Detail-Modal (HTML unverändert) -->
+      
+
+      <!-- Detail-Modal (HTML unverändert) -->
       <div id="detail-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button">×</button>
