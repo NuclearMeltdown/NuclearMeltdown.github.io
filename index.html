@@ -2506,6 +2506,13 @@
         line-height: 1.2em;
         min-height: 44px;
       }
+      
+      #korrektur-datum,
+      #korrektur-wert {
+        height: 44px; /* Explizite Höhe setzen (entspricht min-height) */
+        box-sizing: border-box; /* Sicherstellen, dass Padding/Border enthalten sind */
+      }
+      
       input:read-only {
         background-color: var(--card-background-color);
         color: var(--readonly-text-color);
@@ -3284,18 +3291,7 @@
           </div>
           <div class="section">
             <h3>Stundenkonto</h3>
-            <p
-              style="
-                font-size: 14px;
-                color: var(--secondary-text-color);
-                margin-bottom: 15px;
-              "
-            >
-              Hier können Sie das Stundenkonto manuell anpassen. Geben Sie das
-              Datum an, an dessen Ende der neue Kontostand gelten soll. Alle
-              nachfolgenden Einträge im Verlauf werden neu berechnet.
-            </p>
-            <div class="row">
+             <div class="row">
               <div class="column">
                 <label for="korrektur-datum">Datum der Korrektur:</label>
                 <input type="date" id="korrektur-datum" />
