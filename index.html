@@ -603,47 +603,48 @@
         return { hours: hh, minutes: mm, totalHours: totalH };
       }
 
-      // --- KORRIGIERTE PAUSENLOGIK ---
+      // --- NEUE PAUSENLOGIK ---
       function calculateNetArbeitszeit(totalPresenceHours, manualPauseHours) {
         if (totalPresenceHours <= 0) return 0;
+
+        // 1. Bestimme die *gesetzlich erforderliche* automatische Pause
+        let requiredAutoPauseHours = 0;
+        if (totalPresenceHours > 9) {
+          requiredAutoPauseHours = 0.75; // 45 Minuten
+        } else if (totalPresenceHours > 6) {
+          requiredAutoPauseHours = 0.5; // 30 Minuten
+        }
+
+        // 2. Berechne die Brutto-Arbeitszeit (Anwesenheit - Pausen)
+        const grossWorkHours =
+          totalPresenceHours - manualPauseHours - requiredAutoPauseHours;
+
+        // 3. Wende die Capping-Logik an
+        let netArbeitszeit;
         const epsilon = 1e-9; // Kleine Toleranz für Fließkommavergleiche
 
-        // 1. Capping-Regeln basierend auf Anwesenheitszeit prüfen
         if (
           totalPresenceHours > 6 + epsilon &&
           totalPresenceHours <= 6.5 + epsilon
         ) {
-          // Zwischen 6:01 und 6:30 Anwesenheit -> Nettozeit ist exakt 6:00
-          // Manuelle Pause wird in diesem Bereich ignoriert/nicht abgezogen.
-          return 6.0;
+          // Zwischen 6:01 und 6:30 Anwesenheit -> Netto = max 6:00
+          netArbeitszeit = Math.min(grossWorkHours, 6.0);
         } else if (
           totalPresenceHours > 9.5 + epsilon &&
-          totalPresenceHours <= 9.75 + epsilon // 9:45
+          totalPresenceHours <= 9.75 + epsilon
         ) {
-          // Zwischen 9:15 und 9:45 Anwesenheit -> Nettozeit ist exakt 9:00
-          // Die gesetzliche 30-Min-Pause und manuelle Pause werden hier effektiv ignoriert/nicht abgezogen.
-          return 9.0;
+          // Zwischen 9:31 und 9:45 Anwesenheit -> Netto = max 9:00
+          // (Da 30min Pause schon bei >6h abgezogen wurden, entspricht dies 9h Netto)
+          netArbeitszeit = Math.min(grossWorkHours, 9.0);
         } else {
-          // 2. Außerhalb der Capping-Bereiche: Gesetzliche Pause berechnen
-          let requiredAutoPauseHours = 0;
-          if (totalPresenceHours > 9.75 + epsilon) {
-            // Gesetzliche 45 Min Pause erst *nach* 9:45 Anwesenheit
-            requiredAutoPauseHours = 0.75; // 45 Minuten
-          } else if (totalPresenceHours > 6.5 + epsilon) {
-            // Gesetzliche 30 Min Pause erst *nach* 6:30 Anwesenheit
-            requiredAutoPauseHours = 0.5; // 30 Minuten
-          }
-          // Ansonsten (<= 6:30 Anwesenheit) ist die gesetzliche Pause 0 (oder wird durch Capping abgedeckt)
-
-          // 3. Gesamtpause berechnen und von Anwesenheit abziehen
-          const totalPause = requiredAutoPauseHours + manualPauseHours;
-          const netArbeitszeit = totalPresenceHours - totalPause;
-
-          // 4. Sicherstellen, dass die Nettozeit nicht negativ ist
-          return Math.max(0, netArbeitszeit);
+          // Normalfall
+          netArbeitszeit = grossWorkHours;
         }
+
+        // Stelle sicher, dass die Nettozeit nicht negativ ist
+        return Math.max(0, netArbeitszeit);
       }
-      // --- ENDE KORRIGIERTE PAUSENLOGIK ---
+      // --- ENDE NEUE PAUSENLOGIK ---
 
       // Wrapper für die Hauptseitenberechnung
       function calculateArbeitszeit() {
@@ -665,7 +666,6 @@
         const diffMs = gehenAdjusted - kommenLokal;
         if (diffMs < 0) return 0;
         const totalPresenceHours = diffMs / (1000 * 60 * 60);
-        // Nutzt die korrigierte Logik
         return calculateNetArbeitszeit(totalPresenceHours, additionalPauseHours);
       }
 
@@ -673,13 +673,10 @@
       function calculateDisplayPause(totalPresenceHours, netArbeitszeit) {
         if (totalPresenceHours <= 0 || netArbeitszeit < 0) return 0;
         // Die tatsächliche Pause ist die Differenz aus Anwesenheit und Nettozeit
-        // Dies berücksichtigt jetzt korrekt die Capping-Effekte.
         const effectivePause = totalPresenceHours - netArbeitszeit;
         return Math.max(0, effectivePause); // Sicherstellen, dass Pause nicht negativ ist
       }
 
-      // Diese Funktion sollte jetzt mit der korrigierten calculateNetArbeitszeit
-      // die korrekte Ausstempelzeit für 9h (Start + 9h + 30min Pause) liefern.
       function calculateEndTimeFixpoint(desiredNet) {
         const ak = getAdjustedKommenZeit();
         if (!ak) return "--:--";
@@ -691,12 +688,17 @@
         for (let i = 0; i < 10; i++) { // Mehr Iterationen für Stabilität
             const prevPresence = presenceEstimate;
 
-            // Berechne Nettozeit für die *geschätzte* Anwesenheit (nutzt korrigierte Logik)
+            // Berechne Nettozeit für die *geschätzte* Anwesenheit
             const currentNet = calculateNetArbeitszeit(prevPresence, manualPauseMain);
 
             // Passe die Schätzung an: Differenz zur Zielzeit + aktuelle Anwesenheit
+            // Wenn currentNet < desiredNet, muss die Anwesenheit erhöht werden.
+            // Wenn currentNet > desiredNet, muss die Anwesenheit verringert werden.
+            // Die Anpassung sollte die Pausen berücksichtigen.
             const diffNet = desiredNet - currentNet;
-            presenceEstimate += diffNet; // Einfache Anpassung
+            // Grobe Anpassung: Erhöhe/verringere Anwesenheit um die Netto-Differenz
+            // Dies konvergiert, da Pausen monoton mit der Anwesenheit steigen (oder gleich bleiben)
+            presenceEstimate += diffNet;
 
              // Verhindere negative Anwesenheit
             presenceEstimate = Math.max(0, presenceEstimate);
@@ -705,21 +707,30 @@
             if (Math.abs(presenceEstimate - prevPresence) < 1 / 600) { // Konvergenz auf 0.1 Minuten
                  // Finale Prüfung mit der konvergierten Anwesenheit
                  const finalNet = calculateNetArbeitszeit(presenceEstimate, manualPauseMain);
-                 // Kleine Justierung, falls Capping die Konvergenz leicht beeinflusst hat
+                 // Wenn die finale Nettozeit leicht abweicht (durch Capping),
+                 // muss die Anwesenheit ggf. noch minimal justiert werden.
+                 // Beispiel: Ziel 6:00, Konvergenz bei 6:30 Anwesenheit -> Netto 6:00. Passt.
+                 // Beispiel: Ziel 6:01, Konvergenz bei 6:30 -> Netto 6:00. Falsch.
+                 //           -> Erhöhe Anwesenheit leicht (z.B. auf 6:31) -> Netto 6:01. Passt.
                  if (Math.abs(finalNet - desiredNet) > 1/600) {
-                     if (finalNet < desiredNet) {
-                         // Netto zu niedrig, erhöhe Anwesenheit leicht
-                         // Springe über Capping-Grenzen, falls nötig
-                         if (presenceEstimate <= 6.5 + 1e-9 && desiredNet > 6.0) presenceEstimate = 6.5 + 1/60; // Springe auf 6:31
-                         else if (presenceEstimate <= 9.75 + 1e-9 && desiredNet > 9.0) presenceEstimate = 9.75 + 1/60; // Springe auf 9:46
+                     if (finalNet < desiredNet && desiredNet === 6.0 && presenceEstimate <= 6.5) {
+                         // Sonderfall: Ziel 6:00, aber Capping greift. Anwesenheit muss <= 6:30 sein.
+                         // Die Konvergenz sollte hier korrekt sein.
+                     } else if (finalNet < desiredNet && desiredNet === 9.0 && presenceEstimate <= 9.75) {
+                         // Sonderfall: Ziel 9:00, aber Capping greift. Anwesenheit muss <= 9:45 sein.
+                         // Die Konvergenz sollte hier korrekt sein.
+                     }
+                      else if (finalNet < desiredNet) {
+                         // Netto zu niedrig, erhöhe Anwesenheit minimal über die Capping-Grenze
+                         if (presenceEstimate <= 6.5 + 1e-9) presenceEstimate = 6.5 + 1/60; // Springe auf 6:31
+                         else if (presenceEstimate <= 9.75 + 1e-9) presenceEstimate = 9.75 + 1/60; // Springe auf 9:46
                          else presenceEstimate += (desiredNet - finalNet); // Normale Anpassung
                      }
-                      // Wenn finalNet > desiredNet (sollte durch Anpassung selten sein),
-                      // würde die nächste Iteration (falls nicht break) korrigieren.
                  }
                  break; // Konvergiert
             }
         }
+
 
         const endTime = new Date(ak.getTime());
         endTime.setMinutes(endTime.getMinutes() + Math.round(presenceEstimate * 60));
@@ -746,19 +757,19 @@
       }
 
       function updateCalculations() {
-        const netArbeitszeit = calculateArbeitszeit(); // Nutzt korrigierte Logik
+        const netArbeitszeit = calculateArbeitszeit(); // Nutzt neue Logik
         const sollProTag = settings.wochenarbeitszeit / 5;
         let diff =
           netArbeitszeit > 0
             ? parseFloat((netArbeitszeit - sollProTag).toFixed(2))
             : 0;
 
-        // Lese aktuellen Kontostand aus dem Readonly-Feld
+        // NEU: Lese aktuellen Kontostand aus dem Readonly-Feld
         const aktKontoVal = parseFloat($("aktuelles-konto").value) || 0;
         let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
 
         const wTime = calculateWorkingTime(); // Anwesenheit
-        // Berechne die anzuzeigende Pause als Differenz (nutzt korrigierte Nettozeit)
+        // NEU: Berechne die anzuzeigende Pause als Differenz
         const displayPausen = calculateDisplayPause(
           wTime.totalHours,
           netArbeitszeit
@@ -790,6 +801,7 @@
           { id: "differenz-time", value: diff },
           { id: "neues-konto", value: newKto },
           { id: "neues-konto-time", value: newKto },
+          // { id: "aktuelles-konto-time", value: aktKontoVal }, // Wird schon von colorKontoField gemacht
         ];
         fieldsToColor.forEach((item) => {
           const el = $(item.id);
@@ -851,7 +863,6 @@
 
       // Diese Funktion wird nicht mehr für die Netto-Berechnung verwendet, nur noch für die Anzeige
       function calculateAutoPauseForDuration(totalHours) {
-        // Beibehalten für potenzielle andere Verwendungen, aber nicht für Nettozeit
         if (totalHours > 9) return 0.75;
         if (totalHours > 6) return 0.5;
         return 0;
@@ -876,9 +887,13 @@
           violations.kommen = true;
           violations.any = true;
         }
-        const gehenLocalHour = gehenDate.getHours();
+        // Gehen-Prüfung: Nur > 20 Uhr prüfen, da Nachtarbeit über Mitternacht möglich ist
+        const gehenLocalHour = gehenDate.getHours(); // Stunde der originalen Gehen-Zeit
         if (gehenLocalHour >= 20 || (gehenLocalHour < kommenDate.getHours() && gehenAdjusted.getDate() > kommenDate.getDate())) {
-             if (gehenStunde > 20 || gehenStunde < 6) {
+             // Nach 20 Uhr ODER am nächsten Tag vor der Kommen-Zeit (impliziert nach Mitternacht)
+             // Die zweite Bedingung ist etwas ungenau, aber deckt den Fall ab, dass man z.B. um 1 Uhr geht.
+             // Eine genauere Prüfung wäre komplexer.
+             if (gehenStunde > 20 || gehenStunde < 6) { // Prüfe die Stunde relativ zum Tagesbeginn (0-24+)
                 violations.gehen = true;
                 violations.any = true;
              }
@@ -937,6 +952,7 @@
         }
         const diffVal = parseFloat($("differenz").value) || 0; // Wird in updateCalculations berechnet
         const diffTime = formatDecimalToTime(diffVal); // Formatieren der Differenz
+        // const newVal = parseFloat($("neues-konto").value) || 0; // Nicht mehr direkt speichern
         const kommenStr = adjustedKommen.toISOString();
         const gehenStr = currentGehen.toISOString();
         const isBuero = $("buero-toggle").checked;
@@ -1110,7 +1126,7 @@
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
-              // Verwende die konsistente Berechnungsfunktion (korrigiert)
+              // Verwende die konsistente Berechnungsfunktion
               const netTime = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -1335,6 +1351,7 @@
         const existingIndex = history.findIndex((e) => e.datum === dateValStr);
         const displayDate = realDate.toLocaleDateString("de-DE");
         const sollProTag = settings.wochenarbeitszeit / 5;
+        // const lastKontoPlaceholder = "0.00"; // Nicht mehr nötig
         let dayData = {
           datum: dateValStr,
           differenz: "0.00",
@@ -1404,7 +1421,7 @@
           "add-day-zusatzliche-pause"
         );
 
-        // Berechne Nettozeit mit der korrigierten Logik
+        // Berechne Nettozeit mit der neuen Logik
         const netManual = calculateNetArbeitszeit(
           totalHManual,
           additionalPauseManualHours
@@ -1453,7 +1470,9 @@
         return resultDate;
       }
 
-      // --- ÜBERARBEITETE saveAndReload Funktion (Logik unverändert) ---
+      // findLastKontoBeforeDate ist nicht mehr direkt nötig, da saveAndReload die Kette aufbaut
+
+      // --- ÜBERARBEITETE saveAndReload Funktion ---
       function saveAndReload(history) {
         // 1. Sortieren nach Datum (wichtig für korrekte Berechnung)
         history.forEach((entry) => {
@@ -1599,7 +1618,7 @@
               anwesenheitLabel = `${Math.floor(totalH)}:${pad(
                 Math.round((totalH % 1) * 60)
               )} (${totalH.toFixed(2)}h)`;
-              // Verwende die konsistente, korrigierte Funktion
+              // Verwende die konsistente Funktion
               netCalculated = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -1608,7 +1627,7 @@
               nettoLabel = `${formatDecimalToTime(
                 netCalculated
               )} (${netCalculated.toFixed(2)}h)`;
-              // Berechne die effektive Pause (nutzt korrigierte Nettozeit)
+              // Berechne die effektive Pause
               const pausenVal = calculateDisplayPause(totalH, netCalculated);
               pausenLabel =
                 pausenVal > 0
@@ -1800,7 +1819,7 @@
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
-              // Verwende konsistente, korrigierte Funktion
+              // Verwende konsistente Funktion
               const netTime = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -2170,7 +2189,7 @@
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
-              // Verwende konsistente, korrigierte Funktion
+              // Verwende konsistente Funktion
               const netHours = calculateNetArbeitszeitFromEntryData(
                 kommenLokal,
                 gehenLokal,
@@ -2386,7 +2405,7 @@
       document.addEventListener("DOMContentLoaded", init);
     </script>
 
-    <!-- CSS -->
+    <!-- CSS (UNVERÄNDERT) -->
     <style>
       :root {
         /* Light Mode */
@@ -2511,12 +2530,11 @@
         height: 100vh;
       }
 
-      /* --- PAGE PADDING (Original - UNCHANGED as per request) --- */
+      /* --- PAGE PADDING (Original - UNCHANGED) --- */
       .page {
         flex-grow: 1;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-        /* Padding seems standard, assuming this is the desired state */
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
           calc(105px + var(--safe-area-bottom)) /* Adjusted nav height */
           calc(15px + var(--safe-area-right));
@@ -2642,7 +2660,7 @@
         -webkit-appearance: none;
         appearance: none;
         line-height: 1.2em;
-        min-height: 44px; /* Should ensure consistent height */
+        min-height: 44px;
       }
       input:read-only {
         background-color: var(--card-background-color);
@@ -2718,7 +2736,7 @@
         margin-left: 1px;
       }
 
-      /* --- SLIDER STYLES (Original - UNCHANGED as per request) --- */
+      /* --- SLIDER STYLES (Original - UNCHANGED) --- */
       .switch-container {
         display: flex;
         align-items: center;
@@ -3103,7 +3121,7 @@
         margin-bottom: 0;
       }
 
-      /* --- BOTTOM NAV STYLES (Original - UNCHANGED as per request) --- */
+      /* --- BOTTOM NAV STYLES (Original - UNCHANGED) --- */
       #bottom-nav {
         position: fixed;
         bottom: 0;
@@ -3232,7 +3250,6 @@
 
           <div class="section">
             <h3>Zeitenübersicht (Heute)</h3>
-            <!-- Das fehlerhafte '/>' war hier im bereitgestellten Code nicht vorhanden -->
             <div class="row">
               <div class="column">
                 <label>Anwesenheit:</label>
@@ -3433,7 +3450,7 @@
               >
             </div>
           </div>
-          <!-- Abschnitt für Startkonto -->
+          <!-- NEU: Abschnitt für Startkonto -->
           <div class="section">
             <h3>Arbeitszeitkonto</h3>
             <p
@@ -3447,7 +3464,6 @@
               ab dem Startdatum werden basierend auf diesem Wert neu berechnet.
               Lass das Datum leer, um den Wert ab dem ersten Eintrag anzuwenden.
             </p>
-            <!-- Input Felder für Startkonto. CSS sorgt für konsistente Höhe. -->
             <div class="row">
               <div class="column">
                 <label for="start-stundenkonto-value"
