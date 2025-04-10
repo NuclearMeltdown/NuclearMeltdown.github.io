@@ -57,9 +57,11 @@
       // Globale Einstellungen (werden aus LS geladen)
       let settings = {
         wochenarbeitszeit: 38,
-        bundesland: "NATIONAL", // Default: Nur bundesweite Feiertage
+        bundesland: "NATIONAL",
         allowWochenende: false,
         allowNachtarbeit: false,
+        ezaActive: false, // NEU: EZA-Regel aktiv?
+        ezaKontoStand: 0, // NEU: EZA-Konto in Stunden
       };
 
       // Hilfsfunktionen
@@ -94,6 +96,23 @@
         return `${decimalH < 0 ? "-" : ""}${hh}:${pad(mm)}`;
       }
 
+      // NEU: Formatiert EZA-Konto in Tage + Stunden
+      function formatEzaKonto(totalHours) {
+        if (isNaN(totalHours)) return "0 Tage + 0.0h";
+        const sollProTag = settings.wochenarbeitszeit / 5;
+        if (sollProTag <= 0) return `(${totalHours.toFixed(1)}h)`; // Fallback
+
+        const sign = totalHours < 0 ? "-" : "";
+        const absHours = Math.abs(totalHours);
+
+        const fullDays = Math.floor(absHours / sollProTag);
+        const remainingHours = absHours % sollProTag;
+
+        return `${sign}${fullDays} Tag${
+          fullDays !== 1 ? "e" : ""
+        } + ${remainingHours.toFixed(1)}h`;
+      }
+
       function storeToLS(key, value) {
         try {
           localStorage.setItem(key, value);
@@ -125,6 +144,9 @@
           entry.glaz = entry.glaz || false;
           entry.pcBuchung = entry.pcBuchung || false;
           entry.buero = entry.buero || false;
+          entry.isEzaTag = entry.isEzaTag || false; // NEU
+          entry.ezaActiveDuringBooking =
+            entry.ezaActiveDuringBooking || false; // NEU
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
@@ -132,7 +154,7 @@
         return history;
       }
 
-      // --- Feiertagslogik ---
+      // --- Feiertagslogik (unverändert) ---
       const holidays = {
         NATIONAL: {
           "01-01": "Neujahr",
@@ -248,6 +270,7 @@
       }
       // --- ENDE Feiertagslogik ---
 
+      // ANGEPASST: Lädt auch EZA-Einstellungen
       function loadSettings() {
         settings.wochenarbeitszeit = parseFloat(
           getFromLS("wochenarbeitszeitValue", "38")
@@ -255,9 +278,13 @@
         settings.bundesland = getFromLS("bundesland", "NATIONAL");
         settings.allowWochenende = getFromLS("allowWochenende") === "true";
         settings.allowNachtarbeit = getFromLS("allowNachtarbeit") === "true";
+        settings.ezaActive = getFromLS("ezaActive") === "true"; // NEU
+        settings.ezaKontoStand = parseFloat(getFromLS("ezaKontoStand", "0")); // NEU
         $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
+        // UI in Optionen wird in loadOptions() aktualisiert
       }
 
+      // ANGEPASST: Speichert auch EZA-Einstellungen
       function saveSettings() {
         storeToLS(
           "wochenarbeitszeitValue",
@@ -272,12 +299,47 @@
           "allowNachtarbeit",
           settings.allowNachtarbeit ? "true" : "false"
         );
+        storeToLS("ezaActive", settings.ezaActive ? "true" : "false"); // NEU
+        // EZA-Kontostand wird separat über saveEzaKonto() gespeichert
         $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
         updateCalculations();
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
+        if (currentView === "options") loadOptions(); // Optionen neu laden
       }
 
+      // NEU: Speichert nur den EZA-Kontostand
+      function saveEzaKonto() {
+        const inputVal = $("eza-konto-input").value;
+        const newStand = parseFloat(inputVal);
+
+        if (isNaN(newStand)) {
+          alert("Bitte einen gültigen Zahlenwert für das EZA-Konto eingeben.");
+          // Setze Input auf aktuellen Wert zurück
+          $("eza-konto-input").value = settings.ezaKontoStand.toFixed(2);
+          return;
+        }
+
+        settings.ezaKontoStand = newStand;
+        storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
+        updateEzaKontoDisplay(); // Anzeige aktualisieren
+        alert("EZA-Kontostand gespeichert.");
+      }
+
+      // NEU: Aktualisiert die Anzeige des EZA-Kontos in Tagen+Stunden
+      function updateEzaKontoDisplay() {
+        const displayField = $("eza-konto-display");
+        if (displayField) {
+          displayField.value = formatEzaKonto(settings.ezaKontoStand);
+        }
+        // Aktualisiere auch den Input-Wert, falls er gerade geändert wurde
+        const inputField = $("eza-konto-input");
+        if (inputField) {
+          inputField.value = settings.ezaKontoStand.toFixed(2);
+        }
+      }
+
+      // ANGEPASST: init() - Setzt initialen EZA-Displaywert
       function init() {
         loadSettings();
         restoreInputsFromLocalStorage();
@@ -286,7 +348,6 @@
         currentMonthYear = heute.getFullYear();
         currentMonth = heute.getMonth();
 
-        // Lade den letzten Kontostand, aber setze ihn NICHT mehr direkt ins Input-Feld
         let lastKontoValue = 0;
         const lastKontoStored = getFromLS("aktuellesStundenkonto");
         if (lastKontoStored) {
@@ -297,22 +358,23 @@
             const lastEntry = history[history.length - 1];
             if (lastEntry.stundenkonto) {
               lastKontoValue = parseFloat(lastEntry.stundenkonto);
-              // Speichere den Wert aus der History, falls er nicht separat gespeichert war
               storeToLS("aktuellesStundenkonto", lastEntry.stundenkonto);
             }
           }
         }
-        // Setze den Wert im read-only Feld initial (wird später von updateCalculations überschrieben)
         $("aktuelles-konto").value = lastKontoValue.toFixed(2);
 
-        updateCalculations(); // Dies wird das Feld korrekt basierend auf Berechnungen füllen
+        updateEzaKontoDisplay(); // NEU: Initiales EZA-Display setzen
+        updateCalculations();
         switchView("main");
         setupEventListeners();
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
+        closeLegendModal(); // Sicherstellen, dass Legende zu ist
       }
 
+      // ANGEPASST: setupEventListeners() - Fügt Listener für EZA hinzu
       function setupEventListeners() {
         $("nav-main").addEventListener("click", () => switchView("main"));
         $("nav-history").addEventListener("click", () => switchView("history"));
@@ -324,7 +386,6 @@
         $("pc-buchung").onchange = onInputChange;
         $("buero-toggle").onchange = onInputChange;
         $("zusatzliche-pause").oninput = onInputChange;
-        // $("aktuelles-konto").onchange = onInputChange; // DIESE ZEILE ENTFERNEN/AUSKOMMENTIEREN
         document.querySelectorAll(".close-button").forEach((btn) => {
           btn.onclick = () => {
             const modal = btn.closest(".modal");
@@ -332,12 +393,19 @@
           };
         });
         $("stats-period").onchange = () => calculateAndDisplayStats();
+        // Listener für Add/Edit Day Modal (Sondertage)
         $("urlaub-toggle").onchange = () => toggleSpecialDay("urlaub");
         $("krank-toggle").onchange = () => toggleSpecialDay("krank");
         $("schulung-toggle").onchange = () => toggleSpecialDay("schulung");
         $("glaz-toggle").onchange = () => toggleSpecialDay("glaz");
+        $("eza-tag-toggle").onchange = () => toggleSpecialDay("ezaTag"); // NEU
+        // Bulk Booking
         $("open-bulk-modal-button").addEventListener("click", showBulkModal);
-        $("apply-bulk-modal-button").addEventListener("click", applyBulkBooking);
+        $("apply-bulk-modal-button").addEventListener(
+          "click",
+          applyBulkBooking
+        );
+        // Optionen
         $("bundesland-select").onchange = (e) => {
           settings.bundesland = e.target.value;
           saveSettings();
@@ -361,12 +429,19 @@
         };
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
-
-        // NEUER LISTENER für den Korrektur-Button
         $("korrektur-anwenden-button").addEventListener(
           "click",
           applyBalanceCorrection
         );
+        // NEUE Listener für EZA in Optionen
+        $("eza-toggle").onchange = (e) => {
+          settings.ezaActive = e.target.checked;
+          saveSettings(); // Speichert das Setting und aktualisiert UI
+          // Hinweis: Keine Neuberechnung der History hier!
+        };
+        $("eza-konto-speichern-button").addEventListener("click", saveEzaKonto);
+        // Listener für Legende
+        $("show-legend-button").addEventListener("click", showLegendModal);
       }
 
       function restoreInputsFromLocalStorage() {
@@ -389,11 +464,15 @@
       function storeInputsToLocalStorage() {
         storeToLS("kommenZeitValue", $("kommen-display").value);
         storeToLS("gehenZeitValue", $("gehen-display").value);
-        storeToLS("pcBuchungChecked", $("pc-buchung").checked ? "true" : "false");
-        storeToLS("bueroChecked", $("buero-toggle").checked ? "true" : "false");
+        storeToLS(
+          "pcBuchungChecked",
+          $("pc-buchung").checked ? "true" : "false"
+        );
+        storeToLS(
+          "bueroChecked",
+          $("buero-toggle").checked ? "true" : "false"
+        );
         storeToLS("zusatzlichePauseValue", $("zusatzliche-pause").value);
-        // storeToLS("aktuellesStundenkonto", $("aktuelles-konto").value); // DIESE ZEILE ENTFERNEN/AUSKOMMENTIEREN
-        // Der Wert wird jetzt nur noch nach Berechnungen in saveAndReload/applyBalanceCorrection gespeichert.
       }
 
       function setZeit(type) {
@@ -463,88 +542,39 @@
       }
 
       function calculateArbeitszeit() {
-        const wTime = calculateWorkingTime(); // Anwesenheitszeit holen
+        const wTime = calculateWorkingTime();
         if (wTime.totalHours <= 0) return 0;
-
         const presenceHours = wTime.totalHours;
         const additionalPause = parsePauseInput("zusatzliche-pause");
-
-        // 1. Bestimme die gesetzliche Pause basierend auf der Anwesenheit,
-        //    aber berücksichtige, dass sie erst *nach* den Pausenfenstern voll greift.
         let statutoryPause = 0;
-        if (presenceHours > 9.75) {
-          // Nach 9h 45min Anwesenheit -> 45min Pause
-          statutoryPause = 0.75;
-        } else if (presenceHours > 6.5) {
-          // Nach 6h 30min Anwesenheit -> 30min Pause
-          statutoryPause = 0.5;
-        }
-        // Zwischen 6:00 und 6:30 sowie 9:00 und 9:30 Anwesenheit ist die gesetzliche Pause hier noch 0.
-        // Zwischen 6:30 und 9:45 Anwesenheit ist sie 0.5.
-
-        // 2. Berechne die vorläufige Nettozeit
+        if (presenceHours > 9.75) statutoryPause = 0.75;
+        else if (presenceHours > 6.5) statutoryPause = 0.5;
         let netArbeitszeit = presenceHours - additionalPause - statutoryPause;
-
-        // 3. Wende die "Einfrier"-Logik an
-        //    Die Nettozeit darf während der Pausenfenster nicht über den Schwellenwert steigen.
-        if (presenceHours > 6.0 && presenceHours <= 6.5) {
-          // Anwesenheit zwischen 6:01 und 6:30 -> Nettozeit auf max. 6.0 begrenzen
+        if (presenceHours > 6.0 && presenceHours <= 6.5)
           netArbeitszeit = Math.min(netArbeitszeit, 6.0);
-        } else if (presenceHours > 9.5 && presenceHours <= 9.75) {
-          // Anwesenheit zwischen 9:31 und 9:45 -> Nettozeit auf max. 9.0 begrenzen
-          // Wichtig: In diesem Fenster wurde oben mit statutoryPause = 0.5 gerechnet.
-          // Beispiel: Anwesenheit 9.75h, Zusatzpause 0 -> Vorläufig Netto = 9.75 - 0 - 0.5 = 9.25
-          //         -> Begrenzung auf 9.0 greift.
+        else if (presenceHours > 9.5 && presenceHours <= 9.75)
           netArbeitszeit = Math.min(netArbeitszeit, 9.0);
-        }
-
-        // Stelle sicher, dass die Nettozeit nicht negativ wird
         return Math.max(0, netArbeitszeit);
       }
 
       function calculateEndTimeFixpoint(desiredNet) {
         const ak = getAdjustedKommenZeit();
         if (!ak) return "--:--";
-
-        let presence = desiredNet; // Start guess for presence time
+        let presence = desiredNet;
         const additionalPauseMain = parsePauseInput("zusatzliche-pause");
-
-        // Iterative calculation to find the stable presence time
         for (let i = 0; i < 5; i++) {
-          // Limit iterations to prevent infinite loops
           const prevPresence = presence;
           let statutoryPause = 0;
-
-          // --- MODIFIED PAUSE LOGIC ---
-          // Check if we are specifically calculating for the 9h net target
           if (desiredNet === 9) {
-            // For the 9h net target, ONLY consider the 0.5h break,
-            // even if the presence guess temporarily exceeds 9h during iteration.
-            // The extra 0.25h break is NOT relevant for reaching *exactly* 9h net.
-            if (prevPresence > 6) {
-              statutoryPause = 0.5;
-            }
+            if (prevPresence > 6) statutoryPause = 0.5;
           } else {
-            // Standard pause logic for all other targets (4h, 6h, 10h, Soll)
-            if (prevPresence > 9) {
-              statutoryPause = 0.75; // 45 min
-            } else if (prevPresence > 6) {
-              statutoryPause = 0.5; // 30 min
-            }
+            if (prevPresence > 9) statutoryPause = 0.75;
+            else if (prevPresence > 6) statutoryPause = 0.5;
           }
-          // --- END MODIFIED PAUSE LOGIC ---
-
           const totalPause = additionalPauseMain + statutoryPause;
-          presence = desiredNet + totalPause; // Update presence guess
-
-          // Check for convergence
-          if (Math.abs(presence - prevPresence) < 1 / 600) {
-            // Converged (difference less than 0.1 minutes)
-            break;
-          }
+          presence = desiredNet + totalPause;
+          if (Math.abs(presence - prevPresence) < 1 / 600) break;
         }
-
-        // Calculate final end time based on the converged presence duration
         const endTime = new Date(ak.getTime());
         endTime.setMinutes(endTime.getMinutes() + Math.round(presence * 60));
         return formatTime(endTime);
@@ -569,17 +599,41 @@
       }
 
       function updateCalculations() {
+        // Diese Funktion berechnet nur die *Anzeige* für den aktuellen Tag,
+        // basierend auf den Eingaben und dem *gespeicherten* Kontostand.
+        // Die EZA-Logik greift erst beim *Speichern*.
         const netArbeitszeit = calculateArbeitszeit();
         const sollProTag = settings.wochenarbeitszeit / 5;
         let diff =
           netArbeitszeit > 0
             ? parseFloat((netArbeitszeit - sollProTag).toFixed(2))
             : 0;
-        const aktKontoVal = parseFloat($("aktuelles-konto").value) || 0;
+
+        // Wenn EZA aktiv ist, wird die *prognostizierte* Differenz für Urlaub/Schulung angepasst
+        // Dies dient nur der Vorschau auf der Hauptseite!
+        const isUrlaubToday = false; // Kann hier nicht bestimmt werden
+        const isSchulungToday = false; // Kann hier nicht bestimmt werden
+        if (
+          settings.ezaActive &&
+          netArbeitszeit === 0 &&
+          (isUrlaubToday || isSchulungToday)
+        ) {
+          // Annahme: Wenn Netto 0 ist und es Urlaub/Schulung *wäre*, wäre die Diff -0.4
+          // Dies ist eine Vereinfachung für die Vorschau.
+          // Besser wäre, wenn man Urlaub/Schulung direkt auf der Hauptseite togglen könnte.
+          // Aktuell: Wir lassen die Standard-Diff-Berechnung für die Vorschau.
+          // Die korrekte EZA-Diff wird erst beim Speichern angewendet.
+        }
+
+        const aktKontoVal =
+          parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
         let newKto = parseFloat((aktKontoVal + diff).toFixed(2));
+
+        $("aktuelles-konto").value = aktKontoVal.toFixed(2);
         const wTime = calculateWorkingTime();
         const pausen = calculateGesamtPause(wTime.totalHours);
         const pausenMin = Math.round(pausen * 60);
+
         $("anwesend-zeit").value = `${wTime.hours}:${pad(
           wTime.minutes
         )} (${wTime.totalHours.toFixed(2)}h)`;
@@ -595,11 +649,13 @@
         $("neues-konto").value = newKto.toFixed(2);
         $("neues-konto-time").value = formatDecimalToTime(newKto);
         $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoVal);
+
         const fieldsToColor = [
           { id: "differenz", value: diff },
           { id: "differenz-time", value: diff },
           { id: "neues-konto", value: newKto },
           { id: "neues-konto-time", value: newKto },
+          { id: "aktuelles-konto", value: aktKontoVal },
           { id: "aktuelles-konto-time", value: aktKontoVal },
         ];
         fieldsToColor.forEach((item) => {
@@ -695,8 +751,9 @@
         return violations;
       }
 
+      // ANGEPASST: saveDay() - Berücksichtigt EZA-Logik
       function saveDay() {
-        updateCalculations();
+        updateCalculations(); // Stellt sicher, dass alle Werte aktuell sind
         const today = new Date();
         const dayOfWeek = today.getDay();
         if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
@@ -710,7 +767,7 @@
           return;
         }
         const adjustedKommen = getAdjustedKommenZeit();
-        const netArbeitszeit = calculateArbeitszeit();
+        const netArbeitszeit = calculateArbeitszeit(); // Nettozeit des Arbeitstages
         const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null;
         if (!adjustedKommen || !currentGehen) {
           alert("Bitte Kommen- und Gehen-Zeit für die Speicherung angeben.");
@@ -739,9 +796,27 @@
           )
             return;
         }
-        const diffVal = parseFloat($("differenz").value) || 0;
-        const diffTime = $("differenz-time").value || "0:00";
-        const newVal = parseFloat($("neues-konto").value) || 0;
+
+        const sollProTag = settings.wochenarbeitszeit / 5;
+        let mainDifference = netArbeitszeit - sollProTag; // Standard-Differenz
+        let ezaDifference = 0; // Standard-EZA-Änderung
+
+        // EZA-Logik hier nicht anwendbar, da kein Sondertag ausgewählt wurde
+        // (Urlaub, Krank etc. können nicht über die Hauptseite gespeichert werden)
+
+        const currentEzaStand = settings.ezaKontoStand; // Aktuellen Stand holen
+        const newEzaStand = currentEzaStand + ezaDifference;
+
+        // EZA-Stand aktualisieren (auch wenn 0 Änderung)
+        settings.ezaKontoStand = newEzaStand;
+        storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
+        updateEzaKontoDisplay();
+
+        // Aktuellen Hauptkontostand holen
+        const aktKontoVal =
+          parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+        const newVal = aktKontoVal + mainDifference; // Neues Hauptkonto
+
         const kommenStr = adjustedKommen.toISOString();
         const gehenStr = currentGehen.toISOString();
         const isBuero = $("buero-toggle").checked;
@@ -752,15 +827,17 @@
         const existingIndex = history.findIndex((e) => e.datum === datum);
         const dayData = {
           datum: datum,
-          differenz: diffVal.toFixed(2),
-          differenzTime: diffTime,
-          stundenkonto: newVal.toFixed(2),
+          differenz: mainDifference.toFixed(2),
+          differenzTime: formatDecimalToTime(mainDifference),
+          stundenkonto: newVal.toFixed(2), // Prognostiziertes neues Hauptkonto
           kommen: kommenStr,
           gehen: gehenStr,
           urlaub: false,
           krank: false,
           schulung: false,
           glaz: false,
+          isEzaTag: false, // NEU
+          ezaActiveDuringBooking: settings.ezaActive, // NEU: Aktuellen EZA-Status speichern
           pcBuchung: isPcBuchung,
           buero: isBuero,
           zusatzPause: additionalPauseValue,
@@ -776,7 +853,7 @@
         } else {
           history.push(dayData);
         }
-        saveAndReload(history);
+        saveAndReload(history); // Ruft Neuberechnung des Hauptkontos und Speicherung auf
         alert("Der Tag wurde gespeichert.");
       }
 
@@ -809,14 +886,19 @@
         else if (viewId === "options") loadOptions();
       }
 
+      // ANGEPASST: loadOptions() - Lädt EZA-UI-Status
       function loadOptions() {
         $("bundesland-select").value = settings.bundesland;
         $("wochenarbeitszeit-setting").value =
           settings.wochenarbeitszeit.toFixed(1);
         $("wochenende-toggle").checked = settings.allowWochenende;
         $("nachtarbeit-toggle").checked = settings.allowNachtarbeit;
+        $("eza-toggle").checked = settings.ezaActive; // NEU
+        $("eza-konto-input").value = settings.ezaKontoStand.toFixed(2); // NEU
+        updateEzaKontoDisplay(); // NEU: Anzeige aktualisieren
       }
 
+      // ANGEPASST: loadHistory() - Berücksichtigt EZA-Flags für Anzeige
       function loadHistory() {
         const historyList = $("history-list");
         historyList.innerHTML = "";
@@ -870,15 +952,32 @@
             entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${holidayName}</div>`;
           } else if (entry) {
             let locationEmoji = entry.buero ? "🏢" : "🏠";
-            let specialDayText = entry.urlaub
-              ? "Urlaub"
-              : entry.krank
-              ? "Krank"
-              : entry.schulung
-              ? "Schulung"
-              : entry.glaz
-              ? "GLAZ"
-              : "";
+            let specialDayText = "";
+            let bgColorClass = ""; // CSS class for background
+            let textColorClass = ""; // CSS class for text
+
+            if (entry.urlaub) {
+              specialDayText = "Urlaub";
+              bgColorClass = "special-day-urlaub-bg";
+              textColorClass = "special-day-text";
+            } else if (entry.krank) {
+              specialDayText = "Krank";
+              bgColorClass = "special-day-krank-bg";
+              textColorClass = "special-day-text";
+            } else if (entry.schulung) {
+              specialDayText = "Schulung";
+              bgColorClass = "special-day-schulung-bg"; // NEU
+              textColorClass = "special-day-text"; // NEU
+            } else if (entry.isEzaTag) {
+              specialDayText = "EZA-Tag";
+              bgColorClass = "special-day-eza-bg"; // NEU
+              textColorClass = "special-day-eza-text"; // NEU
+            } else if (entry.glaz) {
+              specialDayText = "GLAZ";
+              bgColorClass = "special-day-glaz-bg";
+              textColorClass = "special-day-glaz-text";
+            }
+
             const diffVal = parseFloat(entry.differenz) || 0;
             weeklyTotalDiff += diffVal;
             const diffClass =
@@ -887,23 +986,34 @@
                 : diffVal < -0.001
                 ? "negative-value"
                 : "zero-value";
+
+            // NEU: Logik für Anzeige basierend auf EZA-Status
+            let ezaIndicatorClass = "";
+            let ezaTagIndicatorClass = "";
+            if (
+              entry.ezaActiveDuringBooking && // Gebucht als EZA aktiv war
+              !settings.ezaActive // Aber EZA ist JETZT inaktiv
+            ) {
+              if (entry.urlaub || entry.schulung) {
+                ezaIndicatorClass = "eza-related-diff inactive"; // Klasse für Dimmung/Icon der Diff
+              } else if (entry.isEzaTag) {
+                ezaTagIndicatorClass = "eza-tag-label inactive"; // Klasse für Dimmung/Icon des Labels
+              }
+            }
+
             if (specialDayText) {
-              let bgColor = entry.krank
-                ? "var(--special-day-krank-bg)"
-                : entry.glaz
-                ? "var(--special-day-glaz-bg)"
-                : "var(--special-day-urlaub-bg)";
-              let textColor = entry.glaz
-                ? "var(--special-day-glaz-text)"
-                : "var(--special-day-text)";
-              entryContentDiv.classList.add("special-day");
-              entryContentDiv.style.backgroundColor = bgColor;
-              entryContentDiv.style.color = textColor;
-              const diffDisplay = entry.glaz
-                ? `<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${entry.differenzTime}</span>`
-                : "";
-              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${specialDayText} ${locationEmoji} ${diffDisplay}</div>`;
+              entryContentDiv.classList.add("special-day", bgColorClass);
+              entryContentDiv.style.color = `var(--${textColorClass})`; // Set text color via var
+
+              const diffDisplay =
+                entry.glaz || entry.urlaub || entry.schulung
+                  ? `<span class="diff-badge ${diffClass} ${ezaIndicatorClass}" style="margin-left: 8px;">${entry.differenzTime}</span>`
+                  : ""; // EZA/Krank haben 0 Diff auf Hauptkonto
+              const tagLabelClass = entry.isEzaTag ? ezaTagIndicatorClass : "";
+
+              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div><span class="${tagLabelClass}">${specialDayText}</span> ${locationEmoji} ${diffDisplay}</div>`;
             } else {
+              // Normaler Arbeitstag
               const kommenLokal = entry.kommen
                 ? new Date(entry.kommen)
                 : null;
@@ -936,6 +1046,11 @@
                   entryContentDiv.classList.add("violation-day");
                 }
               }
+              // Outline für EZA-gebucht
+              if (entry.ezaActiveDuringBooking) {
+                entryContentDiv.classList.add("eza-booked-outline-history"); // Eigene Klasse für History-Outline
+              }
+
               entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${formatTime(
                 kommenLokal
               )} - ${formatTime(
@@ -1009,8 +1124,11 @@
               `Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`
             )
           ) {
+            // WICHTIG: Wenn EZA aktiv war, müssten ggf. EZA-Konto-Änderungen rückgängig gemacht werden.
+            // Aktuell: Einfaches Löschen. Neuberechnung des EZA-Kontos ist komplex.
+            // Wir gehen davon aus, dass der User das EZA-Konto manuell korrigiert, wenn nötig.
             history.splice(index, 1);
-            saveAndReload(history);
+            saveAndReload(history); // Berechnet Hauptkonto neu
           }
         }
       }
@@ -1041,8 +1159,9 @@
         pagination.appendChild(nextWeekBtn);
       }
 
+      // ANGEPASST: showAddDayModal() - Fügt EZA-Tag hinzu
       function showAddDayModal(dateStr) {
-        const dateVal = new Date(dateStr + "T12:00:00"); // Use noon
+        const dateVal = new Date(dateStr + "T12:00:00");
         const displayDate = dateVal.toLocaleDateString("de-DE");
         const weekdayName = dateVal.toLocaleDateString("de-DE", {
           weekday: "long",
@@ -1062,6 +1181,14 @@
         $("add-day-modal-title").textContent = entry
           ? `Buchung ändern: ${weekdayName}, ${displayDate}`
           : `${weekdayName}, ${displayDate}`;
+
+        // Reset all toggles first
+        $("urlaub-toggle").checked = false;
+        $("krank-toggle").checked = false;
+        $("schulung-toggle").checked = false;
+        $("glaz-toggle").checked = false;
+        $("eza-tag-toggle").checked = false; // NEU
+
         if (entry) {
           $("add-day-kommen").value = entry.kommen
             ? formatTime(new Date(entry.kommen))
@@ -1072,12 +1199,19 @@
           $("add-day-zusatzliche-pause").value = entry.zusatzPause || "";
           $("pc-buchung-add-day").checked = entry.pcBuchung || false;
           $("buero-add-day").checked = entry.buero || false;
+          // Set the correct toggle based on entry type
           $("urlaub-toggle").checked = entry.urlaub || false;
           $("krank-toggle").checked = entry.krank || false;
           $("schulung-toggle").checked = entry.schulung || false;
           $("glaz-toggle").checked = entry.glaz || false;
+          $("eza-tag-toggle").checked = entry.isEzaTag || false; // NEU
+
           const isSpecial =
-            entry.urlaub || entry.krank || entry.schulung || entry.glaz;
+            entry.urlaub ||
+            entry.krank ||
+            entry.schulung ||
+            entry.glaz ||
+            entry.isEzaTag; // NEU
           toggleTimeFieldsDisabled(isSpecial);
         } else {
           $("add-day-kommen").value = "";
@@ -1086,23 +1220,23 @@
           $("pc-buchung-add-day").checked =
             getFromLS("pcBuchungChecked") === "true";
           $("buero-add-day").checked = getFromLS("bueroChecked") === "true";
-          $("urlaub-toggle").checked = false;
-          $("krank-toggle").checked = false;
-          $("schulung-toggle").checked = false;
-          $("glaz-toggle").checked = false;
           toggleTimeFieldsDisabled(false);
         }
         $("add-day-modal").setAttribute("data-date", dateStr);
         $("add-day-modal").style.display = "flex";
       }
 
+      // ANGEPASST: toggleSpecialDay() - Fügt EZA-Tag hinzu
       function toggleSpecialDay(type) {
-        const types = ["urlaub", "krank", "schulung", "glaz"];
-        const isChecked = $(type + "-toggle").checked;
+        const types = ["urlaub", "krank", "schulung", "glaz", "ezaTag"]; // NEU
+        const isChecked = $(type.replace("Tag", "-tag") + "-toggle").checked; // Handle ezaTag ID
         types.forEach((t) => {
-          if (t !== type && isChecked) $(t + "-toggle").checked = false;
+          if (t !== type && isChecked)
+            $(t.replace("Tag", "-tag") + "-toggle").checked = false;
         });
-        const anySpecialChecked = types.some((t) => $(t + "-toggle").checked);
+        const anySpecialChecked = types.some((t) =>
+          $(t.replace("Tag", "-tag") + "-toggle").checked
+        );
         toggleTimeFieldsDisabled(anySpecialChecked);
       }
 
@@ -1113,6 +1247,7 @@
         $("pc-buchung-add-day").disabled = disabled;
       }
 
+      // ANGEPASST: addManualDay() - Berücksichtigt EZA-Logik
       function addManualDay() {
         const dateValStr = $("add-day-modal").getAttribute("data-date");
         if (!dateValStr) {
@@ -1137,10 +1272,12 @@
           closeAddDayModal();
           return;
         }
+
         const isUrlaub = $("urlaub-toggle").checked,
           isKrank = $("krank-toggle").checked,
           isSchulung = $("schulung-toggle").checked,
-          isGlaz = $("glaz-toggle").checked;
+          isGlaz = $("glaz-toggle").checked,
+          isEzaTag = $("eza-tag-toggle").checked; // NEU
         const isBueroAddDay = $("buero-add-day").checked,
           isPcBuchungAddDay = $("pc-buchung-add-day").checked;
         const additionalPauseManualValue = $(
@@ -1150,41 +1287,94 @@
         const existingIndex = history.findIndex((e) => e.datum === dateValStr);
         const displayDate = realDate.toLocaleDateString("de-DE");
         const sollProTag = settings.wochenarbeitszeit / 5;
-        const lastKontoPlaceholder = "0.00";
+
+        let mainDifference = 0;
+        let ezaDifference = 0;
+        const currentEzaActive = settings.ezaActive; // Status zum Zeitpunkt der Buchung
+
+        // EZA-Logik anwenden, falls aktiv
+        if (currentEzaActive) {
+          if (isUrlaub || isSchulung) {
+            mainDifference = -0.4;
+          } else if (isKrank) {
+            ezaDifference = -0.4;
+            // Hauptkonto-Differenz bleibt 0
+          } else if (isGlaz) {
+            mainDifference = -sollProTag;
+          } else if (isEzaTag) {
+            const neededHours = sollProTag;
+            const availableEza = settings.ezaKontoStand;
+            if (availableEza >= neededHours) {
+              ezaDifference = -neededHours;
+            } else if (availableEza > 0) {
+              // Teilweise EZA, Rest aufs Hauptkonto
+              ezaDifference = -availableEza; // EZA-Konto leeren
+              mainDifference = -(neededHours - availableEza); // Rest aufs Hauptkonto
+            } else {
+              // Kein EZA-Guthaben, voll aufs Hauptkonto
+              mainDifference = -neededHours;
+            }
+            // Hauptkonto-Differenz wird hier gesetzt
+          }
+          // Für normalen Arbeitstag wird die Differenz unten berechnet
+        } else {
+          // EZA nicht aktiv - Standardlogik
+          if (isUrlaub || isKrank || isSchulung || isEzaTag) {
+            // EZA-Tag wird wie Urlaub behandelt, wenn EZA aus
+            mainDifference = 0;
+          } else if (isGlaz) {
+            mainDifference = -sollProTag;
+          }
+          // Für normalen Arbeitstag wird die Differenz unten berechnet
+        }
+
+        // EZA-Konto aktualisieren (nur wenn EZA aktiv war)
+        if (currentEzaActive && ezaDifference !== 0) {
+          settings.ezaKontoStand += ezaDifference;
+          storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
+          updateEzaKontoDisplay();
+        }
+
+        // Basisdaten für den History-Eintrag
         let dayData = {
           datum: dateValStr,
-          differenz: "0.00",
+          differenz: "0.00", // Wird unten ggf. überschrieben
           differenzTime: "0:00",
-          stundenkonto: lastKontoPlaceholder,
+          stundenkonto: "0.00", // Wird von saveAndReload berechnet
           kommen: null,
           gehen: null,
           urlaub: isUrlaub,
           krank: isKrank,
           schulung: isSchulung,
           glaz: isGlaz,
-          pcBuchung: false,
+          isEzaTag: isEzaTag, // NEU
+          ezaActiveDuringBooking: currentEzaActive, // NEU
+          pcBuchung: false, // Wird unten ggf. überschrieben
           buero: isBueroAddDay,
-          zusatzPause: "",
+          zusatzPause: "", // Wird unten ggf. überschrieben
         };
-        if (isUrlaub || isKrank || isSchulung) {
-          let label = isUrlaub ? "Urlaub" : isKrank ? "Krank" : "Schulung";
+
+        // Wenn es ein Sondertag ist (kein normaler Arbeitstag)
+        if (isUrlaub || isKrank || isSchulung || isGlaz || isEzaTag) {
+          dayData.differenz = mainDifference.toFixed(2);
+          dayData.differenzTime = formatDecimalToTime(mainDifference);
+          let label = isUrlaub
+            ? "Urlaub"
+            : isKrank
+            ? "Krank"
+            : isSchulung
+            ? "Schulung"
+            : isGlaz
+            ? "GLAZ"
+            : "EZA-Tag";
           if (existingIndex !== -1) history[existingIndex] = dayData;
           else history.push(dayData);
-          saveAndReload(history);
+          saveAndReload(history); // Berechnet Hauptkonto neu
           alert(`${label} für ${displayDate} gespeichert.`);
           return;
         }
-        if (isGlaz) {
-          const diffValGlaz = -sollProTag;
-          dayData.differenz = diffValGlaz.toFixed(2);
-          dayData.differenzTime = formatDecimalToTime(diffValGlaz);
-          let label = "GLAZ";
-          if (existingIndex !== -1) history[existingIndex] = dayData;
-          else history.push(dayData);
-          saveAndReload(history);
-          alert(`${label} für ${displayDate} gespeichert.`);
-          return;
-        }
+
+        // Normaler Arbeitstag
         const kommenVal = $("add-day-kommen").value,
           gehenVal = $("add-day-gehen").value;
         if (!kommenVal || !gehenVal) {
@@ -1228,26 +1418,25 @@
           if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?"))
             return;
         }
-        const diffValManual = parseFloat((netManual - sollProTag).toFixed(2));
-        const diffTimeManual = formatDecimalToTime(diffValManual);
-        dayData.differenz = diffValManual.toFixed(2);
-        dayData.differenzTime = diffTimeManual;
+
+        // Differenz für normalen Arbeitstag berechnen (EZA-Logik hier nicht relevant)
+        mainDifference = parseFloat((netManual - sollProTag).toFixed(2));
+
+        dayData.differenz = mainDifference.toFixed(2);
+        dayData.differenzTime = formatDecimalToTime(mainDifference);
         dayData.kommen = adjustedKommenManual.toISOString();
         dayData.gehen = gehenDateManual.toISOString();
         dayData.pcBuchung = isPcBuchungAddDay;
         dayData.zusatzPause = additionalPauseManualValue;
-        dayData.urlaub = false;
-        dayData.krank = false;
-        dayData.schulung = false;
-        dayData.glaz = false;
+        // Flags für Sondertage sind bereits false
+
         if (existingIndex !== -1) history[existingIndex] = dayData;
         else history.push(dayData);
-        saveAndReload(history);
+        saveAndReload(history); // Berechnet Hauptkonto neu
         alert(`Arbeitstag für ${displayDate} gespeichert.`);
       }
 
       function parseTimeForDate(timeStr, targetDate) {
-        // targetDate ist jetzt ein Date Objekt für den korrekten Tag, lokale Zeit Mitternacht
         if (!timeStr || !targetDate) return null;
         const match = timeStr.match(/^(\d{2}):(\d{2})$/);
         if (!match) return null;
@@ -1255,31 +1444,12 @@
         const mm = parseInt(match[2], 10);
         if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
           return null;
-
-        // Erstelle eine Kopie des Zieldatums, um das Original nicht zu ändern
         const resultDate = new Date(targetDate.getTime());
-        // Setze die Stunden und Minuten in der lokalen Zeitzone
         resultDate.setHours(hh, mm, 0, 0);
         return resultDate;
       }
 
-      function findLastKontoBeforeDate(history, dateStr, excludeIndex = -1) {
-        const targetDate = new Date(dateStr + "T00:00:00");
-        const relevantHistory = history
-          .filter(
-            (entry, index) =>
-              index !== excludeIndex &&
-              new Date(entry.datum + "T00:00:00") < targetDate
-          )
-          .sort((a, b) => new Date(b.datum) - new Date(a.datum));
-        if (
-          relevantHistory.length > 0 &&
-          relevantHistory[0].stundenkonto !== undefined
-        )
-          return parseFloat(relevantHistory[0].stundenkonto) || 0;
-        return parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
-      }
-
+      // KORRIGIERTE FUNKTION: applyBalanceCorrection() - Nur Hauptkonto
       function applyBalanceCorrection() {
         const korrekturDatumStr = $("korrektur-datum").value;
         const korrekturWertInput = $("korrektur-wert").value;
@@ -1294,7 +1464,7 @@
         }
 
         const korrekturWert = parseFloat(korrekturWertInput);
-        const korrekturDate = new Date(korrekturDatumStr + "T12:00:00"); // Mitte des Tages
+        const korrekturDate = new Date(korrekturDatumStr + "T12:00:00");
 
         if (
           !confirm(
@@ -1308,9 +1478,7 @@
           return;
         }
 
-        let history = getHistory(); // Holt die sortierte History
-
-        // Finde den Index des Eintrags für das angegebene Datum
+        let history = getHistory();
         const correctionIndex = history.findIndex(
           (e) => e.datum === korrekturDatumStr
         );
@@ -1325,11 +1493,10 @@
         // 1. Setze den Stundenkonto-Wert für den gefundenen Eintrag
         history[correctionIndex].stundenkonto = korrekturWert.toFixed(2);
 
-        // 2. Berechne alle NACHFOLGENDEN Einträge neu
+        // 2. Berechne alle NACHFOLGENDEN Einträge neu (nur Hauptkonto)
         for (let i = correctionIndex + 1; i < history.length; i++) {
           const currentEntry = history[i];
-          const previousEntry = history[i - 1]; // Der Vorgänger existiert immer hier
-
+          const previousEntry = history[i - 1];
           const baseKonto = parseFloat(previousEntry.stundenkonto || "0");
           const diff = parseFloat(currentEntry.differenz || 0);
           currentEntry.stundenkonto = (baseKonto + diff).toFixed(2);
@@ -1340,11 +1507,10 @@
 
         // 4. Aktualisiere den globalen "aktuellesStundenkonto"-Wert und die Anzeige
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-        // Finde den Kontostand *vor* dem allerersten Eintrag als Fallback
         let kontoBeforeFirst = 0;
         if (history.length > 0) {
           const firstDate = new Date(history[0].datum + "T00:00:00");
-          const originalHistory = JSON.parse(getFromLS("history", "[]")); // Brauchen Original für Suche davor
+          const originalHistory = JSON.parse(getFromLS("history", "[]"));
           const relevantOriginalHistory = originalHistory.filter(
             (entry) => new Date(entry.datum + "T00:00:00") < firstDate
           );
@@ -1359,15 +1525,14 @@
             kontoBeforeFirst = parseFloat(getFromLS("initialKontoValue", "0"));
           }
         } else {
-          kontoBeforeFirst = parseFloat(getFromLS("initialKontoValue", "0"));
+           kontoBeforeFirst = parseFloat(getFromLS("initialKontoValue", "0"));
         }
-
         const latestKonto = latestEntry
           ? parseFloat(latestEntry.stundenkonto || "0")
-          : kontoBeforeFirst; // Wenn History leer, nimm den letzten bekannten Wert davor
+          : kontoBeforeFirst;
 
-        $("aktuelles-konto").value = latestKonto.toFixed(2); // Update read-only field
-        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2)); // Speichere den *tatsächlichen* letzten Stand
+        $("aktuelles-konto").value = latestKonto.toFixed(2);
+        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2));
 
         // 5. Leere die Eingabefelder
         $("korrektur-datum").value = "";
@@ -1380,35 +1545,31 @@
         );
 
         // 6. Aktualisiere die UI
-        updateCalculations(); // Wichtig, um abhängige Felder zu aktualisieren
-        closeAddDayModal(); // Sicherstellen, dass alle Modals zu sind
+        updateCalculations();
+        closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
-        if (currentView === "history") loadHistory(); // Lade Ansichten neu
+        if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
       }
 
+      // KORRIGIERTE FUNKTION: saveAndReload() - Nur Hauptkonto
       function saveAndReload(history) {
-        // 1. Sortieren (wichtig!)
         history.forEach((entry) => {
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
 
-        // 2. Finde den Kontostand *vor* dem ersten Eintrag in der übergebenen Liste
-        let previousKonto = 0; // Default
+        let previousKonto = 0;
         if (history.length > 0) {
           const firstDateStr = history[0].datum;
           const firstDate = new Date(firstDateStr + "T00:00:00");
-
-          // Suche im *gesamten* alten LocalStorage-Verlauf nach dem letzten Eintrag *vor* dem ersten neuen
           const originalHistory = JSON.parse(getFromLS("history", "[]"));
           const relevantOriginalHistory = originalHistory.filter(
             (entry) => new Date(entry.datum + "T00:00:00") < firstDate
           );
-
           if (relevantOriginalHistory.length > 0) {
             relevantOriginalHistory.sort(
               (a, b) => new Date(b.datum) - new Date(a.datum)
@@ -1423,34 +1584,28 @@
           previousKonto = parseFloat(getFromLS("initialKontoValue", "0"));
         }
 
-        // 3. Berechne ALLE Kontostände in der übergebenen Liste neu
         for (let i = 0; i < history.length; i++) {
           const entry = history[i];
           const diff = parseFloat(entry.differenz || 0);
-
           let baseKonto;
           if (i === 0) {
             baseKonto = previousKonto;
           } else {
-            // Nimm den Wert des Vorgängers (der gerade berechnet wurde)
             baseKonto = parseFloat(history[i - 1].stundenkonto || "0");
           }
           entry.stundenkonto = (baseKonto + diff).toFixed(2);
         }
 
-        // 4. Speichere die neu berechnete History
         storeToLS("history", JSON.stringify(history));
 
-        // 5. Aktualisiere den globalen "aktuellesStundenkonto"-Wert und die Anzeige
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
         const latestKonto = latestEntry
           ? parseFloat(latestEntry.stundenkonto || "0")
-          : previousKonto; // Wenn History leer, nimm den letzten bekannten Wert davor
-        $("aktuelles-konto").value = latestKonto.toFixed(2); // Update read-only field
-        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2)); // Speichere den *tatsächlichen* letzten Stand
+          : previousKonto;
+        $("aktuelles-konto").value = latestKonto.toFixed(2);
+        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2));
 
-        // 6. Aktualisiere Berechnungen und schließe Modals etc.
-        updateCalculations(); // Wichtig, um abhängige Felder zu aktualisieren
+        updateCalculations();
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
@@ -1464,6 +1619,7 @@
         if (modal) modal.style.display = "none";
       }
 
+      // ANGEPASST: showDayDetails() - Berücksichtigt EZA-Flags für Anzeige
       function showDayDetails(dateStr) {
         const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
@@ -1492,23 +1648,50 @@
         );
         const kontoDecimal = parseFloat(entry.stundenkonto || 0).toFixed(2);
         const holidayName = getHolidayName(entryDate, settings.bundesland);
+
+        // EZA-Indikator-Logik
+        let ezaIndicatorClass = "";
+        let ezaTagIndicatorClass = "";
+        if (entry.ezaActiveDuringBooking && !settings.ezaActive) {
+          if (entry.urlaub || entry.schulung) {
+            ezaIndicatorClass = "eza-related-diff inactive";
+          } else if (entry.isEzaTag) {
+            ezaTagIndicatorClass = "eza-tag-label inactive";
+          }
+        }
+
         if (holidayName) {
           detailsHTML = `<p><strong>Datum:</strong> ${dispDate}</p><p><strong>Status:</strong> ${holidayName} (Feiertag)</p>`;
           $("detail-edit-button").style.display = "none";
           $("detail-delete-button").style.display = "none";
-        } else if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
+        } else if (
+          entry.urlaub ||
+          entry.krank ||
+          entry.schulung ||
+          entry.glaz ||
+          entry.isEzaTag
+        ) {
           const statusText = entry.urlaub
             ? "Urlaub"
             : entry.krank
             ? "Krank"
             : entry.schulung
             ? "Schulung"
-            : "GLAZ";
-          detailsHTML = `<p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
+            : entry.glaz
+            ? "GLAZ"
+            : "EZA-Tag"; // EZA-Tag Text
+          const tagLabelClass = entry.isEzaTag ? ezaTagIndicatorClass : "";
+          const diffDisplay =
+            entry.glaz || entry.urlaub || entry.schulung
+              ? `<span class="diff-badge ${diffClass} ${ezaIndicatorClass}">${entry.differenzTime} (${entry.differenz}h)</span>`
+              : ""; // EZA/Krank haben 0 Diff auf Hauptkonto
+
+          detailsHTML = `<p><strong>Status:</strong> <span class="${tagLabelClass}">${statusText}</span> ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p><p><strong>Differenz:</strong> ${diffDisplay}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
           pcBuchungChecked = false;
           $("detail-edit-button").style.display = "block";
           $("detail-delete-button").style.display = "block";
         } else {
+          // Normaler Arbeitstag
           const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
           const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
           const kommenFormatted = formatTime(kommenLokal);
@@ -1567,13 +1750,19 @@
             settings.allowNachtarbeit
               ? ' <span class="moon-mark">🌙</span>'
               : "";
+
+          // Outline-Hinweis (optional, vielleicht besser nur im Kalender)
+          const ezaBookedHint = entry.ezaActiveDuringBooking
+            ? ' <span title="EZA-Regel bei Buchung aktiv">(E)</span>'
+            : "";
+
           detailsHTML = `<p><strong>Ort:</strong> ${bueroEmoji}</p><p><strong>Kommen:</strong> ${kommenFormatted} ${
             pcBuchungChecked ? "(PC-Buchung aktiv)" : ""
           }${kommenMoon}</p><p><strong>Gehen:</strong> ${gehenFormatted}${gehenMoon}</p><p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p><p><strong>Pause:</strong> ${pausenLabel}</p><p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}${nettoMoon}</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${
             entry.differenzTime
           } (${
             entry.differenz
-          }h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
+          }h)</span>${ezaBookedHint}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
           $("detail-edit-button").style.display = "block";
           $("detail-delete-button").style.display = "block";
         }
@@ -1598,10 +1787,9 @@
 
       // --- Bulk Booking Modal Functions ---
       function showBulkModal() {
-        // Optional: Clear fields on open
         $("bulk-modal-start-date").value = "";
         $("bulk-modal-end-date").value = "";
-        $("bulk-modal-special-day-type").value = ""; // Reset dropdown
+        $("bulk-modal-special-day-type").value = "";
         $("bulk-booking-modal").style.display = "flex";
       }
 
@@ -1644,6 +1832,7 @@
         updateMonthNavigation();
       }
 
+      // ANGEPASST: renderCalendar() - Berücksichtigt EZA-Farben und Outline
       function renderCalendar(monthData) {
         const calendarGrid = $("calendar-grid");
         calendarGrid.innerHTML = "";
@@ -1651,8 +1840,8 @@
         const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
         let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth);
         firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
-        const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]; // Always show all headers
-        calendarGrid.style.gridTemplateColumns = `repeat(7, 1fr)`; // Always 7 columns
+        const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+        calendarGrid.style.gridTemplateColumns = `repeat(7, 1fr)`;
 
         weekdays.forEach((wd) => {
           const headerCell = document.createElement("div");
@@ -1661,7 +1850,6 @@
           calendarGrid.appendChild(headerCell);
         });
         for (let i = 0; i < firstDayIndex; i++) {
-          // Always add empty cells for 7-day layout
           const emptyCell = document.createElement("div");
           emptyCell.classList.add("calendar-day", "empty");
           calendarGrid.appendChild(emptyCell);
@@ -1672,7 +1860,7 @@
           const currentDateObj = new Date(
             Date.UTC(currentMonthYear, currentMonth, day)
           );
-          const dayOfWeek = currentDateObj.getUTCDay(); // 0=Sun, 6=Sat
+          const dayOfWeek = currentDateObj.getUTCDay();
           const cell = document.createElement("div");
           cell.classList.add("calendar-day");
           const cellContent = document.createElement("div");
@@ -1696,32 +1884,44 @@
             cell.onclick = () =>
               alert(
                 `${currentDateObj.toLocaleDateString("de-DE")}: ${holidayName}`
-              ); // Info click
+              );
           } else if (entry) {
             cell.classList.add("has-entry");
             const diffVal = parseFloat(entry.differenz) || 0;
             monthlyTotalDiff += diffVal;
-            let diffClass = "",
+            let bgColorClass = "",
               titleText = "",
               moonMark = "";
-            if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
-              diffClass = entry.krank
-                ? "special-day-krank-bg"
-                : entry.glaz
-                ? "special-day-glaz-bg"
-                : "special-day-urlaub-bg";
-              titleText = entry.urlaub
-                ? "Urlaub"
-                : entry.krank
-                ? "Krank"
-                : entry.schulung
-                ? "Schulung"
-                : `GLAZ (${entry.differenzTime})`;
-            } else {
-              if (diffVal > 0.001) diffClass = "positive-value";
-              else if (diffVal < -0.001) diffClass = "negative-value";
-              else diffClass = "zero-value";
-              titleText = `Differenz: ${entry.differenzTime}`;
+
+            // Bestimme Hintergrundfarbe
+            if (entry.urlaub) bgColorClass = "special-day-urlaub-bg";
+            else if (entry.krank) bgColorClass = "special-day-krank-bg";
+            else if (entry.schulung) bgColorClass = "special-day-schulung-bg"; // NEU
+            else if (entry.isEzaTag) bgColorClass = "special-day-eza-bg"; // NEU
+            else if (entry.glaz) bgColorClass = "special-day-glaz-bg";
+            else {
+              // Normale Arbeitstage -> Farbe nach Saldo
+              if (diffVal > 0.001) bgColorClass = "positive-value";
+              else if (diffVal < -0.001) bgColorClass = "negative-value";
+              else bgColorClass = "zero-value";
+            }
+
+            // Bestimme Titeltext
+            if (entry.urlaub) titleText = "Urlaub";
+            else if (entry.krank) titleText = "Krank";
+            else if (entry.schulung) titleText = "Schulung";
+            else if (entry.isEzaTag) titleText = "EZA-Tag";
+            else if (entry.glaz) titleText = `GLAZ (${entry.differenzTime})`;
+            else titleText = `Differenz: ${entry.differenzTime}`;
+
+            // Mond-Markierung für Nachtarbeit (nur bei normalen Arbeitstagen)
+            if (
+              !entry.urlaub &&
+              !entry.krank &&
+              !entry.schulung &&
+              !entry.isEzaTag &&
+              !entry.glaz
+            ) {
               const kommenLokal = entry.kommen
                 ? new Date(entry.kommen)
                 : null;
@@ -1748,24 +1948,29 @@
                   moonMark = ' <span class="moon-mark-calendar">🌙</span>';
               }
             }
-            cellContent.classList.add(diffClass);
+
+            cellContent.classList.add(bgColorClass);
             cellContent.title = titleText;
             cellContent.innerHTML = day + moonMark;
-            cell.onclick = () => showDayDetails(currentDateStr); // Click to show details
+
+            // NEU: Outline hinzufügen, wenn mit EZA gebucht
+            if (entry.ezaActiveDuringBooking) {
+              cellContent.classList.add("eza-booked-outline");
+            }
+
+            cell.onclick = () => showDayDetails(currentDateStr);
           } else if (isWeekend) {
             cell.classList.add("weekend");
             cellContent.classList.add("weekend-text");
             if (settings.allowWochenende) {
-              // Only allow adding if enabled
-              cell.classList.add("no-entry"); // Make it look clickable
+              cell.classList.add("no-entry");
               cell.onclick = () => showAddDayModal(currentDateStr);
               cellContent.title = "Klicken zum Hinzufügen";
             } else {
-              cellContent.title = "Wochenende"; // Just indicate weekend
-              cell.style.cursor = "default"; // Non-clickable cursor
+              cellContent.title = "Wochenende";
+              cell.style.cursor = "default";
             }
           } else {
-            // Weekday, no entry, not holiday
             cell.classList.add("no-entry");
             cell.onclick = () => showAddDayModal(currentDateStr);
             cellContent.title = "Klicken zum Hinzufügen";
@@ -1808,6 +2013,7 @@
         };
       }
 
+      // ANGEPASST: applyBulkBooking() - Berücksichtigt EZA-Logik
       function applyBulkBooking() {
         const startDateStr = $("bulk-modal-start-date").value,
           endDateStr = $("bulk-modal-end-date").value,
@@ -1832,119 +2038,96 @@
         const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
         let modified = false;
         let skippedDays = 0;
-        let deletedCount = 0;
+        let processedCount = 0;
         let currentDate = new Date(startDate.getTime());
         const sollProTag = settings.wochenarbeitszeit / 5;
+        const currentEzaActive = settings.ezaActive; // EZA-Status zum Zeitpunkt der Buchung
+        let currentEzaStand = settings.ezaKontoStand; // Startwert für die Bulk-Operation
 
-        if (specialType === "delete") {
-          // --- Bulk Deletion Logic ---
-          if (
-            !confirm(
-              `Wirklich alle Einträge (Mo-Fr, keine Feiertage) von ${startDate.toLocaleDateString(
-                "de-DE"
-              )} bis ${endDate.toLocaleDateString(
-                "de-DE"
-              )} löschen?\n\nACHTUNG: Diese Aktion kann nicht rückgängig gemacht werden!`
-            )
-          ) {
-            return;
-          }
+        const typeLabel = {
+          urlaub: "Urlaub",
+          krank: "Krank",
+          schulung: "Schulung",
+          glaz: "GLAZ",
+          ezaTag: "EZA-Tag", // NEU
+          delete: "Löschen",
+        }[specialType];
 
-          while (currentDate <= endDate) {
-            const dayOfWeek = currentDate.getDay();
-            const holidayName = getHolidayName(
-              currentDate,
-              settings.bundesland
-            );
-            const currentDateStr = currentDate.toISOString().split("T")[0];
+        if (
+          !confirm(
+            `Wirklich für ${startDate.toLocaleDateString(
+              "de-DE"
+            )} bis ${endDate.toLocaleDateString(
+              "de-DE"
+            )} Aktion "${typeLabel}" für Mo-Fr (keine Feiertage) durchführen?\n\nACHTUNG: Bestehende Einträge werden überschrieben oder gelöscht!`
+          )
+        ) {
+          return;
+        }
 
-            if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
+        while (currentDate <= endDate) {
+          const dayOfWeek = currentDate.getDay();
+          const holidayName = getHolidayName(currentDate, settings.bundesland);
+          const currentDateStr = currentDate.toISOString().split("T")[0];
+
+          if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
+            if (specialType === "delete") {
               if (historyMap.has(currentDateStr)) {
                 historyMap.delete(currentDateStr);
                 modified = true;
-                deletedCount++;
+                processedCount++;
               } else {
-                skippedDays++; // Skip if no entry exists for this valid day
+                skippedDays++;
               }
             } else {
-              skippedDays++; // Skip weekends and holidays
-            }
-            currentDate.setDate(currentDate.getDate() + 1);
-          }
-
-          if (modified) {
-            const updatedHistory = Array.from(historyMap.values());
-            saveAndReload(updatedHistory);
-            alert(
-              `${deletedCount} Einträge erfolgreich gelöscht. ${
-                skippedDays > 0
-                  ? `(${skippedDays} Tage übersprungen/kein Eintrag)`
-                  : ""
-              }`
-            );
-            closeBulkModal();
-          } else {
-            alert("Keine Einträge im ausgewählten Zeitraum gefunden.");
-            closeBulkModal();
-          }
-        } else {
-          // --- Bulk Add/Overwrite Logic (Existing) ---
-          const typeLabel = {
-            urlaub: "Urlaub",
-            krank: "Krank",
-            schulung: "Schulung",
-            glaz: "GLAZ",
-          }[specialType];
-
-          if (
-            !confirm(
-              `Wirklich für ${startDate.toLocaleDateString(
-                "de-DE"
-              )} bis ${endDate.toLocaleDateString(
-                "de-DE"
-              )} Typ "${typeLabel}" für Mo-Fr (keine Feiertage) buchen?\n\nACHTUNG: Bestehende Einträge werden überschrieben!`
-            )
-          ) {
-            return;
-          }
-
-          while (currentDate <= endDate) {
-            const dayOfWeek = currentDate.getDay();
-            const holidayName = getHolidayName(
-              currentDate,
-              settings.bundesland
-            );
-            if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
-              const currentDateStr = currentDate.toISOString().split("T")[0];
-              const existingEntry = historyMap.get(currentDateStr);
-              let differenz = 0.0,
-                differenzTime = "0:00";
+              // Add/Overwrite Logic
+              let mainDifference = 0;
+              let ezaDifference = 0;
               let isUrlaub = false,
                 isKrank = false,
                 isSchulung = false,
-                isGlaz = false;
+                isGlaz = false,
+                isEzaTag = false;
 
+              // Bestimme Tagestyp
               switch (specialType) {
-                case "urlaub":
-                  isUrlaub = true;
-                  break;
-                case "krank":
-                  isKrank = true;
-                  break;
-                case "schulung":
-                  isSchulung = true;
-                  break;
-                case "glaz":
-                  isGlaz = true;
-                  differenz = -sollProTag;
-                  differenzTime = formatDecimalToTime(differenz);
-                  break;
+                case "urlaub": isUrlaub = true; break;
+                case "krank": isKrank = true; break;
+                case "schulung": isSchulung = true; break;
+                case "glaz": isGlaz = true; break;
+                case "ezaTag": isEzaTag = true; break;
               }
 
+              // Berechne Differenzen basierend auf EZA-Status
+              if (currentEzaActive) {
+                if (isUrlaub || isSchulung) mainDifference = -0.4;
+                else if (isKrank) ezaDifference = -0.4;
+                else if (isGlaz) mainDifference = -sollProTag;
+                else if (isEzaTag) {
+                  const neededHours = sollProTag;
+                  const availableEza = currentEzaStand; // Nutze den laufenden Stand
+                  if (availableEza >= neededHours) {
+                    ezaDifference = -neededHours;
+                  } else if (availableEza > 0) {
+                    ezaDifference = -availableEza;
+                    mainDifference = -(neededHours - availableEza);
+                  } else {
+                    mainDifference = -neededHours;
+                  }
+                }
+              } else { // EZA nicht aktiv
+                if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifference = 0;
+                else if (isGlaz) mainDifference = -sollProTag;
+              }
+
+              // Aktualisiere den laufenden EZA-Stand für den nächsten Tag
+              currentEzaStand += ezaDifference;
+
+              const existingEntry = historyMap.get(currentDateStr);
               const dayData = {
                 datum: currentDateStr,
-                differenz: differenz.toFixed(2),
-                differenzTime: differenzTime,
+                differenz: mainDifference.toFixed(2),
+                differenzTime: formatDecimalToTime(mainDifference),
                 stundenkonto: "0.00", // Wird von saveAndReload neu berechnet
                 kommen: null,
                 gehen: null,
@@ -1952,38 +2135,51 @@
                 krank: isKrank,
                 schulung: isSchulung,
                 glaz: isGlaz,
+                isEzaTag: isEzaTag, // NEU
+                ezaActiveDuringBooking: currentEzaActive, // NEU
                 pcBuchung: false,
                 buero: existingEntry
                   ? existingEntry.buero
-                  : $("buero-toggle").checked, // Default to main page setting if new
+                  : $("buero-toggle").checked,
                 zusatzPause: "",
               };
               historyMap.set(currentDateStr, dayData);
               modified = true;
-            } else {
-              skippedDays++;
+              processedCount++;
             }
-            currentDate.setDate(currentDate.getDate() + 1);
-          }
-
-          if (modified) {
-            const updatedHistory = Array.from(historyMap.values());
-            saveAndReload(updatedHistory);
-            alert(
-              `Bulk-Buchung erfolgreich. ${
-                skippedDays > 0
-                  ? `(${skippedDays} Wochenend-/Feiertage übersprungen)`
-                  : ""
-              }`
-            );
-            closeBulkModal();
           } else {
-            alert("Keine gültigen Werktage im Zeitraum gefunden.");
-            closeBulkModal();
+            skippedDays++;
           }
+          currentDate.setDate(currentDate.getDate() + 1);
+        } // Ende while-Schleife
+
+        if (modified) {
+          // Speichere den finalen EZA-Stand nach der Bulk-Operation
+          settings.ezaKontoStand = currentEzaStand;
+          storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
+          updateEzaKontoDisplay();
+
+          const updatedHistory = Array.from(historyMap.values());
+          saveAndReload(updatedHistory); // Berechnet Hauptkonto neu
+          alert(
+            `Bulk-Aktion "${typeLabel}" erfolgreich für ${processedCount} Tage angewendet. ${
+              skippedDays > 0
+                ? `(${skippedDays} Tage übersprungen)`
+                : ""
+            }`
+          );
+          closeBulkModal();
+        } else {
+          alert(
+            `Keine Einträge zum ${
+              specialType === "delete" ? "Löschen" : "Buchen"
+            } im ausgewählten Zeitraum gefunden.`
+          );
+          closeBulkModal();
         }
       }
 
+      // ANGEPASST: calculateAndDisplayStats() - Fügt EZA-Tage hinzu
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
         const history = getHistory();
@@ -1992,44 +2188,12 @@
         today.setHours(12, 0, 0, 0);
         switch (period) {
           case "current_month":
-            startDate = new Date(
-              today.getFullYear(),
-              today.getMonth(),
-              1,
-              12,
-              0,
-              0,
-              0
-            );
-            endDate = new Date(
-              today.getFullYear(),
-              today.getMonth() + 1,
-              0,
-              12,
-              0,
-              0,
-              0
-            );
+            startDate = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0, 0);
             break;
           case "last_month":
-            startDate = new Date(
-              today.getFullYear(),
-              today.getMonth() - 1,
-              1,
-              12,
-              0,
-              0,
-              0
-            );
-            endDate = new Date(
-              today.getFullYear(),
-              today.getMonth(),
-              0,
-              12,
-              0,
-              0,
-              0
-            );
+            startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear(), today.getMonth(), 0, 12, 0, 0, 0);
             break;
           case "current_year":
             startDate = new Date(today.getFullYear(), 0, 1, 12, 0, 0, 0);
@@ -2046,9 +2210,7 @@
               endDate = new Date(today);
             } else {
               startDate = new Date(history[0].datum + "T12:00:00");
-              endDate = new Date(
-                history[history.length - 1].datum + "T12:00:00"
-              );
+              endDate = new Date(history[history.length - 1].datum + "T12:00:00");
             }
             break;
         }
@@ -2068,6 +2230,7 @@
           sickDays = 0,
           trainingDays = 0,
           glazDays = 0,
+          ezaDays = 0, // NEU
           holidayCount = 0;
         let currentDate = new Date(startDate);
         const endCheckDate = new Date(endDate);
@@ -2084,6 +2247,7 @@
             else if (entry.krank) sickDays++;
             else if (entry.schulung) trainingDays++;
             else if (entry.glaz) glazDays++;
+            else if (entry.isEzaTag) ezaDays++; // NEU
             else if (entry.kommen && entry.gehen) {
               workDays++;
               const kommenLokal = new Date(entry.kommen);
@@ -2125,20 +2289,33 @@
             : "zero-value"
         }">${formatDecimalToTime(totalDiff)} (${totalDiff.toFixed(
           2
-        )}h)</span></li><li>Arbeitstage: <span>${workDays}</span></li><li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li><li>&nbsp;&nbsp;&nbsp;Home: <span>${homeDays}</span></li><li>Urlaub: <span>${vacationDays}</span></li><li>Krank: <span>${sickDays}</span></li><li>Schulung: <span>${trainingDays}</span></li><li>GLAZ: <span>${glazDays}</span></li><li>Feiertage (Mo-Fr): <span>${holidayCount}</span></li>`;
+        )}h)</span></li><li>Arbeitstage: <span>${workDays}</span></li><li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li><li>&nbsp;&nbsp;&nbsp;Home: <span>${homeDays}</span></li><li>Urlaub: <span>${vacationDays}</span></li><li>Krank: <span>${sickDays}</span></li><li>Schulung: <span>${trainingDays}</span></li><li>GLAZ: <span>${glazDays}</span></li><li>EZA-Tage: <span>${ezaDays}</span></li><li>Feiertage (Mo-Fr): <span>${holidayCount}</span></li>`; // NEU: EZA-Tage
       }
 
+      // ANGEPASST: exportHistoryToJson() - Fügt EZA-Settings hinzu
       function exportHistoryToJson() {
         const history = getHistory();
         if (history.length === 0) {
           alert("Keine Daten zum Export.");
           return;
         }
+        // Entferne temporäres dateObj vor dem Export
         const exportHistory = history.map((entry) => {
           const { dateObj, ...rest } = entry;
           return rest;
         });
-        const exportData = { settings: settings, history: exportHistory };
+        // Füge EZA-Einstellungen zum Export hinzu
+        const exportData = {
+          settings: {
+            wochenarbeitszeit: settings.wochenarbeitszeit,
+            bundesland: settings.bundesland,
+            allowWochenende: settings.allowWochenende,
+            allowNachtarbeit: settings.allowNachtarbeit,
+            ezaActive: settings.ezaActive, // NEU
+            ezaKontoStand: settings.ezaKontoStand, // NEU
+          },
+          history: exportHistory,
+        };
         const jsonData = JSON.stringify(exportData, null, 2);
         const blob = new Blob([jsonData], { type: "application/json" });
         const url = URL.createObjectURL(blob);
@@ -2153,6 +2330,7 @@
         alert("Verlauf & Optionen exportiert.");
       }
 
+      // ANGEPASST: importHistoryFromJson() - Berücksichtigt EZA-Settings und Flags
       function importHistoryFromJson() {
         const input = document.createElement("input");
         input.type = "file";
@@ -2168,17 +2346,20 @@
               let importedHistory = [],
                 importedSettings = null;
               if (Array.isArray(importedJson)) {
-                importedHistory = importedJson;
-                alert("Altes Format erkannt (nur Verlauf).");
+                importedHistory = importedJson; // Altes Format ohne Settings
+                alert(
+                  "Altes Exportformat erkannt (nur Verlauf). Einstellungen werden nicht importiert."
+                );
               } else if (
                 typeof importedJson === "object" &&
                 importedJson !== null &&
-                Array.isArray(importedJson.history)
+                Array.isArray(importedJson.history) &&
+                typeof importedJson.settings === "object" // Prüfe auf Settings-Objekt
               ) {
                 importedHistory = importedJson.history;
                 importedSettings = importedJson.settings || {};
               } else {
-                throw new Error("Unbekanntes Importformat.");
+                throw new Error("Unbekanntes oder ungültiges Importformat.");
               }
               if (
                 importedHistory.length > 0 &&
@@ -2186,8 +2367,10 @@
                   importedHistory[0].stundenkonto === undefined ||
                   importedHistory[0].differenz === undefined)
               ) {
-                throw new Error("Ungültige Verlaufsdaten.");
+                throw new Error("Ungültige Verlaufsdaten im Import.");
               }
+
+              // Bereinige und validiere History-Einträge
               const sanitizedHistory = importedHistory.map((entry) => ({
                 datum: entry.datum,
                 differenz: entry.differenz || "0.00",
@@ -2199,16 +2382,20 @@
                 krank: entry.krank || false,
                 schulung: entry.schulung || false,
                 glaz: entry.glaz || false,
+                isEzaTag: entry.isEzaTag || false, // NEU
+                ezaActiveDuringBooking: entry.ezaActiveDuringBooking || false, // NEU
                 pcBuchung: entry.pcBuchung || false,
                 buero: entry.buero || false,
                 zusatzPause: entry.zusatzPause || "",
               }));
-              let confirmationMessage = `Wirklich ${sanitizedHistory.length} Einträge importieren? ACHTUNG: Alle Daten werden überschrieben!`;
+
+              let confirmationMessage = `Wirklich ${sanitizedHistory.length} Einträge importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`;
               if (importedSettings)
-                confirmationMessage +=
-                  "\n\nGespeicherte Einstellungen werden übernommen.";
+                confirmationMessage += "\n\nGespeicherte Einstellungen werden ebenfalls übernommen.";
+
               if (confirm(confirmationMessage)) {
                 if (importedSettings) {
+                  // Lade importierte Einstellungen
                   settings.wochenarbeitszeit = parseFloat(
                     importedSettings.wochenarbeitszeit || 38
                   );
@@ -2218,11 +2405,22 @@
                     !!importedSettings.allowWochenende;
                   settings.allowNachtarbeit =
                     !!importedSettings.allowNachtarbeit;
-                  saveSettings(); // Save imported settings
+                  settings.ezaActive = !!importedSettings.ezaActive; // NEU
+                  settings.ezaKontoStand = parseFloat(
+                    importedSettings.ezaKontoStand || 0
+                  ); // NEU
+                  saveSettings(); // Speichert die neuen Settings (außer EZA-Konto)
+                  storeToLS(
+                    "ezaKontoStand",
+                    settings.ezaKontoStand.toString()
+                  ); // Speichere EZA-Konto separat
+                  updateEzaKontoDisplay(); // Aktualisiere EZA-Anzeige
                 }
-                saveAndReload(sanitizedHistory); // Save imported history & recalculate
-                alert("Daten importiert.");
-                switchView("main"); // Switch to main view after import
+                // WICHTIG: saveAndReload berechnet nur das Hauptkonto neu.
+                // Der importierte EZA-Kontostand wird direkt übernommen.
+                saveAndReload(sanitizedHistory);
+                alert("Daten erfolgreich importiert.");
+                switchView("main"); // Zur Hauptseite wechseln
               }
             } catch (error) {
               console.error("Importfehler:", error);
@@ -2241,6 +2439,18 @@
         document.body.appendChild(input);
         input.click();
       }
+
+      // --- NEUE Funktionen für Legende Modal ---
+      function showLegendModal() {
+        const modal = $("legend-modal");
+        if (modal) modal.style.display = "flex";
+      }
+
+      function closeLegendModal() {
+        const modal = $("legend-modal");
+        if (modal) modal.style.display = "none";
+      }
+      // --- Ende Legende Modal Funktionen ---
 
       document.addEventListener("DOMContentLoaded", init);
     </script>
@@ -2261,9 +2471,11 @@
         --system-red-light: #ff3b30;
         --system-orange-light: #ff9500;
         --system-yellow-light: #ffcc00;
-        --system-teal-light: #5ac8fa;
+        --system-teal-light: #5ac8fa; /* Urlaub */
         --system-purple-light: #af52de; /* GLAZ */
         --system-indigo-light: #5856d6; /* Holiday */
+        --system-pink-light: #ff2d55; /* NEU: Schulung */
+        --system-cyan-light: #32ade6; /* NEU: EZA-Tag */
         --system-gray-light: #8e8e93;
         --system-gray2-light: #aeaeb2;
 
@@ -2281,9 +2493,11 @@
         --system-red-dark: #ff453a;
         --system-orange-dark: #ff9f0a;
         --system-yellow-dark: #ffd60a;
-        --system-teal-dark: #64d2ff;
+        --system-teal-dark: #64d2ff; /* Urlaub */
         --system-purple-dark: #bf5af2; /* GLAZ */
         --system-indigo-dark: #5e5ce6; /* Holiday */
+        --system-pink-dark: #ff375f; /* NEU: Schulung */
+        --system-cyan-dark: #6ac4f7; /* NEU: EZA-Tag */
         --system-gray-dark: #8e8e93;
         --system-gray2-dark: #3a3a3c;
 
@@ -2305,15 +2519,20 @@
         --special-day-urlaub-bg: var(--system-teal-light);
         --special-day-krank-bg: var(--system-yellow-light);
         --special-day-glaz-bg: var(--system-purple-light);
+        --special-day-schulung-bg: var(--system-pink-light); /* NEU */
+        --special-day-eza-bg: var(--system-cyan-light); /* NEU */
         --holiday-bg: var(--system-indigo-light);
-        --special-day-text: #000000;
-        --special-day-glaz-text: #ffffff;
+        --special-day-text: #000000; /* Für helle Hintergründe (Urlaub, Krank, Schulung) */
+        --special-day-glaz-text: #ffffff; /* Für dunkle Hintergründe (GLAZ) */
+        --special-day-eza-text: #000000; /* NEU (Anpassen falls nötig) */
         --holiday-text: #ffffff;
         --nav-background: var(--system-secondary-background-light);
         --nav-icon-color: var(--system-gray-light);
         --nav-icon-active-color: var(--system-blue-light);
         --slider-bg-color: var(--system-gray2-light);
         --slider-checked-bg-color: var(--system-green-light);
+        --outline-color: var(--secondary-text-color-light); /* NEU: Farbe für EZA-Outline */
+        --inactive-indicator-color: var(--secondary-text-color-light); /* NEU: Farbe für inaktive Hinweise */
 
         --safe-area-top: env(safe-area-inset-top, 0px);
         --safe-area-bottom: env(safe-area-inset-bottom, 0px);
@@ -2339,12 +2558,21 @@
           --special-day-urlaub-bg: var(--system-teal-dark);
           --special-day-krank-bg: var(--system-yellow-dark);
           --special-day-glaz-bg: var(--system-purple-dark);
+          --special-day-schulung-bg: var(--system-pink-dark); /* NEU */
+          --special-day-eza-bg: var(--system-cyan-dark); /* NEU */
           --holiday-bg: var(--system-indigo-dark);
+          /* Textfarben für Sondertage im Dark Mode anpassen */
+          --special-day-text: #000000; /* Für helle Hintergründe (Urlaub, Krank, Schulung, EZA) */
+          --special-day-glaz-text: #ffffff; /* Für dunkle Hintergründe (GLAZ) */
+          --special-day-eza-text: #000000; /* NEU (Anpassen falls nötig) */
+          --holiday-text: #ffffff;
           --nav-background: var(--system-secondary-background-dark);
           --nav-icon-color: var(--system-gray-dark);
           --nav-icon-active-color: var(--system-blue-dark);
           --slider-bg-color: var(--system-gray2-dark);
           --slider-checked-bg-color: var(--system-green-dark);
+          --outline-color: var(--secondary-text-color-dark); /* NEU */
+          --inactive-indicator-color: var(--secondary-text-color-dark); /* NEU */
         }
       }
 
@@ -2375,13 +2603,15 @@
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(105px + var(--safe-area-bottom))
-          calc(15px + var(--safe-area-right)); /* Adjusted nav height */
+          calc(60px + var(--safe-area-bottom)) /* Adjusted nav height slightly */
+          calc(15px + var(--safe-area-right));
         display: none;
       }
       .page.active {
         display: block;
       }
+      /* --- END PAGE PADDING --- */
+
       .container {
         max-width: 600px;
         margin: 0 auto;
@@ -2436,7 +2666,9 @@
       .button,
       .inline-button,
       .delete-button,
-      .add-button {
+      .add-button,
+      .link-button {
+        /* Added link-button */
         background-color: var(--button-background-color);
         color: var(--button-text-color);
         border: none;
@@ -2475,10 +2707,21 @@
           background-color: var(--system-green-dark);
         }
       }
+      .link-button {
+        /* NEU: Style für Legende-Button */
+        background: none;
+        color: var(--button-background-color);
+        padding: 5px 0;
+        font-size: 15px;
+        text-decoration: none;
+        display: inline-block;
+        margin-top: 10px;
+      }
       .button:active,
       .inline-button:active,
       .delete-button:active,
-      .add-button:active {
+      .add-button:active,
+      .link-button:active {
         filter: brightness(0.85);
       }
 
@@ -2489,7 +2732,7 @@
       select {
         width: 100%;
         padding: 12px 15px;
-        font-size: 17px; /* Base font size for inputs */
+        font-size: 17px;
         border: 1px solid var(--input-border-color);
         border-radius: 8px;
         margin-bottom: 10px;
@@ -2501,18 +2744,19 @@
         line-height: 1.2em;
         min-height: 44px;
       }
-      
+      /* Korrektur für Feldhöhen */
       #korrektur-datum,
-      #korrektur-wert {
-        height: 44px; /* Explizite Höhe setzen (entspricht min-height) */
-        box-sizing: border-box; /* Sicherstellen, dass Padding/Border enthalten sind */
+      #korrektur-wert,
+      #eza-konto-input,
+      #eza-konto-display {
+        height: 44px;
+        box-sizing: border-box;
       }
-
       input:read-only {
         background-color: var(--card-background-color);
         color: var(--readonly-text-color);
         cursor: default;
-        border: 1px solid var(--input-border-color); /* Restore border */
+        border: 1px solid var(--input-border-color);
       }
       input:disabled {
         background-color: var(--system-tertiary-background-light);
@@ -2534,9 +2778,15 @@
         display: flex;
         gap: 10px;
         margin-bottom: 10px;
+        align-items: flex-end; /* Align items at the bottom */
       }
       .column {
         flex: 1;
+      }
+      .column-auto {
+        /* NEU: Für Buttons neben Inputs */
+        flex: 0 0 auto;
+        margin-bottom: 10px; /* Match input margin */
       }
 
       .time-button-row {
@@ -2590,7 +2840,7 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 65px; /* Original width */
+        width: 51px; /* Original width */
         height: 31px;
         flex-shrink: 0;
       }
@@ -2626,23 +2876,22 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(24px); /* Original travel distance */
+        transform: translateX(20px); /* Original travel distance */
       }
       /* --- END SLIDER STYLES --- */
 
       .diff-badge {
         padding: 3px 6px;
         border-radius: 5px;
-        font-size: 15px; /* ADJUSTED: Slightly larger font size */
+        font-size: 15px;
         font-weight: 500;
         display: inline-block;
         vertical-align: middle;
       }
-      /* Ensure readonly inputs with color classes keep their font size */
       input[readonly].positive-value,
       input[readonly].negative-value,
       input[readonly].zero-value {
-        font-size: 17px; /* Explicitly set to match other inputs */
+        font-size: 17px;
       }
       .positive-value {
         background-color: var(--positive-value-bg) !important;
@@ -2704,18 +2953,33 @@
         background-color: var(--holiday-bg);
         color: var(--holiday-text);
       }
-      .history-entry-content.special-day[style*="--special-day-krank-bg"] {
-        background-color: var(--special-day-krank-bg);
-        color: var(--special-day-text);
-      }
-      .history-entry-content.special-day[style*="--special-day-urlaub-bg"] {
+      /* Sondertag-Farben */
+      .history-entry-content.special-day.special-day-urlaub-bg {
         background-color: var(--special-day-urlaub-bg);
+      }
+      .history-entry-content.special-day.special-day-krank-bg {
+        background-color: var(--special-day-krank-bg);
+      }
+      .history-entry-content.special-day.special-day-schulung-bg {
+        background-color: var(--special-day-schulung-bg);
+      }
+      .history-entry-content.special-day.special-day-eza-bg {
+        background-color: var(--special-day-eza-bg);
+      }
+      .history-entry-content.special-day.special-day-glaz-bg {
+        background-color: var(--special-day-glaz-bg);
+      }
+      /* Textfarben für Sondertage */
+      .history-entry-content.special-day[style*="--special-day-text"] {
         color: var(--special-day-text);
       }
-      .history-entry-content.special-day[style*="--special-day-glaz-bg"] {
-        background-color: var(--special-day-glaz-bg);
+      .history-entry-content.special-day[style*="--special-day-glaz-text"] {
         color: var(--special-day-glaz-text);
       }
+      .history-entry-content.special-day[style*="--special-day-eza-text"] {
+        color: var(--special-day-eza-text);
+      }
+
       .history-entry-content.violation-day {
         border-left: 3px solid var(--hint-color);
         background-color: rgba(255, 59, 48, 0.05);
@@ -2729,17 +2993,20 @@
       .history-entry-content div:last-child {
         font-size: 15px;
         color: var(--secondary-text-color);
-        margin-top: 4px; /* ADDED: Padding between date and time/diff */
+        margin-top: 4px;
       }
-      .history-entry-content.special-day[style*="--special-day-krank-bg"]
-        div:last-child,
-      .history-entry-content.special-day[style*="--special-day-urlaub-bg"]
+      /* Textfarben für Details in Sondertagen */
+      .history-entry-content.special-day[style*="--special-day-text"]
         div:last-child {
         color: var(--special-day-text);
       }
-      .history-entry-content.special-day[style*="--special-day-glaz-bg"]
+      .history-entry-content.special-day[style*="--special-day-glaz-text"]
         div:last-child {
         color: var(--special-day-glaz-text);
+      }
+      .history-entry-content.special-day[style*="--special-day-eza-text"]
+        div:last-child {
+        color: var(--special-day-eza-text);
       }
       .history-entry-content.holiday-day div:last-child {
         color: var(--holiday-text);
@@ -2758,6 +3025,24 @@
       .history-actions .delete-button {
         font-size: 20px;
         padding: 5px 8px;
+      }
+      /* NEU: Style für EZA-Outline in History */
+      .history-entry-content.eza-booked-outline-history {
+        outline: 1px dashed var(--outline-color);
+        outline-offset: -3px;
+        padding-left: 8px; /* Etwas mehr Platz für Outline */
+      }
+      /* NEU: Styles für inaktive EZA-Hinweise */
+      .eza-related-diff.inactive,
+      .eza-tag-label.inactive {
+        opacity: 0.6;
+        font-style: italic;
+      }
+      .eza-tag-label.inactive::after {
+        content: " (i)"; /* Kleiner Hinweis */
+        font-size: 0.8em;
+        vertical-align: super;
+        opacity: 0.8;
       }
 
       #weekly-summary,
@@ -2837,9 +3122,8 @@
         filter: brightness(0.85);
       }
 
-      /* Ensure detail modal buttons have consistent font size */
       #detail-modal-actions .button {
-        font-size: 17px; /* Explicitly set font size */
+        font-size: 17px;
       }
 
       #calendar-grid {
@@ -2847,7 +3131,7 @@
         grid-template-columns: repeat(7, 1fr);
         gap: 5px;
         margin-top: 15px;
-      } /* Always 7 columns */
+      }
       .calendar-header {
         text-align: center;
         font-size: 13px;
@@ -2872,7 +3156,7 @@
       }
       .calendar-day.no-entry {
         cursor: pointer;
-      } /* Clickable if not weekend-disabled */
+      }
       .calendar-day.has-entry {
         cursor: pointer;
       }
@@ -2887,21 +3171,31 @@
         height: 85%;
         border-radius: 50%;
         transition: transform 0.1s ease;
+        position: relative; /* Für Outline-Offset */
       }
-      .calendar-day.has-entry .calendar-day-content.positive-value {
+      /* Farben für Kalendertage */
+      .calendar-day-content.positive-value {
         color: var(--button-text-color);
       }
-      .calendar-day.has-entry .calendar-day-content.negative-value,
-      .calendar-day.has-entry .calendar-day-content.zero-value {
+      .calendar-day-content.negative-value,
+      .calendar-day-content.zero-value {
         color: #000000;
+      }
+      .calendar-day-content.special-day-urlaub-bg {
+        background-color: var(--special-day-urlaub-bg);
+        color: var(--special-day-text) !important;
       }
       .calendar-day-content.special-day-krank-bg {
         background-color: var(--special-day-krank-bg);
         color: var(--special-day-text) !important;
       }
-      .calendar-day-content.special-day-urlaub-bg {
-        background-color: var(--special-day-urlaub-bg);
+      .calendar-day-content.special-day-schulung-bg {
+        background-color: var(--special-day-schulung-bg);
         color: var(--special-day-text) !important;
+      }
+      .calendar-day-content.special-day-eza-bg {
+        background-color: var(--special-day-eza-bg);
+        color: var(--special-day-eza-text) !important;
       }
       .calendar-day-content.special-day-glaz-bg {
         background-color: var(--special-day-glaz-bg);
@@ -2920,6 +3214,11 @@
       }
       .calendar-day:active .calendar-day-content {
         transform: scale(0.95);
+      }
+      /* NEU: EZA Outline für Kalender */
+      .calendar-day-content.eza-booked-outline {
+        outline: 2px solid var(--outline-color);
+        outline-offset: -2px; /* Innerhalb des Kreises */
       }
 
       #stats-content {
@@ -2954,13 +3253,49 @@
         margin-bottom: 0;
       }
 
+      /* NEU: Styles für Legende Modal */
+      #legend-modal .modal-content {
+        max-width: 450px; /* Etwas breiter für Legende */
+      }
+      .legend-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+        font-size: 15px;
+      }
+      .legend-color-dot {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        margin-right: 10px;
+        flex-shrink: 0;
+        border: 1px solid rgba(0, 0, 0, 0.1); /* Leichter Rand */
+      }
+      .legend-outline-indicator {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        margin-right: 10px;
+        flex-shrink: 0;
+        border: 2px solid var(--outline-color);
+        box-sizing: border-box;
+      }
+      .legend-text {
+        flex-grow: 1;
+      }
+
       /* --- BOTTOM NAV STYLES (Original - UNCHANGED) --- */
       #bottom-nav {
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
-        height: 40px; /* Original height */
+        height: 50px; /* Original height */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
@@ -3201,6 +3536,12 @@
           <div id="month-summary">
             <span id="month-summary-content">Monatsdifferenz: --</span>
           </div>
+          <!-- NEU: Legende Button -->
+          <div style="text-align: center">
+            <button id="show-legend-button" class="link-button">
+              Legende anzeigen
+            </button>
+          </div>
           <button
             id="open-bulk-modal-button"
             class="button"
@@ -3284,9 +3625,65 @@
               >
             </div>
           </div>
+
+          <!-- NEUER ABSCHNITT: EZA-Regelung -->
           <div class="section">
-            <h3>Stundenkonto</h3>
-             <div class="row">
+            <h3>EZA-Regelung</h3>
+            <div class="switch-container">
+              <label class="switch">
+                <input type="checkbox" id="eza-toggle" />
+                <span class="slider"></span>
+              </label>
+              <span>EZA-Regelung aktiv (-0.4h bei U/S, EZA-Konto)</span>
+            </div>
+            <div class="row">
+              <div class="column">
+                <label for="eza-konto-input">EZA-Konto (Std):</label>
+                <input type="number" id="eza-konto-input" step="0.1" />
+              </div>
+              <div class="column">
+                <label>EZA-Konto (Tage):</label>
+                <input type="text" id="eza-konto-display" readonly />
+              </div>
+              <div class="column-auto">
+                <button
+                  id="eza-konto-speichern-button"
+                  class="inline-button"
+                  style="min-height: 44px"
+                >
+                  Setzen
+                </button>
+              </div>
+            </div>
+            <p
+              style="
+                font-size: 14px;
+                color: var(--secondary-text-color);
+                margin-top: 0px;
+              "
+            >
+              Aktuellen Stand des EZA-Kontos in Stunden eingeben und setzen.
+              Wird bei Krankheit (-0.4h) und EZA-Tagen (-Sollzeit)
+              automatisch angepasst, wenn EZA-Regel aktiv ist.
+            </p>
+          </div>
+          <!-- ENDE EZA-Regelung -->
+
+          <div class="section">
+            <h3>Stundenkonto korrigieren</h3>
+            <p
+              style="
+                font-size: 14px;
+                color: var(--secondary-text-color);
+                margin-bottom: 15px;
+              "
+            >
+              Hier können Sie das *Haupt*-Stundenkonto manuell anpassen. Geben
+              Sie das Datum an, an dessen *Ende* der neue Kontostand gelten
+              soll. Alle nachfolgenden Einträge im Verlauf werden neu
+              berechnet.
+            </p>
+            <div class="row">
               <div class="column">
                 <label for="korrektur-datum">Datum der Korrektur:</label>
                 <input type="date" id="korrektur-datum" />
@@ -3303,25 +3700,14 @@
             >
               Korrektur anwenden & Verlauf neu berechnen
             </button>
-            <p
-              style="
-                font-size: 14px;
-                color: var(--secondary-text-color);
-                margin-bottom: 15px;
-              "
-            >
-              Hier kann der aktuelle Kontostand korrigiert werden. Der neue Kontostand gilt ab dem ausgewählten Datum.
-            </p>
           </div>
+
           <div class="section">
             <h3>Daten</h3>
             <div class="import-export-buttons">
-              <button id="export-button-options" class="button">
-                Export (Verlauf + Optionen)
-              </button>
-              <button id="import-button-options" class="button">
-                Import (Verlauf + Optionen)
-              </button>
+              <!-- ANGEPASST: Button-Text -->
+              <button id="export-button-options" class="button">Export</button>
+              <button id="import-button-options" class="button">Import</button>
             </div>
             <p
               style="
@@ -3341,7 +3727,6 @@
       <div id="detail-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button">×</button>
-          <!-- onclick handled globally -->
           <h3 id="detail-modal-title">Details</h3>
           <div id="detail-content"></div>
           <div
@@ -3365,7 +3750,6 @@
       >
         <div class="modal-content">
           <button class="close-button">×</button>
-          <!-- onclick handled globally -->
           <h3 id="add-day-modal-title">Manuelle Buchung</h3>
           <div class="row">
             <div class="column">
@@ -3446,6 +3830,18 @@
             </label>
             <span>GLAZ (Gleitzeitabbau)</span>
           </div>
+          <!-- NEU: EZA-Tag Toggle -->
+          <div class="switch-container">
+            <label class="switch">
+              <input
+                type="checkbox"
+                id="eza-tag-toggle"
+                onchange="toggleSpecialDay('ezaTag')"
+              />
+              <span class="slider"></span>
+            </label>
+            <span>EZA-Tag</span>
+          </div>
           <button
             class="button"
             onclick="addManualDay()"
@@ -3456,11 +3852,10 @@
         </div>
       </div>
 
-      <!-- Bulk Booking Modal (MODIFIED) -->
+      <!-- Bulk Booking Modal -->
       <div id="bulk-booking-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button">×</button>
-          <!-- onclick handled globally -->
           <h3 id="bulk-modal-title">Bulk-Buchung / Löschen</h3>
           <p
             style="
@@ -3470,7 +3865,8 @@
             "
           >
             Aktion für Mo-Fr (keine Feiertage). Bestehende Einträge im Zeitraum
-            werden überschrieben oder gelöscht.
+            werden überschrieben oder gelöscht. EZA-Logik wird angewendet,
+            falls global aktiv.
           </p>
           <div class="row">
             <div class="column">
@@ -3490,10 +3886,11 @@
               <option value="krank">Krank buchen</option>
               <option value="schulung">Schulung buchen</option>
               <option value="glaz">GLAZ buchen</option>
+              <option value="ezaTag">EZA-Tag buchen</option>
+              <!-- NEU -->
               <option value="delete" style="color: var(--hint-color)">
                 Einträge löschen
               </option>
-              <!-- ADDED Delete Option -->
             </select>
           </div>
           <button
@@ -3503,6 +3900,83 @@
           >
             Aktion anwenden
           </button>
+        </div>
+      </div>
+
+      <!-- NEU: Legend Modal -->
+      <div id="legend-modal" class="modal" style="display: none">
+        <div class="modal-content">
+          <button class="close-button">×</button>
+          <h3>Legende (Monatsansicht)</h3>
+          <ul class="legend-list">
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--special-day-urlaub-bg)"
+              ></span>
+              <span class="legend-text">Urlaub (U)</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--special-day-krank-bg)"
+              ></span>
+              <span class="legend-text">Krank (K)</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--special-day-schulung-bg)"
+              ></span>
+              <span class="legend-text">Schulung (S)</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--special-day-eza-bg)"
+              ></span>
+              <span class="legend-text">EZA-Tag (EZA)</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--special-day-glaz-bg)"
+              ></span>
+              <span class="legend-text">GLAZ</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--positive-value-bg)"
+              ></span>
+              <span class="legend-text">Positiver Saldo (+)</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--negative-value-bg)"
+              ></span>
+              <span class="legend-text">Negativer Saldo (-)</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--zero-value-bg)"
+              ></span>
+              <span class="legend-text">Null-Saldo (0)</span>
+            </li>
+            <li class="legend-item">
+              <span
+                class="legend-color-dot"
+                style="background-color: var(--holiday-bg)"
+              ></span>
+              <span class="legend-text">Feiertag</span>
+            </li>
+            <li class="legend-item">
+              <span class="legend-outline-indicator"></span>
+              <span class="legend-text">EZA-Regel bei Buchung aktiv</span>
+            </li>
+          </ul>
         </div>
       </div>
 
