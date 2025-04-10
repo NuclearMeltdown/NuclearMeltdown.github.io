@@ -1554,19 +1554,51 @@
 
       // --- ÜBERARBEITETE saveAndReload Funktion (Logik unverändert) ---
       function saveAndReload(history) {
-        // 1. Sortieren nach Datum (wichtig für korrekte Berechnung)
-        history.forEach((entry) => {
-          entry.dateObj = new Date(entry.datum + "T00:00:00");
-        });
-        history.sort((a, b) => a.dateObj - b.dateObj);
-        history.forEach((entry) => delete entry.dateObj);
+            if (!Array.isArray(history)) {
+            console.error("saveAndReload: Received non-array history:", history);
+            alert("Interner Fehler: Ungültige Daten für saveAndReload.");
+            return;
+        }
+        console.log("saveAndReload: Input history length:", history.length);
 
-        // 2. Hole Startwert und Startdatum aus den Settings
+        // 1. Sortieren nach Datum
+        try {
+          console.log("saveAndReload: Sorting history...");
+          history.forEach((entry) => {
+            // Robuster Check für gültiges Datum vor dem Erstellen des Date-Objekts
+            if (typeof entry.datum === 'string' && entry.datum.match(/^\d{4}-\d{2}-\d{2}$/)) {
+              entry.dateObj = new Date(entry.datum + "T00:00:00");
+            } else {
+              console.warn("saveAndReload: Invalid or missing date format found during sort preparation:", entry.datum, entry);
+              entry.dateObj = new Date(0); // Fallback, um Fehler zu vermeiden
+            }
+          });
+          history.sort((a, b) => {
+              // Sicherstellen, dass dateObj gültige Date-Objekte sind
+              const timeA = a.dateObj instanceof Date ? a.dateObj.getTime() : NaN;
+              const timeB = b.dateObj instanceof Date ? b.dateObj.getTime() : NaN;
+              if (isNaN(timeA) || isNaN(timeB)) {
+                  console.warn("saveAndReload: NaN date found during sort comparison:", a.datum, b.datum);
+                  return 0; // Keine zuverlässige Sortierung möglich
+              }
+              return timeA - timeB;
+          });
+          history.forEach((entry) => delete entry.dateObj); // Temporäres Objekt entfernen
+          console.log("saveAndReload: Sorting finished.");
+        } catch (sortError) {
+          console.error("saveAndReload: Error during history sort:", sortError);
+          alert("Fehler beim Sortieren des Verlaufs. Speichern abgebrochen.");
+          return;
+        }
+
+        // 2. Hole Startwert und Startdatum
         const startKonto = settings.startStundenkontoValue || 0;
-        const startDate = settings.startStundenkontoDate; // YYYY-MM-DD oder null
+        const startDate = settings.startStundenkontoDate;
+        console.log("saveAndReload: Start settings - Value:", startKonto, "Date:", startDate);
 
         // 3. Berechne das Stundenkonto für jeden Eintrag neu
-        let currentKonto = startKonto; // Startwert initialisieren
+        console.log("saveAndReload: Recalculating account balance...");
+        let currentKonto = startKonto; // Wird ggf. unten angepasst
         let foundStartDate = !startDate; // True, wenn kein Startdatum gesetzt ist
 
         for (let i = 0; i < history.length; i++) {
@@ -1576,213 +1608,100 @@
 
           if (!foundStartDate && entryDateStr >= startDate) {
             // Dies ist der erste Eintrag am oder nach dem Startdatum
-            // Das Konto *vor* diesem Eintrag war 'startKonto'.
             // Das Konto *nach* diesem Eintrag ist 'startKonto + diff'.
             currentKonto = startKonto + diff;
             entry.stundenkonto = currentKonto.toFixed(2);
-            foundStartDate = true;
+            foundStartDate = true; // Ab jetzt gilt die Kette ab dem Startdatum
           } else if (foundStartDate) {
-            // Dies ist ein Eintrag nach dem Startdatum (oder alle Einträge, wenn kein Startdatum)
-            // Das Konto wird basierend auf dem *vorherigen* Eintrag berechnet.
-            const prevKonto = parseFloat(history[i - 1].stundenkonto || 0);
+            // Dies ist ein Eintrag nach dem Startdatum ODER alle Einträge, wenn kein Startdatum gesetzt war
+            let prevKonto;
+            if (i === 0) {
+              // Wenn dies der allererste Eintrag ist UND wir schon 'foundStartDate' sind
+              // (d.h. kein Startdatum gesetzt oder Startdatum liegt vor diesem Eintrag),
+              // basiert die Berechnung auf dem initialen Startwert.
+              prevKonto = startKonto;
+            } else {
+              // Ansonsten basiert die Berechnung auf dem Stundenkonto des *direkten Vorgängers*.
+              prevKonto = parseFloat(history[i - 1].stundenkonto || 0);
+            }
             currentKonto = prevKonto + diff;
             entry.stundenkonto = currentKonto.toFixed(2);
           } else {
             // Dies ist ein Eintrag *vor* dem Startdatum
-            // Diese Kette wird separat berechnet, beginnend bei 0 (oder einem früheren Startpunkt, falls implementiert)
-            // Für Einfachheit starten wir hier bei 0 für den allerersten Eintrag vor dem Startdatum.
+            // Diese Kette wird separat berechnet, beginnend bei 0.
+            let prevKontoBeforeStart;
             if (i === 0) {
-              currentKonto = diff; // Startet bei 0 + diff
+              // Der allererste Eintrag vor dem Startdatum beginnt bei 0.
+              prevKontoBeforeStart = 0;
             } else {
-              const prevKonto = parseFloat(history[i - 1].stundenkonto || 0);
-              currentKonto = prevKonto + diff;
+              // Folgeeinträge vor dem Startdatum basieren auf dem Vorgänger in dieser Kette.
+              prevKontoBeforeStart = parseFloat(history[i - 1].stundenkonto || 0);
             }
-            entry.stundenkonto = currentKonto.toFixed(2);
-            // WICHTIG: currentKonto hier nicht global überschreiben, da es nur für die Kette *vor* dem Startdatum gilt.
-            // Die Kette wird am Startdatum sowieso mit 'startKonto' neu initialisiert.
+            // Wichtig: Diese Berechnung beeinflusst *nicht* die Variable `currentKonto`,
+            // die für die Kette *ab* dem Startdatum verwendet wird.
+            entry.stundenkonto = (prevKontoBeforeStart + diff).toFixed(2);
           }
         }
+        console.log("saveAndReload: Account balance recalculation finished.");
 
         // 4. Speichere die aktualisierte History im Local Storage
-        storeToLS("history", JSON.stringify(history));
+        try {
+          console.log("saveAndReload: Storing history to LocalStorage...");
+          storeToLS("history", JSON.stringify(history));
+          console.log("saveAndReload: History stored successfully.");
+        } catch (storeError) {
+          console.error("saveAndReload: Error storing history to LS:", storeError);
+          alert("Fehler beim Speichern des Verlaufs im Local Storage.");
+          // Nicht abbrechen, UI trotzdem versuchen zu aktualisieren
+        }
 
         // 5. Aktualisiere das Readonly-Feld auf der Hauptseite mit dem letzten Kontostand
-        const latestEntry =
-          history.length > 0 ? history[history.length - 1] : null;
+        console.log("saveAndReload: Updating main page account display...");
+        const latestEntry = history.length > 0 ? history[history.length - 1] : null;
+        // Nehme den letzten berechneten Wert ODER den Startwert, wenn History leer ist
         const latestKonto = latestEntry
           ? parseFloat(latestEntry.stundenkonto || 0)
-          : startKonto; // Wenn History leer, zeige Startkonto an
+          : startKonto;
 
-        $("aktuelles-konto").value = latestKonto.toFixed(2);
-        $("aktuelles-konto-time").value = formatDecimalToTime(latestKonto);
-        colorKontoField(latestKonto); // Färbung anwenden
+        const aktuellesKontoEl = $("aktuelles-konto");
+        const aktuellesKontoTimeEl = $("aktuelles-konto-time");
+        if (aktuellesKontoEl) aktuellesKontoEl.value = latestKonto.toFixed(2);
+        if (aktuellesKontoTimeEl) aktuellesKontoTimeEl.value = formatDecimalToTime(latestKonto);
+        colorKontoField(latestKonto);
+        console.log("saveAndReload: Main page account display updated.");
 
-        // 6. Aktualisiere die Berechnungen auf der Hauptseite (Differenz etc.)
-        updateCalculations();
+        // 6. Aktualisiere die Berechnungen auf der Hauptseite
+        try {
+            console.log("saveAndReload: Calling updateCalculations...");
+            updateCalculations();
+            console.log("saveAndReload: updateCalculations finished.");
+        } catch (calcError) {
+            console.error("saveAndReload: Error during updateCalculations:", calcError);
+        }
 
         // 7. Schließe Modals und lade ggf. aktuelle Ansicht neu
+        console.log("saveAndReload: Closing modals and reloading view if necessary...");
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
-        if (currentView === "history") loadHistory();
-        if (currentView === "month") loadMonthData();
-        if (currentView === "stats") calculateAndDisplayStats();
-      }
-      // --- ENDE ÜBERARBEITETE saveAndReload Funktion ---
-
-      function closeAddDayModal() {
-        const modal = $("add-day-modal");
-        if (modal) modal.style.display = "none";
-      }
-
-      function showDayDetails(dateStr) {
-        const history = getHistory(); // Holt History mit korrekten Kontoständen
-        const entry = history.find((e) => e.datum === dateStr);
-        if (!entry) return;
-
-        const entryDate = new Date(dateStr + "T12:00:00");
-        const dispDate = entryDate.toLocaleDateString("de-DE");
-        const weekdayName = entryDate.toLocaleDateString("de-DE", {
-          weekday: "long",
-        });
-        $("detail-modal-title").textContent = `Details: ${weekdayName}, ${dispDate}`;
-
-        let detailsHTML = "",
-          pausenLabel = "N/A",
-          anwesenheitLabel = "N/A",
-          nettoLabel = "N/A";
-        let pcBuchungChecked = !!entry.pcBuchung,
-          bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
-        const diffVal = parseFloat(entry.differenz) || 0;
-        const diffClass =
-          diffVal > 0.001
-            ? "positive-value"
-            : diffVal < -0.001
-            ? "negative-value"
-            : "zero-value";
-        const kontoVal = parseFloat(entry.stundenkonto || 0); // Lese berechneten Wert
-        const kontoFormatted = formatDecimalToTime(kontoVal);
-        const kontoDecimal = kontoVal.toFixed(2);
-        const holidayName = getHolidayName(entryDate, settings.bundesland);
-
-        const editBtnElement = $("detail-edit-button");
-        const deleteBtnElement = $("detail-delete-button");
-
-        // Standardmäßig Buttons anzeigen, außer bei Feiertag
-        editBtnElement.style.display = "block";
-        deleteBtnElement.style.display = "block";
-
-        if (holidayName) {
-          detailsHTML = `<p><strong>Datum:</strong> ${dispDate}</p><p><strong>Status:</strong> ${holidayName} (Feiertag)</p>`;
-          editBtnElement.style.display = "none"; // Buttons ausblenden
-          deleteBtnElement.style.display = "none";
-        } else if (entry.urlaub || entry.krank || entry.schulung || entry.glaz) {
-          const statusText = entry.urlaub
-            ? "Urlaub"
-            : entry.krank
-            ? "Krank"
-            : entry.schulung
-            ? "Schulung"
-            : "GLAZ";
-          detailsHTML = `<p><strong>Status:</strong> ${statusText} ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
-          pcBuchungChecked = false;
-        } else {
-          const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
-          const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-          const kommenFormatted = formatTime(kommenLokal);
-          const gehenFormatted = formatTime(gehenLokal);
-          const additionalPauseSaved = parsePauseInputFromString(
-            entry.zusatzPause || ""
-          );
-          let netCalculated = 0;
-          let totalH = 0; // Anwesenheit
-          if (kommenLokal && gehenLokal) {
-            let gehenAdjusted = new Date(gehenLokal.getTime());
-            if (gehenAdjusted < kommenLokal)
-              gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-            const diffMs = gehenAdjusted - kommenLokal;
-            if (diffMs >= 0) {
-              totalH = diffMs / (1000 * 60 * 60);
-              anwesenheitLabel = `${Math.floor(totalH)}:${pad(
-                Math.round((totalH % 1) * 60)
-              )} (${totalH.toFixed(2)}h)`;
-              netCalculated = calculateNetArbeitszeitFromEntryData(
-                kommenLokal,
-                gehenLokal,
-                additionalPauseSaved
-              );
-              nettoLabel = `${formatDecimalToTime(
-                netCalculated
-              )} (${netCalculated.toFixed(2)}h)`;
-              const pausenVal = calculateDisplayPause(totalH, netCalculated);
-              pausenLabel =
-                pausenVal > 0
-                  ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)`
-                  : "0 Min";
-              if (additionalPauseSaved > 0)
-                pausenLabel += ` (inkl. ${formatDecimalToTime(
-                  additionalPauseSaved
-                )} manuell)`;
-            }
+        try {
+          if (currentView === "history") {
+              console.log("saveAndReload: Reloading history view.");
+              loadHistory(); // Lädt die Verlaufsansicht neu
           }
-          const violations = checkViolations(
-            kommenLokal,
-            gehenLokal,
-            netCalculated
-          );
-          let kommenMoon =
-            violations.kommen && settings.allowNachtarbeit
-              ? ' <span class="moon-mark">🌙</span>'
-              : "";
-          let gehenMoon =
-            violations.gehen && settings.allowNachtarbeit
-              ? ' <span class="moon-mark">🌙</span>'
-              : "";
-          let nettoMoon =
-            violations.arbeitszeit &&
-            netCalculated > 0 &&
-            settings.allowNachtarbeit
-              ? ' <span class="moon-mark">🌙</span>'
-              : "";
-          detailsHTML = `<p><strong>Ort:</strong> ${bueroEmoji}</p><p><strong>Kommen:</strong> ${kommenFormatted} ${
-            pcBuchungChecked ? "(PC-Buchung aktiv)" : ""
-          }${kommenMoon}</p><p><strong>Gehen:</strong> ${gehenFormatted}${gehenMoon}</p><p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p><p><strong>Pause:</strong> ${pausenLabel}</p><p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}${nettoMoon}</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${
-            entry.differenzTime
-          } (${
-            entry.differenz
-          }h)</span></p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
+          if (currentView === "month") {
+              console.log("saveAndReload: Reloading month view.");
+              loadMonthData(); // Lädt die Monatsansicht neu
+          }
+          if (currentView === "stats") {
+              console.log("saveAndReload: Reloading stats view.");
+              calculateAndDisplayStats(); // Lädt die Statistikansicht neu
+          }
+        } catch (viewLoadError) {
+          console.error("saveAndReload: Error reloading current view:", viewLoadError);
         }
-
-        // Setze den HTML-Inhalt des Modals
-        $("detail-content").innerHTML = detailsHTML;
-
-        // --- KORREKTUR: Event Listener für Modal-Buttons ---
-        // 1. Klone die Buttons, um alte Listener zu entfernen
-        const newEditBtn = editBtnElement.cloneNode(true);
-        editBtnElement.parentNode.replaceChild(newEditBtn, editBtnElement);
-
-        const newDeleteBtn = deleteBtnElement.cloneNode(true);
-        deleteBtnElement.parentNode.replaceChild(newDeleteBtn, deleteBtnElement);
-
-        // 2. Füge neue Listener zu den geklonten Buttons hinzu (nur wenn sie sichtbar sind)
-        if (newEditBtn.style.display !== "none") {
-          newEditBtn.addEventListener("click", () => {
-            closeDetailModal();
-            showAddDayModal(dateStr); // Öffnet Modal zum Ändern
-          });
-        }
-        if (newDeleteBtn.style.display !== "none") {
-          newDeleteBtn.addEventListener("click", () => {
-            closeDetailModal();
-            deleteEntryByDate(dateStr); // Löscht und berechnet neu
-          });
-        }
-        // --- ENDE KORREKTUR ---
-
-        // Zeige das Modal an
-        $("detail-modal").style.display = "flex";
+        console.log("--- saveAndReload END ---");
       }
-
 
       function closeDetailModal() {
         const modal = $("detail-modal");
