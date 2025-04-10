@@ -1316,60 +1316,81 @@
         );
 
         if (correctionIndex === -1) {
-          // Versuch, einen "virtuellen" Korrektureintrag zu erstellen, wenn der Tag fehlt
-          // Dies ist komplexer, da die Differenz für diesen Tag fehlt.
-          // Einfachere Lösung: Korrektur nur an vorhandenen Tagen erlauben.
           alert(
             "Fehler: Für das angegebene Datum wurde kein Eintrag im Verlauf gefunden. Die Korrektur kann derzeit nur auf einen existierenden Tag angewendet werden."
           );
-          // Alternativ könnte man hier einen Platzhalter-Eintrag einfügen,
-          // aber das erfordert mehr Überlegungen zur Handhabung der Differenz.
           return;
-
-          /* // Beispiel für Einfügen (komplexer):
-              const newEntry = {
-                  datum: korrekturDatumStr,
-                  differenz: "0.00", // Unbekannt, muss evtl. manuell gesetzt werden?
-                  differenzTime: "0:00",
-                  stundenkonto: korrekturWert.toFixed(2),
-                  kommen: null, gehen: null, urlaub: false, krank: false, schulung: false, glaz: false,
-                  pcBuchung: false, buero: false, zusatzPause: ""
-              };
-              history.push(newEntry);
-              // History muss neu sortiert werden!
-              history.forEach(entry => { entry.dateObj = new Date(entry.datum + "T00:00:00"); });
-              history.sort((a, b) => a.dateObj - b.dateObj);
-              history.forEach(entry => delete entry.dateObj);
-              */
-        } else {
-          // Setze den Stundenkonto-Wert für den gefundenen Eintrag
-          history[correctionIndex].stundenkonto = korrekturWert.toFixed(2);
         }
 
-        // Rufe saveAndReload auf. Diese Funktion MUSS die Neuberechnung
-        // ab dem korrigierten Eintrag korrekt durchführen.
-        saveAndReload(history);
+        // 1. Setze den Stundenkonto-Wert für den gefundenen Eintrag
+        history[correctionIndex].stundenkonto = korrekturWert.toFixed(2);
 
-        // Leere die Eingabefelder nach erfolgreicher Anwendung
+        // 2. Berechne alle NACHFOLGENDEN Einträge neu
+        for (let i = correctionIndex + 1; i < history.length; i++) {
+          const currentEntry = history[i];
+          const previousEntry = history[i - 1]; // Der Vorgänger existiert immer hier
+
+          const baseKonto = parseFloat(previousEntry.stundenkonto || "0");
+          const diff = parseFloat(currentEntry.differenz || 0);
+          currentEntry.stundenkonto = (baseKonto + diff).toFixed(2);
+        }
+
+        // 3. Speichere die gesamte, neu berechnete History
+        storeToLS("history", JSON.stringify(history));
+
+        // 4. Aktualisiere den globalen "aktuellesStundenkonto"-Wert und die Anzeige
+        const latestEntry = history.length > 0 ? history[history.length - 1] : null;
+        // Finde den Kontostand *vor* dem allerersten Eintrag als Fallback
+        let kontoBeforeFirst = 0;
+        if (history.length > 0) {
+          const firstDate = new Date(history[0].datum + "T00:00:00");
+          const originalHistory = JSON.parse(getFromLS("history", "[]")); // Brauchen Original für Suche davor
+          const relevantOriginalHistory = originalHistory.filter(
+            (entry) => new Date(entry.datum + "T00:00:00") < firstDate
+          );
+          if (relevantOriginalHistory.length > 0) {
+            relevantOriginalHistory.sort(
+              (a, b) => new Date(b.datum) - new Date(a.datum)
+            );
+            kontoBeforeFirst = parseFloat(
+              relevantOriginalHistory[0].stundenkonto || "0"
+            );
+          } else {
+            kontoBeforeFirst = parseFloat(getFromLS("initialKontoValue", "0"));
+          }
+        } else {
+          kontoBeforeFirst = parseFloat(getFromLS("initialKontoValue", "0"));
+        }
+
+        const latestKonto = latestEntry
+          ? parseFloat(latestEntry.stundenkonto || "0")
+          : kontoBeforeFirst; // Wenn History leer, nimm den letzten bekannten Wert davor
+
+        $("aktuelles-konto").value = latestKonto.toFixed(2); // Update read-only field
+        storeToLS("aktuellesStundenkonto", latestKonto.toFixed(2)); // Speichere den *tatsächlichen* letzten Stand
+
+        // 5. Leere die Eingabefelder
         $("korrektur-datum").value = "";
         $("korrektur-wert").value = "";
 
         alert(
-          `Stundenkonto erfolgreich korrigiert und Verlauf ab ${korrekturDate.toLocaleDateString(
-            "de-DE"
-          )} neu berechnet.`
+          `Stundenkonto erfolgreich korrigiert und Verlauf ab ${new Date(
+            korrekturDatumStr + "T12:00:00"
+          ).toLocaleDateString("de-DE")} neu berechnet.`
         );
 
-        // Optional: Zur Hauptseite wechseln oder Ansicht aktualisieren
-        // switchView('main'); // Oder lasse den User auf der Optionsseite
-        if (currentView === "history") loadHistory();
+        // 6. Aktualisiere die UI
+        updateCalculations(); // Wichtig, um abhängige Felder zu aktualisieren
+        closeAddDayModal(); // Sicherstellen, dass alle Modals zu sind
+        closeDetailModal();
+        closeBulkModal();
+        if (currentView === "history") loadHistory(); // Lade Ansichten neu
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
-        // updateCalculations() wird bereits von saveAndReload aufgerufen
       }
 
       function saveAndReload(history) {
-        // 1. Sortieren (wichtig, falls die übergebene History nicht sortiert war)
+        // 1. Sortieren (wichtig!)
         history.forEach((entry) => {
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
@@ -1377,13 +1398,12 @@
         history.forEach((entry) => delete entry.dateObj);
 
         // 2. Finde den Kontostand *vor* dem ersten Eintrag in der übergebenen Liste
-        let previousKonto = 0; // Default, falls keine Vorgänger existieren
+        let previousKonto = 0; // Default
         if (history.length > 0) {
           const firstDateStr = history[0].datum;
           const firstDate = new Date(firstDateStr + "T00:00:00");
 
           // Suche im *gesamten* alten LocalStorage-Verlauf nach dem letzten Eintrag *vor* dem ersten neuen
-          // Wichtig: Wir brauchen den *originalen* Verlauf für diese Suche
           const originalHistory = JSON.parse(getFromLS("history", "[]"));
           const relevantOriginalHistory = originalHistory.filter(
             (entry) => new Date(entry.datum + "T00:00:00") < firstDate
@@ -1393,53 +1413,28 @@
             relevantOriginalHistory.sort(
               (a, b) => new Date(b.datum) - new Date(a.datum)
             );
-            // Nimm den Kontostand des letzten Eintrags davor
             previousKonto = parseFloat(
               relevantOriginalHistory[0].stundenkonto || "0"
             );
           } else {
-            // Wenn es keine Einträge davor gibt, ist der Startwert 0
-            // (oder ein explizit gespeicherter Initialwert, falls vorhanden)
-            previousKonto = parseFloat(getFromLS("initialKontoValue", "0")); // Beispiel für Startwert
+            previousKonto = parseFloat(getFromLS("initialKontoValue", "0"));
           }
         } else {
-          // Wenn die übergebene History leer ist, setze Konto auf 0 oder Startwert
           previousKonto = parseFloat(getFromLS("initialKontoValue", "0"));
         }
 
-        // 3. Berechne alle Kontostände in der übergebenen Liste neu
+        // 3. Berechne ALLE Kontostände in der übergebenen Liste neu
         for (let i = 0; i < history.length; i++) {
           const entry = history[i];
           const diff = parseFloat(entry.differenz || 0);
-
-          // Finde den Index des Eintrags im *originalen* Verlauf, um zu prüfen,
-          // ob dieser Eintrag der manuell korrigierte war.
-          // Dies ist nötig, falls die Korrektur nicht am ersten Tag der übergebenen Liste war.
-          const originalHistoryForCheck = JSON.parse(getFromLS("history", "[]"));
-          const originalIndex = originalHistoryForCheck.findIndex(
-            (e) => e.datum === entry.datum
-          );
-          const wasCorrectedManually =
-            originalIndex !== -1 &&
-            originalHistoryForCheck[originalIndex].stundenkonto !==
-              entry.stundenkonto && // Prüfen, ob der Wert geändert wurde
-            $("korrektur-datum").value === entry.datum; // Sicherstellen, dass es die aktuelle Korrektur war (optional, aber sicherer)
 
           let baseKonto;
           if (i === 0) {
             baseKonto = previousKonto;
           } else {
-            // Nimm den (potenziell gerade erst berechneten oder korrigierten) Wert des Vorgängers
+            // Nimm den Wert des Vorgängers (der gerade berechnet wurde)
             baseKonto = parseFloat(history[i - 1].stundenkonto || "0");
           }
-
-          // WICHTIG: Wenn dieser Eintrag manuell korrigiert wurde,
-          // überschreibe ihn NICHT mit der Neuberechnung, sondern behalte den manuellen Wert.
-          // Für alle *anderen* Einträge, berechne den Kontostand neu.
-          // Die Korrektur in applyBalanceCorrection setzt den Wert *bevor* saveAndReload gerufen wird.
-          // Wir müssen hier also nur sicherstellen, dass die Neuberechnung korrekt aufsetzt.
-          // Die Logik ist: Der Kontostand von Tag `i` ist der Stand von `i-1` plus die Differenz von `i`.
-          // Das funktioniert auch, wenn `i-1` der korrigierte Tag war.
           entry.stundenkonto = (baseKonto + diff).toFixed(2);
         }
 
@@ -2512,7 +2507,7 @@
         height: 44px; /* Explizite Höhe setzen (entspricht min-height) */
         box-sizing: border-box; /* Sicherstellen, dass Padding/Border enthalten sind */
       }
-      
+
       input:read-only {
         background-color: var(--card-background-color);
         color: var(--readonly-text-color);
