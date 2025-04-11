@@ -956,6 +956,16 @@
         $("eza-toggle").checked = settings.ezaActive;
         $("eza-konto-input").value = settings.ezaKontoStand.toFixed(2);
         updateEzaKontoDisplay();
+        // Zeige an, ob eine Korrektur vorgemerkt ist
+        const pendingValue = getFromLS("pendingBalanceOverrideValue");
+          const infoP = $("pending-korrektur-info"); // Neues <p> Element
+
+          if (pendingValue && infoP) {
+              infoP.textContent = `Vorgemerkt: Nächste Neuberechnung startet mit ${pendingValue}h.`;
+              infoP.style.display = 'block';
+          } else if (infoP) {
+              infoP.style.display = 'none';
+          }
       }
 
       function loadHistory() {
@@ -3724,12 +3734,10 @@
                   Konto vormerken
                 </button>
               </div>
-              <div class="row">
-              <p style="font-size: 14px; color: var(--secondary-text-color); margin-bottom: 15px;">
-                Der eingetragene Wert wird für die nächste Buchung verwendet.
-              </p>
-              </div>
             </div>
+            <p style="font-size: 14px; color: var(--secondary-text-color); margin-bottom: 15px;">
+              Der eingetragene Wert wird für die nächste Buchung verwendet.
+            </p>
              <p id="pending-korrektur-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px; display: none;"></p>
           </div>
 
