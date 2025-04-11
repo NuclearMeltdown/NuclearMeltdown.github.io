@@ -1206,18 +1206,12 @@
           loadHistory();
         });
         const nextWeekBtn = createButton("›", () => {
-        console.log("Next week button clicked."); // <<< LOG 1
         const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
-        console.log("Current date for next week calc:", d.toISOString(), "KW:", currentWeekNo, "Year:", currentWeekYear); // <<< LOG 2
         d.setUTCDate(d.getUTCDate() + 7); // Sollte zur nächsten Woche gehen
-        console.log("Date after adding 7 days:", d.toISOString()); // <<< LOG 3
         const [newYear, newWeek] = getWeekNumber(d); // Berechne neue Woche/Jahr
-        console.log("Calculated next week/year:", newWeek, newYear); // <<< LOG 4
         currentWeekYear = newYear; // Weise neue Werte zu
         currentWeekNo = newWeek;
-        console.log("Assigned next week/year:", currentWeekNo, currentWeekYear); // <<< LOG 5
         loadHistory(); // Lade die Ansicht neu
-        console.log("loadHistory called for next week."); // <<< LOG 6
       });
         pagination.appendChild(prevWeekBtn);
         pagination.appendChild(nextWeekBtn);
