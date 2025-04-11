@@ -1344,9 +1344,7 @@
             parseInt(dateParts[0]),
             parseInt(dateParts[1]) - 1,
             parseInt(dateParts[2]),
-            12,
-            0,
-            0 // Set time to noon UTC
+            12, 0, 0 // Set time to noon UTC
           )
         );
 
@@ -1373,9 +1371,7 @@
         const additionalPauseManualValue = $("add-day-zusatzliche-pause").value;
         let history = getHistory();
         const existingIndex = history.findIndex((e) => e.datum === dateValStr);
-        const displayDate = realDate.toLocaleDateString("de-DE", {
-          timeZone: "Europe/Berlin",
-        });
+        const displayDate = realDate.toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
         const sollProTagDecimal = settings.wochenarbeitszeit / 5; // Decimal
 
         let mainDifferenceDecimal = 0; // Decimal
@@ -1485,14 +1481,16 @@
         let originalKommenISO = null;
 
         if (isPcBuchungAddDay) {
+          // WICHTIG: Originale Zeit VOR der Anpassung speichern
           originalKommenISO = kommenDateManual.toISOString(); // Store original time ISO
           // Adjust time for calculation by subtracting 0.13 hours (468000 ms)
-          adjustedKommenManual.setTime(adjustedKommenManual.getTime() - 468000);
+          adjustedKommenManual.setTime(adjustedKommenManual.getTime() - 468000); // Adjust the copy
         }
+        // Speichere die (ggf. angepasste) Zeit für das 'kommen'-Feld
         const kommenISO = adjustedKommenManual.toISOString(); // Adjusted time ISO for 'kommen' field
 
         // Calculate presence time (decimal hours) using adjusted start time
-        const diffMsManual = gehenDateManual - adjustedKommenManual;
+        const diffMsManual = gehenDateManual - adjustedKommenManual; // Verwende angepasste Startzeit
         if (diffMsManual < 0) {
           // Should not happen if gehenDateManual adjustment is correct
           alert("Angepasste Kommen-Zeit liegt nach Gehen-Zeit!");
@@ -1504,26 +1502,21 @@
         const additionalPauseManualHoursDecimal = parsePauseInputFromString( // Returns decimal
           additionalPauseManualValue
         );
-        const autoPauseManualDecimal = calculateAutoPauseForDuration(
-          totalHManualDecimal
-        ); // Decimal
-        const pausenManualDecimal =
-          autoPauseManualDecimal + additionalPauseManualHoursDecimal; // Decimal
+        const autoPauseManualDecimal = calculateAutoPauseForDuration(totalHManualDecimal); // Decimal
+        const pausenManualDecimal = autoPauseManualDecimal + additionalPauseManualHoursDecimal; // Decimal
 
         // Calculate net time (decimal hours)
-        const netManualDecimal = Math.max(
-          0,
-          totalHManualDecimal - pausenManualDecimal
-        );
+        const netManualDecimal = Math.max(0, totalHManualDecimal - pausenManualDecimal);
 
         // Check violations using adjusted start time and decimal net time
         const violations = checkViolations(
-          adjustedKommenManual,
+          adjustedKommenManual, // Verwende angepasste Startzeit
           gehenDateManual,
           netManualDecimal
         );
         let needsConfirmation = false;
-        if (violations.any && !settings.allowNachtarbeit) needsConfirmation = true;
+        if (violations.any && !settings.allowNachtarbeit)
+          needsConfirmation = true;
         if (needsConfirmation) {
           if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
         }
