@@ -3724,10 +3724,11 @@
 
           <div class="section">
             <h3>Stundenkonto anpassen</h3>
-            <!-- Alternative: align-items: center; -->
-            <div class="row" style="align-items: center;">
+            <!-- Die Row selbst braucht keine spezielle Ausrichtung mehr -->
+            <div class="row">
               <div class="column">
                 <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
+                <!-- Höhe setzen und Margin entfernen -->
                 <input
                   type="number"
                   id="hauptkonto-korrektur-wert"
@@ -3735,11 +3736,13 @@
                   style="height: 44px; margin-bottom: 0;"
                 />
               </div>
-              <div class="column">
+              <!-- Diese Spalte wird zum Flex-Container, der seinen Inhalt nach unten ausrichtet -->
+              <div class="column" style="display: flex; align-items: flex-end;">
+                <!-- Button bekommt feste Höhe und füllt die Spalte -->
                 <button
                   id="hauptkonto-setzen-button"
                   class="button"
-                  style="height: 44px;"
+                  style="height: 44px; width: 100%;"
                 >
                   Konto vormerken
                 </button>
