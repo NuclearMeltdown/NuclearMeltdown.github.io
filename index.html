@@ -1552,7 +1552,7 @@
       }
 
       function setHauptkontoManuell() {
-        const wertInput = $("hauptkonto-korrektur-wert");
+        const wertInput = $("hauptkonto-korrektur-wert"); // Nur noch Wert-Input
         const wertStr = wertInput.value;
 
         if (wertStr === "" || isNaN(parseFloat(wertStr))) {
@@ -1562,18 +1562,19 @@
 
         const neuerWertDecimal = parseFloat(wertStr);
 
-        if (!confirm(`Soll der aktuelle Kontostand wirklich auf ${neuerWertDecimal.toFixed(2)} Stunden gesetzt werden?`)) {
+        if (!confirm(`Soll der Kontostand bei der nächsten Neuberechnung einmalig auf ${neuerWertDecimal.toFixed(2)} Stunden gesetzt werden?\n\nDer aktuelle Kontostand wird sofort angepasst.`)) {
             return;
         }
 
-        // Direkten Wert im LocalStorage speichern
-        storeToLS("aktuellesStundenkonto", neuerWertDecimal.toFixed(2));
+        // --- WICHTIG: Wert temporär speichern ---
+        storeToLS("pendingBalanceOverrideValue", neuerWertDecimal.toFixed(2));
 
-        // Anzeige auf Hauptseite und Neuberechnung dort anstoßen
-        updateCalculations(); // Liest den neuen Wert aus LS und aktualisiert alles
+        // --- WICHTIG: Aktuellen Live-Wert auch sofort anpassen ---
+        storeToLS("aktuellesStundenkonto", neuerWertDecimal.toFixed(2));
+        updateCalculations(); // Aktualisiert die Hauptseitenanzeige
 
         // Feedback und Feld leeren
-        alert(`Aktueller Kontostand auf ${neuerWertDecimal.toFixed(2)}h gesetzt.`);
+        alert(`Kontostand wird bei nächster Neuberechnung einmalig auf ${neuerWertDecimal.toFixed(2)}h gesetzt.`);
         wertInput.value = "";
 
         // Optional: Info in Optionen aktualisieren
@@ -1581,75 +1582,76 @@
       }
 
       // =========================================================================
-      // REFACTURED: saveAndReload() - Recalculates balances using decimal math
+      // REFACTURED: saveAndReload() - Berücksichtigt temporären Override OHNE Datum
       // =========================================================================
       function saveAndReload(history) {
-        // 1. Sort history by date (ensure it's always chronological)
+        // 1. Prüfe auf temporären Override und lösche ihn sofort nach dem Lesen
+        const overrideValueStr = getFromLS("pendingBalanceOverrideValue");
+        let activeOverrideValue = null; // Variable für diesen Durchlauf
+
+        if (overrideValueStr !== null) {
+            activeOverrideValue = parseFloat(overrideValueStr);
+            localStorage.removeItem("pendingBalanceOverrideValue"); // Sofort löschen!
+            // Optional: Info in Optionen löschen, falls angezeigt
+            loadOptions();
+        }
+
+        // 2. Sort history by date (wie bisher)
         history.forEach((entry) => {
-          // Stelle sicher, dass der Typ gesetzt ist (wichtig für andere Logik wie Anzeige)
            entry.type = entry.type ||
                        (entry.urlaub || entry.krank || entry.schulung || entry.glaz || entry.isEzaTag ? "special" : "work");
-           entry.dateObj = new Date(entry.datum + "T12:00:00Z"); // Use UTC for sorting
+           entry.dateObj = new Date(entry.datum + "T12:00:00Z");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
 
-        // 2. Determine the *initial* starting balance for the calculation run
-        // This value is used ONLY if the history is empty or for the very first entry.
+        // 3. Determine the *initial* starting balance (für den allerersten Eintrag, falls kein Override)
         let initialKontoValueForCalculation = parseFloat(getFromLS("initialKontoValue", "0"));
 
-        // 3. Recalculate the running balance for each entry using DECIMAL math
+        // 4. Recalculate the running balance for each entry
         for (let i = 0; i < history.length; i++) {
           const entry = history[i];
-          const diffDecimal = parseFloat(entry.differenz || "0");
           let baseKontoDecimal;
 
+          // --- NEU: Basis-Saldo bestimmen ---
           if (i === 0) {
-            // The base for the *first* entry in the array is the initial value
-            baseKontoDecimal = initialKontoValueForCalculation;
+              // Für den ersten Eintrag: Nimm den Override, falls vorhanden, sonst den initialen Wert
+              baseKontoDecimal = (activeOverrideValue !== null)
+                                 ? activeOverrideValue
+                                 : initialKontoValueForCalculation;
           } else {
-            // The base for subsequent entries is the calculated balance of the previous entry
-            baseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
+              // Für alle weiteren Einträge: Nimm den Saldo des Voreintrags
+              baseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
           }
 
-          // Simple calculation: new balance = previous balance + difference
-          const newKontoDecimal = baseKontoDecimal + diffDecimal;
-          entry.stundenkonto = newKontoDecimal.toFixed(2); // Store the calculated balance for this entry
+          // Berechne den Saldo standardmäßig
+          const diffDecimal = parseFloat(entry.differenz || "0");
+          let newKontoDecimal = baseKontoDecimal + diffDecimal;
+
+          // Speichere den Saldo im Verlaufseintrag
+          entry.stundenkonto = newKontoDecimal.toFixed(2);
         }
 
-        // 4. Save the updated history (with recalculated balances) to localStorage
+        // 5. Save the updated history
         storeToLS("history", JSON.stringify(history));
 
-        // 5. Update the "current balance" display and storage based on the *last calculated entry*
-        // This reflects the balance according to the history flow.
-        // It might differ from a value manually set via options, but that's intended.
+        // 6. Update the current balance based on the last calculated entry
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
+        // Der Fallback ist der initialKontoValue, *nicht* der Override, da der Override nur den Start der *Berechnung* beeinflusst hat.
         const latestCalculatedKontoDecimal = latestEntry
           ? parseFloat(latestEntry.stundenkonto || "0")
-          : initialKontoValueForCalculation; // Use initial value if history is empty
-
-        // Update the display fields that show the *running* total based on history
-        // Note: updateCalculations() will later read 'aktuellesStundenkonto' which might have been set manually.
-        // This section ensures the history calculation result is stored, even if the live display is different.
+          : initialKontoValueForCalculation;
         storeToLS("aktuellesStundenkonto", latestCalculatedKontoDecimal.toFixed(2));
-        // We update the display fields directly here as well, reflecting the history result.
-        // If a manual override happened just before, updateCalculations will overwrite this display shortly after.
-        $("aktuelles-konto").value = latestCalculatedKontoDecimal.toFixed(2);
-        $("aktuelles-konto-time").value = formatDecimalToTime(latestCalculatedKontoDecimal);
 
-
-        // 6. Refresh UI elements
-        // updateCalculations() is crucial as it reads the potentially manually overridden 'aktuellesStundenkonto'
-        // and calculates the 'Neues Konto' based on *that* value plus the current day's input.
-        updateCalculations();
+        // 7. Refresh UI elements
+        updateCalculations(); // Liest den gerade gesetzten Wert
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
-        if (currentView === "history") loadHistory(); // Reload history view to show updated calculated balances
+        if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
       }
-
 
       function closeAddDayModal() {
         const modal = $("add-day-modal");
@@ -3707,29 +3709,26 @@
               "
             >
               Aktuellen Stand des EZA-Kontos in Stunden eingeben und setzen.
-              Wird bei Krankheit (-0.4h) und EZA-Tagen (-Sollzeit)
-              automatisch angepasst, wenn EZA-Regel aktiv ist.
             </p>
           </div>
 
           <div class="section">
-            <h3>Stundenkonto setzen</h3>
+            <h3>Stundenkonto anpassen</h3>
             <p style="font-size: 14px; color: var(--secondary-text-color); margin-bottom: 15px;">
-              Setzt den aktuellen Stand des Haupt-Stundenkontos direkt auf den eingegebenen Wert.
+              Der eingetragene Wert wird für die nächste Buchung verwendet.
             </p>
             <div class="row">
-              <div class="column">
-                <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
-                <input type="number" id="hauptkonto-korrektur-wert" step="0.01" />
-              </div>
-              <div class="column-auto">
-                 <button id="hauptkonto-setzen-button" class="inline-button" style="min-height: 44px;">
-                   Setzen
+               <div class="column">
+                 <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
+                 <input type="number" id="hauptkonto-korrektur-wert" step="0.01" />
+               </div>
+               <div class="column-auto">
+                 <button id="hauptkonto-setzen-button" class="button" style="min-height: 44px;">
+                   Konto vormerken
                  </button>
-              </div>
+               </div>
             </div>
-             <!-- Optional: Anzeige des aktuell gespeicherten Werts -->
-             <p id="aktuell-gespeicherter-saldo-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px;"></p>
+             <p id="pending-korrektur-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px; display: none;"></p>
           </div>
 
           <div class="section">
