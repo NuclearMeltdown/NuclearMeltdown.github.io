@@ -907,12 +907,27 @@
       }
 
       function getWeekNumber(d) {
-        d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-        const weekNo = Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-        return [d.getUTCFullYear(), weekNo];
-      }
+      // Kopiere das Datum, um das Original nicht zu verändern
+      const target = new Date(d.valueOf());
+
+      // Setze auf Donnerstag der gleichen Woche (ISO 8601 verwendet Donnerstag)
+      // target.getDay() gibt 0(So)-6(Sa) zurück. ISO Woche: Mo=1,... So=7
+      const dayNr = (target.getDay() + 6) % 7; // Konvertiert zu Mo=0,...,So=6
+      target.setDate(target.getDate() - dayNr + 3); // Gehe zum Donnerstag (-dayNr zum Sonntag, +3 zum Donnerstag)
+
+      // Hole den ersten Donnerstag des Jahres
+      const firstThursday = new Date(target.getFullYear(), 0, 4); // 4. Jan ist immer in KW 1
+      firstThursday.setDate(
+        firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7)
+      );
+
+      // Berechne die Differenz in Wochen
+      const weekNo =
+        1 + Math.round(((target - firstThursday) / 86400000 - 3) / 7);
+
+      // Gib das Jahr des Donnerstags und die Wochennummer zurück
+      return [target.getFullYear(), weekNo];
+    }
       function getDateOfISOWeek(w, y) {
         const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
         const dow = simple.getUTCDay() || 7;
