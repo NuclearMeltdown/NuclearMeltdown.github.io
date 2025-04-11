@@ -3724,31 +3724,27 @@
 
           <div class="section">
             <h3>Stundenkonto anpassen</h3>
-            <!-- Die Row selbst braucht keine spezielle Ausrichtung mehr -->
-            <div class="row">
+            <!-- Struktur wie bei EZA übernehmen -->
+            <div class="row" style="align-items: flex-end;"> <!-- align-items: flex-end ist wahrscheinlich gut -->
+              <!-- Spalte für Label und Input -->
               <div class="column">
                 <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
-                <!-- Höhe setzen und Margin entfernen -->
-                <input
-                  type="number"
-                  id="hauptkonto-korrektur-wert"
-                  step="0.01"
-                  style="height: 44px; margin-bottom: 0;"
-                />
+                <!-- Keine explizite Höhe oder Margin hier, verlässt sich auf globale CSS -->
+                <input type="number" id="hauptkonto-korrektur-wert" step="0.01" />
               </div>
-              <!-- Diese Spalte wird zum Flex-Container, der seinen Inhalt nach unten ausrichtet -->
-              <div class="column" style="display: flex; align-items: flex-end;">
-                <!-- Button bekommt feste Höhe und füllt die Spalte -->
+              <!-- Button in eigener column-auto Spalte, wie bei EZA -->
+              <div class="column">
+                <!-- inline-button Klasse verwenden und min-height setzen, wie bei EZA -->
                 <button
                   id="hauptkonto-setzen-button"
-                  class="button"
-                  style="height: 44px; width: 100%;"
+                  class="inline-button"
+                  style="min-height: 44px"
                 >
                   Konto vormerken
                 </button>
               </div>
             </div>
-            <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 15px; margin-bottom: 15px;">
+            <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 15px; margin-bottom: 15px;"> <!-- margin-top hinzugefügt für Abstand -->
               Der eingetragene Wert wird für die nächste Buchung verwendet.
             </p>
              <p id="pending-korrektur-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px; display: none;"></p>
