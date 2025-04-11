@@ -3724,13 +3724,17 @@
 
           <div class="section">
             <h3>Stundenkonto anpassen</h3>
-            <div class="row">
+            <!-- Hier die Änderung: align-items: flex-end; hinzufügen -->
+            <div class="row" style="align-items: flex-end;">
               <div class="column">
                 <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
+                <!-- Das Input-Feld hat bereits min-height: 44px durch die globalen CSS-Regeln -->
                 <input type="number" id="hauptkonto-korrektur-wert" step="0.01" />
               </div>
-              <div class="column-auto">
-                <button id="hauptkonto-setzen-button" class="button" style="min-height: 44px;">
+              <div class="column">
+                <!-- Der Button hat bereits min-height: 44px durch die .button Klasse,
+                     der inline-style ist nicht mehr nötig -->
+                <button id="hauptkonto-setzen-button" class="button">
                   Konto vormerken
                 </button>
               </div>
