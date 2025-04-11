@@ -3724,22 +3724,30 @@
 
           <div class="section">
             <h3>Stundenkonto anpassen</h3>
-            <!-- Hier die Änderung: align-items: flex-end; hinzufügen -->
+            <!-- Richtet die Unterkante der Spalten aus -->
             <div class="row" style="align-items: flex-end;">
               <div class="column">
                 <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
-                <!-- Das Input-Feld hat bereits min-height: 44px durch die globalen CSS-Regeln -->
-                <input type="number" id="hauptkonto-korrektur-wert" step="0.01" />
+                <!-- Explizite Höhe setzen UND margin entfernen -->
+                <input
+                  type="number"
+                  id="hauptkonto-korrektur-wert"
+                  step="0.01"
+                  style="height: 44px; margin-bottom: 0;"
+                />
               </div>
               <div class="column">
-                <!-- Der Button hat bereits min-height: 44px durch die .button Klasse,
-                     der inline-style ist nicht mehr nötig -->
-                <button id="hauptkonto-setzen-button" class="button" style="min-height: 44px">
+                <!-- Explizite Höhe auch hier setzen -->
+                <button
+                  id="hauptkonto-setzen-button"
+                  class="button"
+                  style="height: 44px;"
+                >
                   Konto vormerken
                 </button>
               </div>
             </div>
-            <p style="font-size: 14px; color: var(--secondary-text-color); margin-bottom: 15px;">
+            <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 15px; margin-bottom: 15px;">
               Der eingetragene Wert wird für die nächste Buchung verwendet.
             </p>
              <p id="pending-korrektur-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px; display: none;"></p>
