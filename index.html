@@ -1560,7 +1560,9 @@
         const korrekturWertInput = $("korrektur-wert").value;
 
         if (!korrekturDatumStr) {
-          alert("Bitte geben Sie das Datum an, für das die Korrektur gelten soll.");
+          alert(
+            "Bitte geben Sie das Datum an, für das die Korrektur gelten soll."
+          );
           return;
         }
         if (korrekturWertInput === "" || isNaN(parseFloat(korrekturWertInput))) {
@@ -1574,10 +1576,11 @@
         if (
           !confirm(
             `Soll das Stundenkonto am Ende des ${korrekturDate.toLocaleDateString(
-              "de-DE", { timeZone: "Europe/Berlin" }
+              "de-DE",
+              { timeZone: "Europe/Berlin" }
             )} wirklich auf ${korrekturWertDecimal.toFixed(
               2 // Display decimal
-            )} Stunden gesetzt werden?\n\nACHTUNG: Alle nachfolgenden Einträge im Verlauf werden unwiderruflich neu berechnet!`
+            )} Stunden gesetzt werden?\n\nACHTUNG: Die Differenz für diesen Tag wird angepasst und der gesamte Verlauf ab diesem Tag neu berechnet!`
           )
         ) {
           return;
@@ -1595,43 +1598,40 @@
           return;
         }
 
-        // Set the balance for the target day (as decimal string)
-        history[correctionIndex].stundenkonto = korrekturWertDecimal.toFixed(2);
-
-        // Recalculate subsequent entries using decimal math
-        for (let i = correctionIndex + 1; i < history.length; i++) {
-          const currentEntry = history[i];
-          const previousEntry = history[i - 1];
-          const baseKontoDecimal = parseFloat(previousEntry.stundenkonto || "0");
-          const diffDecimal = parseFloat(currentEntry.differenz || "0");
-          currentEntry.stundenkonto = (baseKontoDecimal + diffDecimal).toFixed(2);
+        // 1. Bestimme den Kontostand *vor* dem Korrekturtag
+        let previousDayBalanceDecimal = 0;
+        if (correctionIndex > 0) {
+          previousDayBalanceDecimal = parseFloat(
+            history[correctionIndex - 1].stundenkonto || "0"
+          );
+        } else {
+          // Wenn es der erste Eintrag ist, ist der Vortagessaldo der Initialwert
+          previousDayBalanceDecimal = parseFloat(
+            getFromLS("initialKontoValue", "0")
+          );
         }
 
-        // Save the modified history
-        storeToLS("history", JSON.stringify(history));
+        // 2. Berechne die *notwendige Differenz* für den Korrekturtag
+        const requiredDiffDecimal =
+          korrekturWertDecimal - previousDayBalanceDecimal;
 
-        // Update the current balance display based on the last entry
-        const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-        const latestKontoDecimal = latestEntry
-          ? parseFloat(latestEntry.stundenkonto || "0")
-          : korrekturWertDecimal; // Fallback to correction value if it was the last entry
-
-        $("aktuelles-konto").value = latestKontoDecimal.toFixed(2); // Decimal display
-        $("aktuelles-konto-time").value = formatDecimalToTime(latestKontoDecimal); // hh:mm display
-        storeToLS("aktuellesStundenkonto", latestKontoDecimal.toFixed(2)); // Store decimal
-
-        // Clear input fields
+        // 3. Aktualisiere die *Differenz* des Korrekturtages im Array
+        history[correctionIndex].differenz = requiredDiffDecimal.toFixed(2);
+        history[correctionIndex].differenzTime =
+          formatDecimalToTime(requiredDiffDecimal);
+        saveAndReload(history); // Übergibt die geänderte History
         $("korrektur-datum").value = "";
         $("korrektur-wert").value = "";
 
         alert(
-          `Stundenkonto erfolgreich korrigiert und Verlauf ab ${new Date(
-            korrekturDatumStr + "T12:00:00Z"
-          ).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })} neu berechnet.`
+          `Stundenkonto-Korrektur für ${korrekturDate.toLocaleDateString(
+            "de-DE",
+            { timeZone: "Europe/Berlin" }
+          )} angewendet (Differenz angepasst) und Verlauf neu berechnet.`
         );
 
-        // Refresh relevant views/calculations
-        updateCalculations(); // Update main page display
+        // Refresh UI (wird teilweise schon von saveAndReload gemacht, aber sicher ist sicher)
+        updateCalculations();
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
@@ -1639,6 +1639,7 @@
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
       }
+
 
       // =========================================================================
       // REFACTURED: saveAndReload() - Recalculates balances using decimal math
