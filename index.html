@@ -60,8 +60,8 @@
         bundesland: "NATIONAL",
         allowWochenende: false,
         allowNachtarbeit: false,
-        ezaActive: false, // NEU: EZA-Regel aktiv?
-        ezaKontoStand: 0, // NEU: EZA-Konto in Stunden
+        ezaActive: false,
+        ezaKontoStand: 0,
       };
 
       // Hilfsfunktionen
@@ -133,6 +133,9 @@
         }
       }
 
+      // =========================================================================
+      // ANGEPASSTE FUNKTION: getHistory() - Berücksichtigt originalKommen
+      // =========================================================================
       function getHistory() {
         const history = JSON.parse(getFromLS("history", "[]"));
         history.forEach((entry) => {
@@ -145,6 +148,7 @@
           entry.isEzaTag = entry.isEzaTag || false;
           entry.ezaActiveDuringBooking =
             entry.ezaActiveDuringBooking || false;
+          entry.originalKommen = entry.originalKommen || null; // NEU: Default für alte Einträge
           entry.dateObj = new Date(entry.datum + "T00:00:00");
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
@@ -325,7 +329,6 @@
         }
         const inputField = $("eza-konto-input");
         if (inputField) {
-          // Nur aktualisieren, wenn das Feld nicht gerade den Fokus hat
           if (document.activeElement !== inputField) {
             inputField.value = settings.ezaKontoStand.toFixed(2);
           }
@@ -495,6 +498,9 @@
         }
       }
 
+      // =========================================================================
+      // ANGEPASSTE FUNKTION: getAdjustedKommenZeit() - Gibt die für Berechnungen angepasste Zeit zurück
+      // =========================================================================
       function getAdjustedKommenZeit() {
         if (!kommenZeit) return null;
         const adjusted = new Date(kommenZeit.getTime());
@@ -505,7 +511,7 @@
       }
 
       function calculateWorkingTime() {
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // Verwendet die angepasste Zeit
         if (!ak || !gehenZeit) return { hours: 0, minutes: 0, totalHours: 0 };
         let gehenAdjusted = new Date(gehenZeit.getTime());
         if (gehenAdjusted < ak)
@@ -527,7 +533,7 @@
       }
 
       function calculateArbeitszeit() {
-        const wTime = calculateWorkingTime();
+        const wTime = calculateWorkingTime(); // Basiert auf angepasster Kommen-Zeit
         if (wTime.totalHours <= 0) return 0;
         const presenceHours = wTime.totalHours;
         const additionalPause = parsePauseInput("zusatzliche-pause");
@@ -543,7 +549,7 @@
       }
 
       function calculateEndTimeFixpoint(desiredNet) {
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // Verwendet die angepasste Zeit
         if (!ak) return "--:--";
         let presence = desiredNet;
         const additionalPauseMain = parsePauseInput("zusatzliche-pause");
@@ -641,7 +647,7 @@
         let showKommenMoon = false,
           showGehenMoon = false,
           showArbeitszeitMoon = false;
-        const ak = getAdjustedKommenZeit();
+        const ak = getAdjustedKommenZeit(); // Angepasste Zeit für Violations
         const kommenField = $("kommen-display");
         const gehenField = $("gehen-display");
         kommenField.classList.remove("invalid-time");
@@ -694,6 +700,7 @@
           arbeitszeit: false,
           any: false,
         };
+        // Wichtig: kommenDate ist hier die ggf. angepasste Zeit
         if (!kommenDate || !gehenDate) return violations;
         let gehenAdjusted = new Date(gehenDate.getTime());
         if (gehenAdjusted < kommenDate)
@@ -717,6 +724,9 @@
         return violations;
       }
 
+      // =========================================================================
+      // ANGEPASSTE FUNKTION: saveDay() - Speichert originalKommen
+      // =========================================================================
       function saveDay() {
         updateCalculations();
         const today = new Date();
@@ -731,22 +741,27 @@
           alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`);
           return;
         }
-        const adjustedKommen = getAdjustedKommenZeit();
-        const netArbeitszeit = calculateArbeitszeit();
+
+        // Originale Kommen-Zeit aus dem globalen State holen
+        const originalKommenDate = kommenZeit ? new Date(kommenZeit.getTime()) : null;
+        // Angepasste Kommen-Zeit für Berechnungen holen
+        const adjustedKommenDate = getAdjustedKommenZeit();
+        const netArbeitszeit = calculateArbeitszeit(); // Basiert auf adjustedKommenDate
         const currentGehen = gehenZeit ? new Date(gehenZeit.getTime()) : null;
-        if (!adjustedKommen || !currentGehen) {
+
+        if (!adjustedKommenDate || !currentGehen) {
           alert("Bitte Kommen- und Gehen-Zeit für die Speicherung angeben.");
           return;
         }
         let gehenCheck = new Date(currentGehen.getTime());
-        if (gehenCheck < adjustedKommen)
+        if (gehenCheck < adjustedKommenDate)
           gehenCheck.setDate(gehenCheck.getDate() + 1);
-        if (gehenCheck < adjustedKommen) {
+        if (gehenCheck < adjustedKommenDate) {
           alert("Gehen-Zeit liegt vor der (ggf. angepassten) Kommen-Zeit!");
           return;
         }
         const violations = checkViolations(
-          adjustedKommen,
+          adjustedKommenDate, // Prüfung mit angepasster Zeit
           gehenCheck,
           netArbeitszeit
         );
@@ -764,22 +779,19 @@
 
         const sollProTag = settings.wochenarbeitszeit / 5;
         let mainDifference = netArbeitszeit - sollProTag;
-        let ezaDifference = 0; // Keine EZA-Änderung für normalen Arbeitstag
-
-        // EZA-Stand nur aktualisieren, wenn nötig (hier nicht)
-        // settings.ezaKontoStand += ezaDifference;
-        // storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
-        // updateEzaKontoDisplay();
+        // EZA-Logik ist hier nicht relevant für normale Arbeitstage
 
         const aktKontoVal =
           parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
         const newVal = aktKontoVal + mainDifference;
 
-        const kommenStr = adjustedKommen.toISOString();
+        const isPcBuchung = $("pc-buchung").checked;
+        const kommenISO = adjustedKommenDate.toISOString(); // Angepasste Zeit für 'kommen'
+        const originalKommenISO = isPcBuchung && originalKommenDate ? originalKommenDate.toISOString() : null; // Originale Zeit für 'originalKommen'
         const gehenStr = currentGehen.toISOString();
         const isBuero = $("buero-toggle").checked;
-        const isPcBuchung = $("pc-buchung").checked;
         const additionalPauseValue = $("zusatzliche-pause").value || "";
+
         let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
@@ -787,8 +799,9 @@
           datum: datum,
           differenz: mainDifference.toFixed(2),
           differenzTime: formatDecimalToTime(mainDifference),
-          stundenkonto: newVal.toFixed(2),
-          kommen: kommenStr,
+          stundenkonto: "0.00", // Wird von saveAndReload berechnet
+          kommen: kommenISO, // Angepasste Zeit
+          originalKommen: originalKommenISO, // NEU: Originale Zeit
           gehen: gehenStr,
           urlaub: false,
           krank: false,
@@ -910,7 +923,7 @@
             let locationEmoji = entry.buero ? "🏢" : "🏠";
             let specialDayText = "";
             let bgColorClass = "";
-            let textColorVar = "--special-day-text"; // Default text color var
+            let textColorVar = "--special-day-text";
 
             if (entry.urlaub) {
               specialDayText = "Urlaub";
@@ -918,7 +931,7 @@
             } else if (entry.krank) {
               specialDayText = "Krank";
               bgColorClass = "special-day-krank-bg";
-              textColorVar = "--special-day-krank-text"; // Use specific text color
+              textColorVar = "--special-day-krank-text";
             } else if (entry.schulung) {
               specialDayText = "Schulung";
               bgColorClass = "special-day-schulung-bg";
@@ -964,20 +977,19 @@
 
               entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div><span class="${tagLabelClass}">${specialDayText}</span> ${locationEmoji} ${diffDisplay}</div>`;
             } else {
-              const kommenLokal = entry.kommen
-                ? new Date(entry.kommen)
-                : null;
+              // Normale Arbeitstage
+              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null; // Angepasste Zeit für Berechnungen
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
               const additionalPauseSaved = parsePauseInputFromString(
                 entry.zusatzPause || ""
               );
               const netTime = calculateNetArbeitszeitFromEntryData(
-                kommenLokal,
+                kommenLokal, // Angepasste Zeit
                 gehenLokal,
                 additionalPauseSaved
               );
               const violations = checkViolations(
-                kommenLokal,
+                kommenLokal, // Angepasste Zeit
                 gehenLokal,
                 netTime
               );
@@ -1000,9 +1012,15 @@
                 entryContentDiv.classList.add("eza-booked-outline-history");
               }
 
-              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${formatTime(
-                kommenLokal
-              )} - ${formatTime(
+              // NEU: Anzeige der originalen Zeit, falls vorhanden
+              let kommenTimeToDisplayStr;
+              if (entry.originalKommen) {
+                  kommenTimeToDisplayStr = formatTime(new Date(entry.originalKommen));
+              } else {
+                  kommenTimeToDisplayStr = formatTime(kommenLokal); // Fallback auf gespeicherte (ggf. angepasste) Zeit
+              }
+
+              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${kommenTimeToDisplayStr} - ${formatTime(
                 gehenLokal
               )} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${
                 entry.differenzTime
@@ -1045,7 +1063,7 @@
       }
 
       function calculateNetArbeitszeitFromEntryData(
-        kommenLokal,
+        kommenLokal, // Muss die angepasste Zeit sein
         gehenLokal,
         additionalPauseHours = 0
       ) {
@@ -1134,12 +1152,13 @@
         $("eza-tag-toggle").checked = false;
 
         if (entry) {
-          $("add-day-kommen").value = entry.kommen
-            ? formatTime(new Date(entry.kommen))
-            : "";
-          $("add-day-gehen").value = entry.gehen
-            ? formatTime(new Date(entry.gehen))
-            : "";
+          // NEU: Wenn originalKommen existiert, zeige das im Modal an
+          if (entry.originalKommen) {
+              $("add-day-kommen").value = formatTime(new Date(entry.originalKommen));
+          } else {
+              $("add-day-kommen").value = entry.kommen ? formatTime(new Date(entry.kommen)) : "";
+          }
+          $("add-day-gehen").value = entry.gehen ? formatTime(new Date(entry.gehen)) : "";
           $("add-day-zusatzliche-pause").value = entry.zusatzPause || "";
           $("pc-buchung-add-day").checked = entry.pcBuchung || false;
           $("buero-add-day").checked = entry.buero || false;
@@ -1189,6 +1208,9 @@
         $("pc-buchung-add-day").disabled = disabled;
       }
 
+      // =========================================================================
+      // ANGEPASSTE FUNKTION: addManualDay() - Speichert originalKommen
+      // =========================================================================
       function addManualDay() {
         const dateValStr = $("add-day-modal").getAttribute("data-date");
         if (!dateValStr) {
@@ -1233,6 +1255,7 @@
         let ezaDifference = 0;
         const currentEzaActive = settings.ezaActive;
 
+        // EZA-Logik für Differenzen (unverändert)
         if (currentEzaActive) {
           if (isUrlaub || isSchulung) {
             mainDifference = -0.4;
@@ -1260,18 +1283,21 @@
           }
         }
 
+        // EZA-Konto aktualisieren (unverändert)
         if (currentEzaActive && ezaDifference !== 0) {
           settings.ezaKontoStand += ezaDifference;
           storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
           updateEzaKontoDisplay();
         }
 
+        // Basisdaten für den Eintrag
         let dayData = {
           datum: dateValStr,
           differenz: "0.00",
           differenzTime: "0:00",
-          stundenkonto: "0.00",
+          stundenkonto: "0.00", // Wird von saveAndReload berechnet
           kommen: null,
+          originalKommen: null, // NEU: Initialisieren
           gehen: null,
           urlaub: isUrlaub,
           krank: isKrank,
@@ -1284,6 +1310,7 @@
           zusatzPause: "",
         };
 
+        // Fall: Sondertag
         if (isUrlaub || isKrank || isSchulung || isGlaz || isEzaTag) {
           dayData.differenz = mainDifference.toFixed(2);
           dayData.differenzTime = formatDecimalToTime(mainDifference);
@@ -1300,9 +1327,11 @@
           else history.push(dayData);
           saveAndReload(history);
           alert(`${label} für ${displayDate} gespeichert.`);
+          closeAddDayModal(); // Modal schließen
           return;
         }
 
+        // Fall: Normaler Arbeitstag
         const kommenVal = $("add-day-kommen").value,
           gehenVal = $("add-day-gehen").value;
         if (!kommenVal || !gehenVal) {
@@ -1317,25 +1346,32 @@
         }
         if (gehenDateManual < kommenDateManual)
           gehenDateManual.setDate(gehenDateManual.getDate() + 1);
+
+        // NEU: Original und angepasste Kommen-Zeit bestimmen
         let adjustedKommenManual = new Date(kommenDateManual.getTime());
-        if (isPcBuchungAddDay)
+        let originalKommenISO = null;
+        if (isPcBuchungAddDay) {
+          originalKommenISO = adjustedKommenManual.toISOString(); // Original speichern
           adjustedKommenManual.setMinutes(
             adjustedKommenManual.getMinutes() - 8
-          );
-        const diffMsManual = gehenDateManual - adjustedKommenManual;
+          ); // Anpassen für Berechnung
+        }
+        const kommenISO = adjustedKommenManual.toISOString(); // Angepasste Zeit für 'kommen'
+
+        const diffMsManual = gehenDateManual - adjustedKommenManual; // Berechnung mit angepasster Zeit
         if (diffMsManual < 0) {
           alert("Angepasste Kommen-Zeit liegt nach Gehen-Zeit!");
           return;
         }
         const totalHManual = diffMsManual / (1000 * 60 * 60);
-        const additionalPauseManualHours = parsePauseInput(
-          "add-day-zusatzliche-pause"
+        const additionalPauseManualHours = parsePauseInputFromString( // Korrigiert: Funktion verwenden
+          additionalPauseManualValue
         );
         const autoPauseManual = calculateAutoPauseForDuration(totalHManual);
         const pausenManual = autoPauseManual + additionalPauseManualHours;
         const netManual = Math.max(0, totalHManual - pausenManual);
         const violations = checkViolations(
-          adjustedKommenManual,
+          adjustedKommenManual, // Prüfung mit angepasster Zeit
           gehenDateManual,
           netManual
         );
@@ -1347,20 +1383,26 @@
             return;
         }
 
+        // Differenz für normalen Arbeitstag (EZA-Logik nicht relevant hier)
         mainDifference = parseFloat((netManual - sollProTag).toFixed(2));
 
+        // Daten für normalen Arbeitstag setzen
         dayData.differenz = mainDifference.toFixed(2);
         dayData.differenzTime = formatDecimalToTime(mainDifference);
-        dayData.kommen = adjustedKommenManual.toISOString();
+        dayData.kommen = kommenISO; // Angepasste Zeit
+        dayData.originalKommen = originalKommenISO; // NEU: Originale Zeit
         dayData.gehen = gehenDateManual.toISOString();
         dayData.pcBuchung = isPcBuchungAddDay;
         dayData.zusatzPause = additionalPauseManualValue;
 
+        // Speichern
         if (existingIndex !== -1) history[existingIndex] = dayData;
         else history.push(dayData);
         saveAndReload(history);
         alert(`Arbeitstag für ${displayDate} gespeichert.`);
+        closeAddDayModal(); // Modal schließen
       }
+
 
       function parseTimeForDate(timeStr, targetDate) {
         if (!timeStr || !targetDate) return null;
@@ -1537,6 +1579,9 @@
         if (modal) modal.style.display = "none";
       }
 
+      // =========================================================================
+      // ANGEPASSTE FUNKTION: showDayDetails() - Zeigt originalKommen an
+      // =========================================================================
       function showDayDetails(dateStr) {
         const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
@@ -1551,8 +1596,9 @@
           pausenLabel = "N/A",
           anwesenheitLabel = "N/A",
           nettoLabel = "N/A";
-        let pcBuchungChecked = !!entry.pcBuchung,
-          bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
+        // pcBuchungChecked wird jetzt nur noch für die Anzeige verwendet, nicht mehr für Berechnungen hier
+        let pcBuchungChecked = !!entry.pcBuchung;
+        let bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
         const diffVal = parseFloat(entry.differenz) || 0;
         const diffClass =
           diffVal > 0.001
@@ -1587,6 +1633,7 @@
           entry.glaz ||
           entry.isEzaTag
         ) {
+          // --- Anzeige für spezielle Tage (Urlaub, Krank etc.) ---
           const statusText = entry.urlaub
             ? "Urlaub"
             : entry.krank
@@ -1603,30 +1650,52 @@
               : "";
 
           detailsHTML = `<p><strong>Status:</strong> <span class="${tagLabelClass}">${statusText}</span> ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p><p><strong>Differenz:</strong> ${diffDisplay}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal}h)</p>`;
-          pcBuchungChecked = false;
+          // pcBuchungChecked ist hier irrelevant
           $("detail-edit-button").style.display = "block";
           $("detail-delete-button").style.display = "block";
         } else {
-          const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
+          // --- Anzeige für normale Arbeitstage ---
+
+          // NEUE LOGIK FÜR KOMMEN-ZEIT ANZEIGE:
+          let kommenTimeToDisplayStr;
+          let kommenHinweis = "";
+          if (entry.originalKommen) {
+            // Wenn originalKommen existiert, zeige diese Zeit an
+            kommenTimeToDisplayStr = formatTime(new Date(entry.originalKommen));
+            kommenHinweis = "(PC-Buchung aktiv)"; // Hinweis hinzufügen
+          } else {
+            // Ansonsten zeige die normale (ggf. angepasste) Kommen-Zeit an
+            kommenTimeToDisplayStr = formatTime(
+              entry.kommen ? new Date(entry.kommen) : null
+            );
+            // Kein Hinweis, da entweder keine PC-Buchung oder alter Eintrag
+          }
+
+          // WICHTIG: Für Berechnungen weiterhin entry.kommen verwenden!
+          const kommenLokalFuerBerechnung = entry.kommen
+            ? new Date(entry.kommen)
+            : null;
           const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-          const kommenFormatted = formatTime(kommenLokal);
           const gehenFormatted = formatTime(gehenLokal);
+
           const additionalPauseSaved = parsePauseInputFromString(
             entry.zusatzPause || ""
           );
           let netCalculated = 0;
-          if (kommenLokal && gehenLokal) {
+
+          // Berechnungen basieren auf der gespeicherten (ggf. angepassten) Kommen-Zeit
+          if (kommenLokalFuerBerechnung && gehenLokal) {
             let gehenAdjusted = new Date(gehenLokal.getTime());
-            if (gehenAdjusted < kommenLokal)
+            if (gehenAdjusted < kommenLokalFuerBerechnung)
               gehenAdjusted.setDate(gehenAdjusted.getDate() + 1);
-            const diffMs = gehenAdjusted - kommenLokal;
+            const diffMs = gehenAdjusted - kommenLokalFuerBerechnung;
             if (diffMs >= 0) {
               const totalH = diffMs / (1000 * 60 * 60);
               anwesenheitLabel = `${Math.floor(totalH)}:${pad(
                 Math.round((totalH % 1) * 60)
               )} (${totalH.toFixed(2)}h)`;
               netCalculated = calculateNetArbeitszeitFromEntryData(
-                kommenLokal,
+                kommenLokalFuerBerechnung, // Angepasste Zeit für Berechnung
                 gehenLokal,
                 additionalPauseSaved
               );
@@ -1636,9 +1705,7 @@
               const pausenVal = totalH - netCalculated;
               pausenLabel =
                 pausenVal > 0
-                  ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(
-                      2
-                    )}h)`
+                  ? `${Math.round(pausenVal * 60)} Min (${pausenVal.toFixed(2)}h)`
                   : "0 Min";
               if (additionalPauseSaved > 0)
                 pausenLabel += ` (inkl. ${formatDecimalToTime(
@@ -1646,8 +1713,10 @@
                 )} manuell)`;
             }
           }
+
+          // Prüfung auf Verstöße (basiert auf angepasster Kommen-Zeit)
           const violations = checkViolations(
-            kommenLokal,
+            kommenLokalFuerBerechnung,
             gehenLokal,
             netCalculated
           );
@@ -1660,19 +1729,16 @@
               ? ' <span class="moon-mark">🌙</span>'
               : "";
           let nettoMoon =
-            violations.arbeitszeit &&
-            netCalculated > 0 &&
-            settings.allowNachtarbeit
+            violations.arbeitszeit && netCalculated > 0 && settings.allowNachtarbeit
               ? ' <span class="moon-mark">🌙</span>'
               : "";
 
           const ezaBookedHint = entry.ezaActiveDuringBooking
             ? ' <span class="eza-hint-inline" title="EZA-Regel bei Buchung aktiv">(E)</span>'
-            : ""; // Dezenter Hinweis
+            : "";
 
-          detailsHTML = `<p><strong>Ort:</strong> ${bueroEmoji}</p><p><strong>Kommen:</strong> ${kommenFormatted} ${
-            pcBuchungChecked ? "(PC-Buchung aktiv)" : ""
-          }${kommenMoon}</p><p><strong>Gehen:</strong> ${gehenFormatted}${gehenMoon}</p><p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p><p><strong>Pause:</strong> ${pausenLabel}</p><p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}${nettoMoon}</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${
+          // HTML-Zusammenbau mit der angepassten Kommen-Zeit-Anzeige
+          detailsHTML = `<p><strong>Ort:</strong> ${bueroEmoji}</p><p><strong>Kommen:</strong> ${kommenTimeToDisplayStr} ${kommenHinweis}${kommenMoon}</p><p><strong>Gehen:</strong> ${gehenFormatted}${gehenMoon}</p><p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p><p><strong>Pause:</strong> ${pausenLabel}</p><p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}${nettoMoon}</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${
             entry.differenzTime
           } (${
             entry.differenz
@@ -1685,14 +1751,15 @@
         const deleteBtn = $("detail-delete-button");
         editBtn.onclick = () => {
           closeDetailModal();
-          showAddDayModal(dateStr);
+          showAddDayModal(dateStr); // Öffnet Modal zum Bearbeiten
         };
         deleteBtn.onclick = () => {
           closeDetailModal();
-          deleteEntryByDate(dateStr);
+          deleteEntryByDate(dateStr); // Löscht den Eintrag
         };
-        $("detail-modal").style.display = "flex";
+        $("detail-modal").style.display = "flex"; // Zeigt das Modal an
       }
+
 
       function closeDetailModal() {
         const modal = $("detail-modal");
@@ -1826,6 +1893,7 @@
               !entry.urlaub && !entry.krank && !entry.schulung &&
               !entry.isEzaTag && !entry.glaz
             ) {
+              // Verwende entry.kommen (angepasste Zeit) für Violation Check
               const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
               const additionalPauseSaved = parsePauseInputFromString(
@@ -2012,7 +2080,9 @@
                 differenz: mainDifference.toFixed(2),
                 differenzTime: formatDecimalToTime(mainDifference),
                 stundenkonto: "0.00",
-                kommen: null, gehen: null,
+                kommen: null,
+                originalKommen: null, // NEU: Auch hier null setzen
+                gehen: null,
                 urlaub: isUrlaub, krank: isKrank, schulung: isSchulung,
                 glaz: isGlaz, isEzaTag: isEzaTag,
                 ezaActiveDuringBooking: currentEzaActive,
@@ -2115,6 +2185,7 @@
             else if (entry.isEzaTag) ezaDays++;
             else if (entry.kommen && entry.gehen) {
               workDays++;
+              // Verwende entry.kommen (angepasste Zeit) für Berechnung
               const kommenLokal = new Date(entry.kommen);
               const gehenLokal = new Date(entry.gehen);
               const additionalPauseSaved = parsePauseInputFromString(
@@ -2155,6 +2226,9 @@
         )}h)</span></li><li>Arbeitstage: <span>${workDays}</span></li><li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li><li>&nbsp;&nbsp;&nbsp;Home: <span>${homeDays}</span></li><li>Urlaub: <span>${vacationDays}</span></li><li>Krank: <span>${sickDays}</span></li><li>Schulung: <span>${trainingDays}</span></li><li>GLAZ: <span>${glazDays}</span></li><li>EZA-Tage: <span>${ezaDays}</span></li><li>Feiertage (Mo-Fr): <span>${holidayCount}</span></li>`;
       }
 
+      // =========================================================================
+      // ANGEPASSTE FUNKTION: exportHistoryToJson() - Exportiert originalKommen
+      // =========================================================================
       function exportHistoryToJson() {
         const history = getHistory();
         if (history.length === 0) {
@@ -2162,7 +2236,11 @@
           return;
         }
         const exportHistory = history.map((entry) => {
-          const { dateObj, ...rest } = entry;
+          const { dateObj, ...rest } = entry; // dateObj entfernen
+          // Sicherstellen, dass originalKommen nur exportiert wird, wenn es nicht null ist (optional, spart Platz)
+          if (rest.originalKommen === null) {
+              delete rest.originalKommen;
+          }
           return rest;
         });
         const exportData = {
@@ -2190,6 +2268,9 @@
         alert("Verlauf & Optionen exportiert.");
       }
 
+      // =========================================================================
+      // ANGEPASSTE FUNKTION: importHistoryFromJson() - Importiert originalKommen
+      // =========================================================================
       function importHistoryFromJson() {
         const input = document.createElement("input");
         input.type = "file";
@@ -2229,12 +2310,14 @@
                 throw new Error("Ungültige Verlaufsdaten im Import.");
               }
 
+              // Sanitize history, including the new originalKommen field
               const sanitizedHistory = importedHistory.map((entry) => ({
                 datum: entry.datum,
                 differenz: entry.differenz || "0.00",
                 differenzTime: entry.differenzTime || "0:00",
                 stundenkonto: entry.stundenkonto || "0.00",
                 kommen: entry.kommen || null,
+                originalKommen: entry.originalKommen || null, // NEU: Importieren
                 gehen: entry.gehen || null,
                 urlaub: entry.urlaub || false,
                 krank: entry.krank || false,
@@ -2266,16 +2349,17 @@
                   settings.ezaKontoStand = parseFloat(
                     importedSettings.ezaKontoStand || 0
                   );
-                  saveSettings();
+                  saveSettings(); // Speichert die meisten Settings
+                  // EZA-Konto separat speichern und anzeigen
                   storeToLS(
                     "ezaKontoStand",
                     settings.ezaKontoStand.toString()
                   );
                   updateEzaKontoDisplay();
                 }
-                saveAndReload(sanitizedHistory);
+                saveAndReload(sanitizedHistory); // Lädt die History neu und berechnet Kontostand
                 alert("Daten erfolgreich importiert.");
-                switchView("main");
+                switchView("main"); // Zur Hauptansicht wechseln
               }
             } catch (error) {
               console.error("Importfehler:", error);
@@ -2294,6 +2378,7 @@
         document.body.appendChild(input);
         input.click();
       }
+
 
       function showLegendModal() {
         const modal = $("legend-modal");
