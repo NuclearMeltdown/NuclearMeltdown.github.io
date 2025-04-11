@@ -455,10 +455,7 @@
         };
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
-        $("korrektur-anwenden-button").addEventListener(
-          "click",
-          applyBalanceCorrection
-        );
+        $("hauptkonto-setzen-button").addEventListener("click", setHauptkontoManuell);
         $("eza-toggle").onchange = (e) => {
           settings.ezaActive = e.target.checked;
           saveSettings();
@@ -1554,90 +1551,33 @@
         closeAddDayModal();
       }
 
+      function setHauptkontoManuell() {
+        const wertInput = $("hauptkonto-korrektur-wert");
+        const wertStr = wertInput.value;
 
-      function applyBalanceCorrection() {
-        const korrekturDatumStr = $("korrektur-datum").value;
-        const korrekturWertInput = $("korrektur-wert").value;
-
-        if (!korrekturDatumStr) {
-          alert("Bitte geben Sie das Datum an, für das die Korrektur gelten soll.");
-          return;
-        }
-        if (korrekturWertInput === "" || isNaN(parseFloat(korrekturWertInput))) {
+        if (wertStr === "" || isNaN(parseFloat(wertStr))) {
           alert("Bitte geben Sie einen gültigen numerischen Kontostand ein.");
           return;
         }
 
-        const korrekturWertDecimal = parseFloat(korrekturWertInput); // Decimal
-        const korrekturDate = new Date(korrekturDatumStr + "T12:00:00Z"); // Use UTC noon
+        const neuerWertDecimal = parseFloat(wertStr);
 
-        if (
-          !confirm(
-            `Soll das Stundenkonto am Ende des ${korrekturDate.toLocaleDateString(
-              "de-DE", { timeZone: "Europe/Berlin" }
-            )} wirklich auf ${korrekturWertDecimal.toFixed(
-              2 // Display decimal
-            )} Stunden gesetzt werden?\n\nACHTUNG: Alle nachfolgenden Einträge im Verlauf werden unwiderruflich neu berechnet!`
-          )
-        ) {
-          return;
+        if (!confirm(`Soll der aktuelle Kontostand wirklich auf ${neuerWertDecimal.toFixed(2)} Stunden gesetzt werden?`)) {
+            return;
         }
 
-        let history = getHistory(); // Sorted history
-        const correctionIndex = history.findIndex(
-          (e) => e.datum === korrekturDatumStr
-        );
+        // Direkten Wert im LocalStorage speichern
+        storeToLS("aktuellesStundenkonto", neuerWertDecimal.toFixed(2));
 
-        if (correctionIndex === -1) {
-          alert(
-            "Fehler: Für das angegebene Datum wurde kein Eintrag im Verlauf gefunden. Die Korrektur kann derzeit nur auf einen existierenden Tag angewendet werden."
-          );
-          return;
-        }
+        // Anzeige auf Hauptseite und Neuberechnung dort anstoßen
+        updateCalculations(); // Liest den neuen Wert aus LS und aktualisiert alles
 
-        // Set the balance for the target day (as decimal string)
-        history[correctionIndex].stundenkonto = korrekturWertDecimal.toFixed(2);
+        // Feedback und Feld leeren
+        alert(`Aktueller Kontostand auf ${neuerWertDecimal.toFixed(2)}h gesetzt.`);
+        wertInput.value = "";
 
-        // Recalculate subsequent entries using decimal math
-        for (let i = correctionIndex + 1; i < history.length; i++) {
-          const currentEntry = history[i];
-          const previousEntry = history[i - 1];
-          const baseKontoDecimal = parseFloat(previousEntry.stundenkonto || "0");
-          const diffDecimal = parseFloat(currentEntry.differenz || "0");
-          currentEntry.stundenkonto = (baseKontoDecimal + diffDecimal).toFixed(2);
-        }
-
-        // Save the modified history
-        storeToLS("history", JSON.stringify(history));
-
-        // Update the current balance display based on the last entry
-        const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-        const latestKontoDecimal = latestEntry
-          ? parseFloat(latestEntry.stundenkonto || "0")
-          : korrekturWertDecimal; // Fallback to correction value if it was the last entry
-
-        $("aktuelles-konto").value = latestKontoDecimal.toFixed(2); // Decimal display
-        $("aktuelles-konto-time").value = formatDecimalToTime(latestKontoDecimal); // hh:mm display
-        storeToLS("aktuellesStundenkonto", latestKontoDecimal.toFixed(2)); // Store decimal
-
-        // Clear input fields
-        $("korrektur-datum").value = "";
-        $("korrektur-wert").value = "";
-
-        alert(
-          `Stundenkonto erfolgreich korrigiert und Verlauf ab ${new Date(
-            korrekturDatumStr + "T12:00:00Z"
-          ).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })} neu berechnet.`
-        );
-
-        // Refresh relevant views/calculations
-        updateCalculations(); // Update main page display
-        closeAddDayModal();
-        closeDetailModal();
-        closeBulkModal();
-        if (currentView === "history") loadHistory();
-        if (currentView === "month") loadMonthData();
-        if (currentView === "stats") calculateAndDisplayStats();
+        // Optional: Info in Optionen aktualisieren
+        loadOptions();
       }
 
       // =========================================================================
@@ -1646,34 +1586,17 @@
       function saveAndReload(history) {
         // 1. Sort history by date (ensure it's always chronological)
         history.forEach((entry) => {
-          entry.dateObj = new Date(entry.datum + "T12:00:00Z"); // Use UTC for sorting
+          // Stelle sicher, dass der Typ gesetzt ist (wichtig für andere Logik wie Anzeige)
+           entry.type = entry.type ||
+                       (entry.urlaub || entry.krank || entry.schulung || entry.glaz || entry.isEzaTag ? "special" : "work");
+           entry.dateObj = new Date(entry.datum + "T12:00:00Z"); // Use UTC for sorting
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
 
-        // 2. Determine the starting balance
-        let previousKontoDecimal = parseFloat(getFromLS("initialKontoValue", "0")); // Start with initial value
-
-        // Find the balance *before* the first entry in the potentially modified history array
-        if (history.length > 0) {
-          const firstDateStr = history[0].datum;
-          const firstDate = new Date(firstDateStr + "T12:00:00Z");
-
-          const fullStoredHistory = JSON.parse(getFromLS("history", "[]")); // Get the *entire* stored history
-          const relevantOriginalHistory = fullStoredHistory.filter(
-            (entry) => new Date(entry.datum + "T12:00:00Z") < firstDate
-          );
-
-          if (relevantOriginalHistory.length > 0) {
-            relevantOriginalHistory.sort(
-              (a, b) => new Date(b.datum + "T12:00:00Z") - new Date(a.datum + "T12:00:00Z") // Sort descending
-            );
-            previousKontoDecimal = parseFloat(
-              relevantOriginalHistory[0].stundenkonto || "0"
-            );
-          }
-          // If no older entries, previousKontoDecimal remains the initialKontoValue
-        }
+        // 2. Determine the *initial* starting balance for the calculation run
+        // This value is used ONLY if the history is empty or for the very first entry.
+        let initialKontoValueForCalculation = parseFloat(getFromLS("initialKontoValue", "0"));
 
         // 3. Recalculate the running balance for each entry using DECIMAL math
         for (let i = 0; i < history.length; i++) {
@@ -1682,34 +1605,47 @@
           let baseKontoDecimal;
 
           if (i === 0) {
-            baseKontoDecimal = previousKontoDecimal; // Start with the balance before the first entry
+            // The base for the *first* entry in the array is the initial value
+            baseKontoDecimal = initialKontoValueForCalculation;
           } else {
+            // The base for subsequent entries is the calculated balance of the previous entry
             baseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
           }
 
+          // Simple calculation: new balance = previous balance + difference
           const newKontoDecimal = baseKontoDecimal + diffDecimal;
-          entry.stundenkonto = newKontoDecimal.toFixed(2);
+          entry.stundenkonto = newKontoDecimal.toFixed(2); // Store the calculated balance for this entry
         }
 
         // 4. Save the updated history (with recalculated balances) to localStorage
         storeToLS("history", JSON.stringify(history));
 
-        // 5. Update the "current balance" display and storage
+        // 5. Update the "current balance" display and storage based on the *last calculated entry*
+        // This reflects the balance according to the history flow.
+        // It might differ from a value manually set via options, but that's intended.
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-        const latestKontoDecimal = latestEntry
+        const latestCalculatedKontoDecimal = latestEntry
           ? parseFloat(latestEntry.stundenkonto || "0")
-          : previousKontoDecimal; // Use starting balance if history is now empty
+          : initialKontoValueForCalculation; // Use initial value if history is empty
 
-        $("aktuelles-konto").value = latestKontoDecimal.toFixed(2);
-        $("aktuelles-konto-time").value = formatDecimalToTime(latestKontoDecimal);
-        storeToLS("aktuellesStundenkonto", latestKontoDecimal.toFixed(2));
+        // Update the display fields that show the *running* total based on history
+        // Note: updateCalculations() will later read 'aktuellesStundenkonto' which might have been set manually.
+        // This section ensures the history calculation result is stored, even if the live display is different.
+        storeToLS("aktuellesStundenkonto", latestCalculatedKontoDecimal.toFixed(2));
+        // We update the display fields directly here as well, reflecting the history result.
+        // If a manual override happened just before, updateCalculations will overwrite this display shortly after.
+        $("aktuelles-konto").value = latestCalculatedKontoDecimal.toFixed(2);
+        $("aktuelles-konto-time").value = formatDecimalToTime(latestCalculatedKontoDecimal);
+
 
         // 6. Refresh UI elements
+        // updateCalculations() is crucial as it reads the potentially manually overridden 'aktuellesStundenkonto'
+        // and calculates the 'Neues Konto' based on *that* value plus the current day's input.
         updateCalculations();
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
-        if (currentView === "history") loadHistory();
+        if (currentView === "history") loadHistory(); // Reload history view to show updated calculated balances
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
       }
@@ -3777,36 +3713,23 @@
           </div>
 
           <div class="section">
-            <h3>Stundenkonto korrigieren</h3>
-            <p
-              style="
-                font-size: 14px;
-                color: var(--secondary-text-color);
-                margin-bottom: 15px;
-              "
-            >
-              Hier können Sie das *Haupt*-Stundenkonto manuell anpassen. Geben
-              Sie das Datum an, an dessen *Ende* der neue Kontostand gelten
-              soll. Alle nachfolgenden Einträge im Verlauf werden neu
-              berechnet.
+            <h3>Stundenkonto setzen</h3>
+            <p style="font-size: 14px; color: var(--secondary-text-color); margin-bottom: 15px;">
+              Setzt den aktuellen Stand des Haupt-Stundenkontos direkt auf den eingegebenen Wert.
             </p>
             <div class="row">
               <div class="column">
-                <label for="korrektur-datum">Datum der Korrektur:</label>
-                <input type="date" id="korrektur-datum" />
+                <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
+                <input type="number" id="hauptkonto-korrektur-wert" step="0.01" />
               </div>
-              <div class="column">
-                <label for="korrektur-wert">Neuer Kontostand (Std):</label>
-                <input type="number" id="korrektur-wert" step="0.01" />
+              <div class="column-auto">
+                 <button id="hauptkonto-setzen-button" class="inline-button" style="min-height: 44px;">
+                   Setzen
+                 </button>
               </div>
             </div>
-            <button
-              id="korrektur-anwenden-button"
-              class="button"
-              style="margin-top: 10px"
-            >
-              Korrektur anwenden & Verlauf neu berechnen
-            </button>
+             <!-- Optional: Anzeige des aktuell gespeicherten Werts -->
+             <p id="aktuell-gespeicherter-saldo-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px;"></p>
           </div>
 
           <div class="section">
