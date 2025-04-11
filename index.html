@@ -3724,42 +3724,36 @@
 
           <div class="section">
             <h3>Stundenkonto anpassen</h3>
-          
-            <!-- Flexbox-Reihe für die Eingabezeile -->
-            <div class="row" style="display: flex; align-items: flex-end; gap: 10px;">
-          
-              <!-- Spalte für Label und Input -->
-              <div class="column" style="flex: 1;"> <!-- Nimmt verfügbaren Platz -->
-                <label for="hauptkonto-korrektur-wert" style="display: block; margin-bottom: 5px;">
-                  Neuer Kontostand (Std):
-                </label>
+            <!-- Die Row selbst braucht keine spezielle Ausrichtung mehr -->
+            <div class="row">
+              <div class="column">
+                <label for="hauptkonto-korrektur-wert">Neuer Kontostand (Std):</label>
+                <!-- Höhe setzen und Margin entfernen -->
                 <input
                   type="number"
                   id="hauptkonto-korrektur-wert"
                   step="0.01"
-                  style="width: 100%; height: 44px; box-sizing: border-box; margin-bottom: 0;"
+                  style="height: 44px; margin-bottom: 0;"
+                />
               </div>
-          
-              <!-- Spalte für den Button -->
-              <div class="column" style="flex-shrink: 0;"> <!-- Verhindert Schrumpfen der Spalte -->
+              <!-- Diese Spalte wird zum Flex-Container, der seinen Inhalt nach unten ausrichtet -->
+              <div class="column" style="display: flex; align-items: flex-end;">
+                <!-- Button bekommt feste Höhe und füllt die Spalte -->
                 <button
                   id="hauptkonto-setzen-button"
                   class="button"
-                  style="height: 44px; min-width: 120px; box-sizing: border-box;"
+                  style="height: 44px; width: 100%;"
                 >
                   Konto vormerken
                 </button>
               </div>
-          
-            </div> <!-- Ende der .row -->
-          
+            </div>
             <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 15px; margin-bottom: 15px;">
               Der eingetragene Wert wird für die nächste Buchung verwendet.
             </p>
-            <p id="pending-korrektur-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px; display: none;"></p>
-          
-          </div> <!-- Ende der .section -->
-    
+             <p id="pending-korrektur-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px; display: none;"></p>
+          </div>
+
           <div class="section">
             <h3>Daten</h3>
             <div class="import-export-buttons">
