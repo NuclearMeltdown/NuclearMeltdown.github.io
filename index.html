@@ -1536,7 +1536,8 @@
 
 
       // Parses hh:mm string and sets it on a given Date object
-      function parseTimeForDate(timeStr, targetDate) {
+            // Parses hh:mm string and sets it on a given Date object LOCALLY
+            function parseTimeForDate(timeStr, targetDate) {
         if (!timeStr || !targetDate) return null;
         const match = timeStr.match(/^(\d{2}):(\d{2})$/);
         if (!match) return null;
@@ -1544,17 +1545,14 @@
         const mm = parseInt(match[2], 10);
         if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
           return null;
-        // Create a new Date object based on the targetDate's UTC values
-        // to avoid local time zone interference during setHours
-        const resultDate = new Date(Date.UTC(
-            targetDate.getUTCFullYear(),
-            targetDate.getUTCMonth(),
-            targetDate.getUTCDate(),
-            hh, mm, 0, 0
-        ));
+        // Create a new Date object based on the targetDate to avoid modifying it directly
+        const resultDate = new Date(targetDate.getTime());
+        // Set hours and minutes in the LOCAL timezone context of the resultDate
+        resultDate.setHours(hh, mm, 0, 0);
         return resultDate;
       }
 
+      
       function applyBalanceCorrection() {
         const korrekturDatumStr = $("korrektur-datum").value;
         const korrekturWertInput = $("korrektur-wert").value;
