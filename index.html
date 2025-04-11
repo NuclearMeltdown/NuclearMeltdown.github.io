@@ -3405,14 +3405,14 @@
         bottom: 0;
         left: 0;
         right: 0;
-        height: calc(40px + var(--safe-area-bottom)); /* Adjusted height */
+        height: 40px; /* Adjusted height */
         background-color: var(--nav-background);
         border-top: 0.5px solid var(--separator-color);
         display: flex;
         justify-content: space-around;
         align-items: flex-start; /* Align icons to top */
         padding-top: 5px; /* Padding above icons */
-       /* padding-bottom: var(--safe-area-bottom); /* Respect safe area */
+        padding-bottom: var(--safe-area-bottom); /* Respect safe area */
         z-index: 1000;
       }
       .nav-item {
