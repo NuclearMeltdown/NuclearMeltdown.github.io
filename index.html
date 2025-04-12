@@ -46,8 +46,8 @@
 
     <script>
       // Globale Variablen
-      let kommenZeit = null, // Originale Kommen-Zeit (Date Objekt)
-        gehenZeit = null; // Gehen-Zeit (Date Objekt)
+      let kommenZeit = null, // Originale Kommen-Zeit (Date Objekt, lokal)
+        gehenZeit = null; // Gehen-Zeit (Date Objekt, lokal)
       let currentWeekYear = null,
         currentWeekNo = null;
       let currentMonthYear = null,
@@ -88,6 +88,18 @@
         const hours = date.getHours(); // Lokale Stunden
         const minutes = date.getMinutes(); // Lokale Minuten
         return `${pad(hours)}:${pad(minutes)}`;
+      }
+
+      // NEU: Formatiert ein Date-Objekt als lokalen ISO-ähnlichen String
+      function formatLocalDateTimeString(date) {
+        if (!date || isNaN(date.getTime())) return null;
+        const YYYY = date.getFullYear();
+        const MM = pad(date.getMonth() + 1);
+        const DD = pad(date.getDate());
+        const hh = pad(date.getHours());
+        const mm = pad(date.getMinutes());
+        const ss = pad(date.getSeconds());
+        return `${YYYY}-${MM}-${DD}T${hh}:${mm}:${ss}`; // Ohne 'Z' oder Offset
       }
 
       // Formatiert Dezimalstunden in hh:mm
@@ -146,20 +158,22 @@
           entry.differenz = entry.differenz || "0.00";
           entry.differenzTime = entry.differenzTime || "0:00";
           entry.stundenkonto = entry.stundenkonto || "0.00";
-          entry.kommen = entry.kommen || null; // Sollte immer original sein
+          // kommen/gehen sind jetzt lokale ISO-Strings
+          entry.kommen = entry.kommen || null;
           entry.gehen = entry.gehen || null;
           entry.urlaub = entry.urlaub || false;
           entry.krank = entry.krank || false;
           entry.schulung = entry.schulung || false;
           entry.glaz = entry.glaz || false;
-          entry.pcBuchung = entry.pcBuchung || false; // Wichtig für Berechnungen
+          entry.pcBuchung = entry.pcBuchung || false;
           entry.buero = entry.buero || false;
           entry.isEzaTag = entry.isEzaTag || false;
           entry.ezaActiveDuringBooking =
             entry.ezaActiveDuringBooking || false;
           entry.zusatzPause = entry.zusatzPause || "";
-          // Temporäres Objekt für Sortierung
-          entry.dateObj = new Date(entry.datum + "T12:00:00Z"); // UTC für Konsistenz
+          // Temporäres Objekt für Sortierung (Datumsteil extrahieren)
+          const datePart = entry.datum || "1970-01-01";
+          entry.dateObj = new Date(datePart + "T12:00:00Z"); // UTC für Konsistenz bei Sortierung
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj); // Entferne temporäres Objekt
@@ -847,7 +861,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: saveDay() - Speichert originale Kommen-Zeit, verwendet neue Logik
+      // ÜBERARBEITET: saveDay() - Speichert lokale Zeit als String
       // =========================================================================
       function saveDay() {
         updateCalculations(); // Ensure calculations are fresh
@@ -857,15 +871,16 @@
           alert("Speichern am Wochenende ist in den Optionen deaktiviert.");
           return;
         }
-        const datum = today.toISOString().split("T")[0];
-        const holidayName = getHolidayName(today, settings.bundesland);
+        // Datumsteil für den Schlüssel
+        const datum = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+        const holidayName = getHolidayName(today, settings.bundesland); // today ist lokal, getHolidayName erwartet UTC, aber für feste Feiertage ok
         if (holidayName) {
           alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`);
           return;
         }
 
-        const originalKommenDate = kommenZeit; // Originale Zeit aus globalem State
-        const currentGehen = gehenZeit;
+        const originalKommenDate = kommenZeit; // Lokales Date Objekt
+        const currentGehen = gehenZeit; // Lokales Date Objekt
         const isPcBuchung = $("pc-buchung").checked;
         const additionalPauseValue = $("zusatzliche-pause").value || "";
 
@@ -908,20 +923,21 @@
         const sollProTagDecimal = settings.wochenarbeitszeit / 5;
         let mainDifferenceDecimal = netArbeitszeitDecimal - sollProTagDecimal;
 
-        const kommenISO = originalKommenDate.toISOString(); // Speichere originale Zeit
-        const gehenISO = currentGehen.toISOString();
+        // Speichere Zeiten als lokale ISO-ähnliche Strings
+        const kommenLocalISO = formatLocalDateTimeString(originalKommenDate);
+        const gehenLocalISO = formatLocalDateTimeString(currentGehen);
         const isBuero = $("buero-toggle").checked;
 
         let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
         const dayData = {
-          datum: datum,
+          datum: datum, // Nur YYYY-MM-DD
           differenz: mainDifferenceDecimal.toFixed(2),
           differenzTime: formatDecimalToTime(mainDifferenceDecimal),
           stundenkonto: "0.00", // Wird von saveAndReload berechnet
-          kommen: kommenISO, // Immer originale Zeit
-          gehen: gehenISO,
+          kommen: kommenLocalISO, // Lokaler String YYYY-MM-DDTHH:mm:ss
+          gehen: gehenLocalISO,   // Lokaler String YYYY-MM-DDTHH:mm:ss
           urlaub: false,
           krank: false,
           schulung: false,
@@ -1002,7 +1018,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: loadHistory() - Verwendet neue Berechnungslogik für Details
+      // ÜBERARBEITET: loadHistory() - Parst lokale Strings
       // =========================================================================
       function loadHistory() {
         const historyList = $("history-list");
@@ -1031,7 +1047,7 @@
         for (let dayOffset = 0; dayOffset <= daysToShow; dayOffset++) {
           const currentDateUTC = new Date(weekStartDateUTC.getTime());
           currentDateUTC.setUTCDate(weekStartDateUTC.getUTCDate() + dayOffset);
-          const currentDateStr = currentDateUTC.toISOString().split("T")[0];
+          const currentDateStr = `${currentDateUTC.getUTCFullYear()}-${pad(currentDateUTC.getUTCMonth() + 1)}-${pad(currentDateUTC.getUTCDate())}`; // YYYY-MM-DD
           const displayDate = currentDateUTC.toLocaleDateString(
             "de-DE",
             optionsDate
@@ -1112,13 +1128,14 @@
               entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div><span class="${tagLabelClass}">${specialDayText}</span> ${locationEmoji} ${diffDisplay}</div>`;
             } else {
               // Normale Arbeitstage
-              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null; // Originale Zeit
+              // Parse lokale Strings zu lokalen Date Objekten
+              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
 
-              // Berechne Netto-AZ für Violation Check (berücksichtigt PC-Buchung intern)
+              // Berechne Netto-AZ für Violation Check
               const netTimeDecimal = calculateNetArbeitszeitFromEntryData(entry);
 
-              // Prüfe Verstöße mit originalen Zeiten
+              // Prüfe Verstöße mit lokalen Zeiten
               const violations = checkViolations(
                 kommenLokal,
                 gehenLokal,
@@ -1143,13 +1160,12 @@
                 entryContentDiv.classList.add("eza-booked-outline-history");
               }
 
-              // Zeige immer die originale Kommen-Zeit an
+              // Zeige Zeiten formatiert aus lokalen Date Objekten
               const kommenTimeToDisplayStr = formatTime(kommenLokal);
-              const pcBuchungHinweis = entry.pcBuchung ? " (PC)" : ""; // Kleiner Hinweis
+              const gehenTimeToDisplayStr = formatTime(gehenLokal);
+              const pcBuchungHinweis = entry.pcBuchung ? " (PC)" : "";
 
-              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${kommenTimeToDisplayStr}${pcBuchungHinweis} - ${formatTime(
-                gehenLokal
-              )} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${
+              entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${kommenTimeToDisplayStr}${pcBuchungHinweis} - ${gehenTimeToDisplayStr} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${
                 entry.differenzTime
               }</span>${violationMark} ${moonMark}</div>`;
             }
@@ -1192,7 +1208,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: calculateNetArbeitszeitFromEntryData() - Verwendet globale Logik
+      // ÜBERARBEITET: calculateNetArbeitszeitFromEntryData() - Parst lokale Strings
       // =========================================================================
       function calculateNetArbeitszeitFromEntryData(entry) {
         if (
@@ -1208,7 +1224,8 @@
           return 0; // Keine Berechnung für Sondertage oder fehlende Daten
         }
 
-        const kommenLokal = new Date(entry.kommen); // Originale Zeit
+        // Parse lokale Strings zu lokalen Date Objekten
+        const kommenLokal = new Date(entry.kommen);
         const gehenLokal = new Date(entry.gehen);
         const additionalPauseDecimal = parsePauseInputFromString(
           entry.zusatzPause || ""
@@ -1228,8 +1245,9 @@
         let history = getHistory();
         const index = history.findIndex((e) => e.datum === dateStr);
         if (index !== -1) {
+          // Datum für Anzeige korrekt formatieren (UTC-Datum aus String nehmen)
           const displayDate = new Date(
-            dateStr + "T12:00:00Z"
+            dateStr + "T12:00:00Z" // Verwende UTC für Konsistenz
           ).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
           if (
             confirm(
@@ -1271,10 +1289,11 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: showAddDayModal() - Zeigt originale Kommen-Zeit an
+      // ÜBERARBEITET: showAddDayModal() - Parst lokale Strings
       // =========================================================================
       function showAddDayModal(dateStr) {
-        const dateVal = new Date(dateStr + "T12:00:00Z");
+        // dateStr ist YYYY-MM-DD
+        const dateVal = new Date(dateStr + "T12:00:00Z"); // UTC für Feiertagscheck etc.
         const displayDate = dateVal.toLocaleDateString("de-DE", {
           timeZone: "Europe/Berlin",
         });
@@ -1307,7 +1326,7 @@
 
         if (entry) {
           // Populate fields from existing entry
-          // Zeige immer die gespeicherte (originale) Kommen-Zeit
+          // Parse lokale Strings zu lokalen Date Objekten für formatTime
           $("add-day-kommen").value = entry.kommen
             ? formatTime(new Date(entry.kommen))
             : "";
@@ -1315,7 +1334,7 @@
             ? formatTime(new Date(entry.gehen))
             : "";
           $("add-day-zusatzliche-pause").value = entry.zusatzPause || "";
-          $("pc-buchung-add-day").checked = entry.pcBuchung || false; // Lade Status
+          $("pc-buchung-add-day").checked = entry.pcBuchung || false;
           $("buero-add-day").checked = entry.buero || false;
           $("urlaub-toggle").checked = entry.urlaub || false;
           $("krank-toggle").checked = entry.krank || false;
@@ -1340,7 +1359,7 @@
           $("buero-add-day").checked = $("buero-toggle").checked;
           toggleTimeFieldsDisabled(false);
         }
-        $("add-day-modal").setAttribute("data-date", dateStr);
+        $("add-day-modal").setAttribute("data-date", dateStr); // Speichere YYYY-MM-DD
         $("add-day-modal").style.display = "flex";
       }
 
@@ -1366,49 +1385,45 @@
       }
 
       // =========================================================================
-      // KORRIGIERTE FUNKTION: parseTimeForDate() - Verwendet UTC-Methoden
+      // ÜBERARBEITET: parseTimeForDate() - Erzeugt lokales Date Objekt
       // =========================================================================
-      // Parst hh:mm und setzt es auf einem gegebenen UTC-Datumsobjekt
-      function parseTimeForDate(timeStr, targetUTCDate) {
-        if (!timeStr || !targetUTCDate) return null;
-        const match = timeStr.match(/^(\d{2}):(\d{2})$/);
-        if (!match) return null;
-        const hh = parseInt(match[1], 10);
-        const mm = parseInt(match[2], 10);
-        if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
-          return null;
-        const resultDate = new Date(targetUTCDate.getTime());
-        // Setze Stunden/Minuten mit UTC-Methoden
-        resultDate.setUTCHours(hh, mm, 0, 0); // <<< KORREKTUR
-        return resultDate; // Gibt ein Date-Objekt mit UTC-Zeit zurück
+      // Parst hh:mm und setzt es auf einem gegebenen Datumsobjekt (lokale Zeit)
+      function parseTimeForDate(timeStr, targetLocalDate) {
+          if (!timeStr || !targetLocalDate) return null;
+          const match = timeStr.match(/^(\d{2}):(\d{2})$/);
+          if (!match) return null;
+          const hh = parseInt(match[1], 10);
+          const mm = parseInt(match[2], 10);
+          if (isNaN(hh) || isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59)
+              return null;
+          // Erzeuge neues Date Objekt basierend auf dem Zieldatum (lokal)
+          const resultDate = new Date(targetLocalDate.getTime());
+          // Setze Stunden und Minuten lokal
+          resultDate.setHours(hh, mm, 0, 0);
+          return resultDate; // Gibt lokales Date Objekt zurück
       }
 
       // =========================================================================
-      // ÜBERARBEITET: addManualDay() - Speichert originale Kommen-Zeit, verwendet neue Logik
+      // ÜBERARBEITET: addManualDay() - Speichert lokale Zeit als String
       // =========================================================================
       function addManualDay() {
-        const dateValStr = $("add-day-modal").getAttribute("data-date");
+        const dateValStr = $("add-day-modal").getAttribute("data-date"); // YYYY-MM-DD
         if (!dateValStr) {
           alert("Kein gültiges Datum!");
           return;
         }
-        const dateParts = dateValStr.split("-");
-        const realDate = new Date(
-          Date.UTC( // Basis ist UTC-Mittag
-            parseInt(dateParts[0]),
-            parseInt(dateParts[1]) - 1,
-            parseInt(dateParts[2]),
-            12, 0, 0
-          )
-        );
+        // Erzeuge lokales Datumsobjekt für den Tag (z.B. 00:00 Uhr lokal)
+        const realDateLocal = new Date(dateValStr + "T00:00:00");
+        // Erzeuge UTC-Datum für Feiertagscheck
+        const realDateUTC = new Date(dateValStr + "T12:00:00Z");
 
-        const holidayName = getHolidayName(realDate, settings.bundesland);
+        const holidayName = getHolidayName(realDateUTC, settings.bundesland);
         if (holidayName) {
           alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`);
           closeAddDayModal();
           return;
         }
-        const dayOfWeek = realDate.getUTCDay();
+        const dayOfWeek = realDateUTC.getUTCDay(); // UTC für Wochentag
         if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
           alert("Speichern am Wochenende deaktiviert.");
           closeAddDayModal();
@@ -1425,9 +1440,7 @@
         const additionalPauseManualValue = $("add-day-zusatzliche-pause").value;
         let history = getHistory();
         const existingIndex = history.findIndex((e) => e.datum === dateValStr);
-        const displayDate = realDate.toLocaleDateString("de-DE", {
-          timeZone: "Europe/Berlin",
-        });
+        const displayDate = realDateLocal.toLocaleDateString("de-DE"); // Lokale Anzeige
         const sollProTagDecimal = settings.wochenarbeitszeit / 5;
 
         let mainDifferenceDecimal = 0;
@@ -1465,7 +1478,7 @@
 
         // Basisdaten für Eintrag
         let dayData = {
-          datum: dateValStr,
+          datum: dateValStr, // YYYY-MM-DD
           differenz: "0.00",
           differenzTime: "0:00",
           stundenkonto: "0.00", // Wird neu berechnet
@@ -1510,35 +1523,33 @@
           alert("Bitte Kommen- und Gehen-Zeit angeben!");
           return;
         }
-        // Parse Zeiten relativ zum UTC-Datum (gibt UTC Date Objekte zurück)
-        const kommenDateManual = parseTimeForDate(kommenVal, realDate); // Originale Kommen-Zeit
-        const gehenDateManual = parseTimeForDate(gehenVal, realDate);
+        // Parse Zeiten relativ zum lokalen Datum (gibt lokale Date Objekte zurück)
+        const kommenDateManual = parseTimeForDate(kommenVal, realDateLocal);
+        const gehenDateManual = parseTimeForDate(gehenVal, realDateLocal);
 
         if (!kommenDateManual || !gehenDateManual) {
           alert("Ungültige Zeitformate!");
           return;
         }
-        // Passe Gehen-Datum an, falls nächster Tag (UTC)
+        // Passe Gehen-Datum an, falls nächster Tag (lokal)
         if (gehenDateManual < kommenDateManual)
-          gehenDateManual.setUTCDate(gehenDateManual.getUTCDate() + 1);
+          gehenDateManual.setDate(gehenDateManual.getDate() + 1);
 
-        // Berechne Netto-AZ mit zentraler Funktion
+        // Berechne Netto-AZ mit zentraler Funktion (nutzt lokale Date Objekte)
         const additionalPauseManualHoursDecimal = parsePauseInputFromString(
           additionalPauseManualValue
         );
         const netManualDecimal = calculateArbeitszeit(
-          kommenDateManual, // Originale Startzeit
-          gehenDateManual,
+          kommenDateManual, // Lokales Start Date Objekt
+          gehenDateManual,  // Lokales End Date Objekt
           additionalPauseManualHoursDecimal,
           isPcBuchungAddDay // PC-Status aus Modal
         );
 
-        // Prüfe Verstöße (mit lokalen Zeiten für die Regeln)
-        const kommenLokalCheck = new Date(kommenDateManual.getTime()); // Konvertiere zu lokal für Check
-        const gehenLokalCheck = new Date(gehenDateManual.getTime()); // Konvertiere zu lokal für Check
+        // Prüfe Verstöße (mit lokalen Zeiten)
         const violations = checkViolations(
-          kommenLokalCheck,
-          gehenLokalCheck,
+          kommenDateManual,
+          gehenDateManual,
           netManualDecimal
         );
         if (violations.any && !settings.allowNachtarbeit) {
@@ -1552,8 +1563,9 @@
         // Update dayData für normalen Arbeitstag
         dayData.differenz = mainDifferenceDecimal.toFixed(2);
         dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimal);
-        dayData.kommen = kommenDateManual.toISOString(); // Speichere originale Zeit (UTC ISO)
-        dayData.gehen = gehenDateManual.toISOString(); // Speichere Gehen-Zeit (UTC ISO)
+        // Speichere Zeiten als lokale ISO-ähnliche Strings
+        dayData.kommen = formatLocalDateTimeString(kommenDateManual);
+        dayData.gehen = formatLocalDateTimeString(gehenDateManual);
         dayData.pcBuchung = isPcBuchungAddDay; // Speichere PC-Status
         dayData.zusatzPause = additionalPauseManualValue;
 
@@ -1617,7 +1629,9 @@
             entry.isEzaTag
               ? "special"
               : "work");
-          entry.dateObj = new Date(entry.datum + "T12:00:00Z");
+          // Verwende nur Datumsteil für Sortierung
+          const datePart = entry.datum || "1970-01-01";
+          entry.dateObj = new Date(datePart + "T12:00:00Z"); // UTC für Sortierkonsistenz
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
         history.forEach((entry) => delete entry.dateObj);
@@ -1672,17 +1686,18 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: showDayDetails() - Passt Anzeige der Pause an
+      // ÜBERARBEITET: showDayDetails() - Parst lokale Strings, passt Pause an
       // =========================================================================
       function showDayDetails(dateStr) {
         const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
         if (!entry) return;
-        const entryDate = new Date(dateStr + "T12:00:00Z");
-        const dispDate = entryDate.toLocaleDateString("de-DE", {
+        // Datum für Anzeige und Feiertagscheck
+        const entryDateUTC = new Date(dateStr + "T12:00:00Z"); // UTC für Konsistenz
+        const dispDate = entryDateUTC.toLocaleDateString("de-DE", {
           timeZone: "Europe/Berlin",
         });
-        const weekdayName = entryDate.toLocaleDateString("de-DE", {
+        const weekdayName = entryDateUTC.toLocaleDateString("de-DE", {
           weekday: "long",
           timeZone: "Europe/Berlin",
         });
@@ -1702,7 +1717,7 @@
             : "zero-value";
         const kontoDecimal = parseFloat(entry.stundenkonto || "0");
         const kontoFormatted = formatDecimalToTime(kontoDecimal);
-        const holidayName = getHolidayName(entryDate, settings.bundesland);
+        const holidayName = getHolidayName(entryDateUTC, settings.bundesland);
 
         let ezaIndicatorClass = "";
         let ezaTagIndicatorClass = "";
@@ -1748,7 +1763,8 @@
 
         } else {
           // --- Anzeige für normale Arbeitstage ---
-          const kommenLokal = entry.kommen ? new Date(entry.kommen) : null; // Originale Zeit
+          // Parse lokale Strings zu lokalen Date Objekten
+          const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
           const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
           const kommenFormatted = formatTime(kommenLokal);
           const gehenFormatted = formatTime(gehenLokal);
@@ -1786,7 +1802,7 @@
             )} manuell)`;
 
 
-          // Prüfe Verstöße (mit originalen Zeiten)
+          // Prüfe Verstöße (mit lokalen Zeiten)
           const violations = checkViolations(
             kommenLokal,
             gehenLokal,
@@ -1866,7 +1882,8 @@
       function loadMonthData() {
         const history = getHistory();
         const monthData = history.filter((entry) => {
-          const entryDate = new Date(entry.datum + "T12:00:00Z");
+          // Vergleiche nur den Datumsteil YYYY-MM-DD
+          const entryDate = new Date(entry.datum + "T12:00:00Z"); // UTC für Vergleich
           return (
             entryDate.getUTCFullYear() === currentMonthYear &&
             entryDate.getUTCMonth() === currentMonth
@@ -1913,7 +1930,7 @@
           cell.appendChild(cellContent);
           const currentDateStr = `${currentMonthYear}-${pad(
             currentMonth + 1
-          )}-${pad(day)}`;
+          )}-${pad(day)}`; // YYYY-MM-DD
           const entry = monthData.find((e) => e.datum === currentDateStr);
           const holidayName = getHolidayName(
             currentDateObj, settings.bundesland
@@ -1954,6 +1971,7 @@
 
             // Violation check for moon marker
             if (!entry.urlaub && !entry.krank && !entry.schulung && !entry.isEzaTag && !entry.glaz) {
+              // Parse lokale Strings zu lokalen Date Objekten
               const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
               const netTimeDecimal = calculateNetArbeitszeitFromEntryData(entry);
@@ -2034,14 +2052,15 @@
       // ÜBERARBEITET: applyBulkBooking() - Verwendet neue Logik für Differenz
       // =========================================================================
       function applyBulkBooking() {
-        const startDateStr = $("bulk-modal-start-date").value,
-          endDateStr = $("bulk-modal-end-date").value,
+        const startDateStr = $("bulk-modal-start-date").value, // YYYY-MM-DD
+          endDateStr = $("bulk-modal-end-date").value, // YYYY-MM-DD
           specialType = $("bulk-modal-special-day-type").value;
 
         if (!startDateStr || !endDateStr || !specialType) {
           alert("Bitte Start, Ende und Typ auswählen.");
           return;
         }
+        // Erzeuge UTC-Daten für den Vergleich und Iteration
         const startDate = new Date(startDateStr + "T12:00:00Z"),
           endDate = new Date(endDateStr + "T12:00:00Z");
         if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
@@ -2058,7 +2077,7 @@
         let modified = false;
         let skippedDays = 0;
         let processedCount = 0;
-        let currentDate = new Date(startDate.getTime());
+        let currentDate = new Date(startDate.getTime()); // Start mit UTC-Datum
         const sollProTagDecimal = settings.wochenarbeitszeit / 5;
         const currentEzaActive = settings.ezaActive;
         let currentEzaStandDecimal = settings.ezaKontoStand; // Temporärer Stand für Bulk
@@ -2071,7 +2090,7 @@
         if (
           !confirm(
             `Wirklich für ${startDate.toLocaleDateString("de-DE", {
-              timeZone: "UTC",
+              timeZone: "UTC", // Anzeige des Datumsbereichs
             })} bis ${endDate.toLocaleDateString("de-DE", {
               timeZone: "UTC",
             })} Aktion "${typeLabel}" für Mo-Fr (keine Feiertage) durchführen?\n\nACHTUNG: Bestehende Einträge werden überschrieben oder gelöscht!`
@@ -2081,9 +2100,9 @@
         }
 
         while (currentDate <= endDate) {
-          const dayOfWeek = currentDate.getUTCDay();
-          const holidayName = getHolidayName(currentDate, settings.bundesland);
-          const currentDateStr = currentDate.toISOString().split("T")[0];
+          const dayOfWeek = currentDate.getUTCDay(); // UTC-Wochentag
+          const holidayName = getHolidayName(currentDate, settings.bundesland); // Nutzt UTC-Datum
+          const currentDateStr = `${currentDate.getUTCFullYear()}-${pad(currentDate.getUTCMonth() + 1)}-${pad(currentDate.getUTCDate())}`; // YYYY-MM-DD
 
           if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
             if (specialType === "delete") {
@@ -2137,7 +2156,7 @@
 
               const existingEntry = historyMap.get(currentDateStr);
               const dayData = {
-                datum: currentDateStr,
+                datum: currentDateStr, // YYYY-MM-DD
                 differenz: mainDifferenceDecimal.toFixed(2),
                 differenzTime: formatDecimalToTime(mainDifferenceDecimal),
                 stundenkonto: "0.00", // Wird neu berechnet
@@ -2157,7 +2176,7 @@
           } else {
             skippedDays++;
           }
-          currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+          currentDate.setUTCDate(currentDate.getUTCDate() + 1); // Nächster Tag (UTC)
         }
 
         if (modified) {
@@ -2185,7 +2204,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: calculateAndDisplayStats() - Verwendet neue Berechnungslogik
+      // ÜBERARBEITET: calculateAndDisplayStats() - Parst lokale Strings
       // =========================================================================
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
@@ -2217,16 +2236,19 @@
               startDate = new Date(today);
               endDate = new Date(today);
             } else {
+              // Verwende UTC-Datum für Start/Ende des Zeitraums
               startDate = new Date(history[0].datum + "T12:00:00Z");
               endDate = new Date(history[history.length - 1].datum + "T12:00:00Z");
             }
             break;
         }
 
+        // UTC-Zeitstempel für Vergleich
         const startDateMs = Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate());
         const endDateMs = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate());
 
         const filteredHistory = history.filter((entry) => {
+          // Erzeuge UTC-Datum aus Eintrag für Vergleich
           const entryDate = new Date(entry.datum + "T12:00:00Z");
           const entryDateMs = Date.UTC(entryDate.getUTCFullYear(), entryDate.getUTCMonth(), entryDate.getUTCDate());
           return entryDateMs >= startDateMs && entryDateMs <= endDateMs;
@@ -2236,16 +2258,17 @@
             homeDays = 0, vacationDays = 0, sickDays = 0, trainingDays = 0,
             glazDays = 0, ezaDays = 0, holidayCount = 0;
 
+        // Iteriere durch den Datumsbereich (UTC)
         let currentDate = new Date(startDateMs);
         const endCheckDateMs = endDateMs;
         const dateMap = new Map(filteredHistory.map((e) => [e.datum, e]));
 
         while (currentDate.getTime() <= endCheckDateMs) {
-          const currentDateStr = currentDate.toISOString().split("T")[0];
+          const currentDateStr = `${currentDate.getUTCFullYear()}-${pad(currentDate.getUTCMonth() + 1)}-${pad(currentDate.getUTCDate())}`; // YYYY-MM-DD
           const entry = dateMap.get(currentDateStr);
-          const dayOfWeek = currentDate.getUTCDay();
+          const dayOfWeek = currentDate.getUTCDay(); // UTC-Wochentag
 
-          const holidayName = getHolidayName(currentDate, settings.bundesland);
+          const holidayName = getHolidayName(currentDate, settings.bundesland); // Pass UTC date
           if (holidayName && dayOfWeek !== 0 && dayOfWeek !== 6) {
              holidayCount++;
           }
@@ -2268,7 +2291,7 @@
               else homeDays++;
             }
           }
-          currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+          currentDate.setUTCDate(currentDate.getUTCDate() + 1); // Nächster Tag (UTC)
         }
 
         const avgDailyHoursDecimal = workDays > 0 ? totalNetHoursDecimal / workDays : 0;
@@ -2308,7 +2331,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: exportHistoryToJson() - Exportiert ohne originalKommen
+      // ÜBERARBEITET: exportHistoryToJson() - Exportiert lokale Strings
       // =========================================================================
       function exportHistoryToJson() {
         const history = getHistory();
@@ -2319,9 +2342,7 @@
         // Exportiere nur relevante Felder
         const exportHistory = history.map((entry) => {
           const { dateObj, type, ...rest } = entry; // Exclude temporary/derived fields
-          // Entferne originalKommen explizit, falls es noch in alten Daten vorhanden ist
-          delete rest.originalKommen;
-          return rest;
+          return rest; // Enthält kommen/gehen als lokale Strings
         });
 
         const exportData = {
@@ -2351,7 +2372,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: importHistoryFromJson() - Importiert ohne originalKommen
+      // ÜBERARBEITET: importHistoryFromJson() - Importiert lokale Strings
       // =========================================================================
       function importHistoryFromJson() {
         const input = document.createElement("input");
@@ -2393,21 +2414,21 @@
                 throw new Error("Ungültige Verlaufsdaten im Import ('datum' fehlt).");
               }
 
-              // Bereinige Importdaten, stelle sicher, dass originalKommen nicht übernommen wird
+              // Bereinige Importdaten
               const sanitizedHistory = importedHistory.map((entry) => ({
-                datum: entry.datum,
+                datum: entry.datum, // YYYY-MM-DD
                 differenz: entry.differenz || "0.00",
                 differenzTime: entry.differenzTime || formatDecimalToTime(parseFloat(entry.differenz || "0")),
                 stundenkonto: "0.00", // Immer zurücksetzen
-                kommen: entry.kommen || null, // Übernehme 'kommen' (sollte original sein)
-                gehen: entry.gehen || null,
+                kommen: entry.kommen || null, // Lokaler String YYYY-MM-DDTHH:mm:ss
+                gehen: entry.gehen || null,   // Lokaler String YYYY-MM-DDTHH:mm:ss
                 urlaub: entry.urlaub || false,
                 krank: entry.krank || false,
                 schulung: entry.schulung || false,
                 glaz: entry.glaz || false,
                 isEzaTag: entry.isEzaTag || false,
                 ezaActiveDuringBooking: entry.ezaActiveDuringBooking || false,
-                pcBuchung: entry.pcBuchung || false, // Wichtig für Neuberechnung
+                pcBuchung: entry.pcBuchung || false,
                 buero: entry.buero || false,
                 zusatzPause: entry.zusatzPause || "",
               }));
@@ -2889,7 +2910,7 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(24px); /* Move knob to the right (51 - 27 - 2*2) */
+        transform: translateX(24px); /* Move knob to the right (65 - 27 - 2*2) */
       }
       /* --- END SLIDER STYLES --- */
 
