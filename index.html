@@ -472,8 +472,6 @@
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
         $("hauptkonto-setzen-button").addEventListener("click", setHauptkontoManuell);
-        $("manage-marker-button").addEventListener("click", showMarkerManagementModal);
-        $("add-marker-button-options").addEventListener("click", () => showAddMarkerModal());
         $("eza-toggle").onchange = (e) => {
           settings.ezaActive = e.target.checked;
           saveSettings();
@@ -966,8 +964,6 @@
           pcBuchung: isPcBuchung, // Status speichern
           buero: isBuero,
           zusatzPause: additionalPauseValue,
-          usedWochenarbeitszeit: settings.wochenarbeitszeit,
-          usedSollProTag: settings.wochenarbeitszeit / 5,
         };
         if (existingIndex !== -1) {
           if (
@@ -1028,15 +1024,15 @@
         $("eza-toggle").checked = settings.ezaActive;
         $("eza-konto-input").value = settings.ezaKontoStand.toFixed(2);
         updateEzaKontoDisplay();
-        
-        // Anzahl der Kontomarker anzeigen
-        const markerCount = getKontoMarkers().length;
-        const markerCountDisplay = $("marker-count-display");
-        if (markerCountDisplay) {
-          markerCountDisplay.textContent = `${markerCount} Marker gespeichert`;
+        const pendingValue = getFromLS("pendingBalanceOverrideValue");
+        const infoP = $("pending-korrektur-info");
+        if (pendingValue && infoP) {
+          infoP.textContent = `Vorgemerkt: Nächste Neuberechnung startet mit ${pendingValue}h.`;
+          infoP.style.display = "block";
+        } else if (infoP) {
+          infoP.style.display = "none";
         }
       }
-
 
       // =========================================================================
       // ÜBERARBEITET: loadHistory() - Parst lokale Strings
@@ -1405,170 +1401,6 @@
         // Buero toggle bleibt aktiv
       }
 
-      // Hilsfunktion zum Laden der gespeicherten Stundenkontomarker
-      function getKontoMarkers() {
-        const markers = JSON.parse(getFromLS("kontoMarkers", "[]"));
-        // Sortiere nach Datum (älteste zuerst)
-        markers.sort((a, b) => new Date(a.date) - new Date(b.date));
-        return markers;
-      }
-
-      // Funktion zum Speichern eines neuen Markers
-      function saveKontoMarker(dateStr, value, comment) {
-        const markers = getKontoMarkers();
-        
-        // Prüfe, ob für dieses Datum bereits ein Marker existiert
-        const existingIndex = markers.findIndex(m => m.date === dateStr);
-        
-        if (existingIndex !== -1) {
-          // Aktualisiere bestehenden Marker
-          markers[existingIndex] = {
-            date: dateStr,
-            value: parseFloat(value),
-            comment: comment || "",
-            createdAt: markers[existingIndex].createdAt,
-            updatedAt: new Date().toISOString()
-          };
-        } else {
-          // Füge neuen Marker hinzu
-          markers.push({
-            date: dateStr,
-            value: parseFloat(value),
-            comment: comment || "",
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
-        }
-        
-        // Speichere aktualisierte Marker
-        storeToLS("kontoMarkers", JSON.stringify(markers));
-        
-        // Berechne History neu mit neuen Markern
-        saveAndReload(getHistory());
-        return true;
-      }
-
-      // Funktion zum Löschen eines Markers
-      function deleteKontoMarker(dateStr) {
-        const markers = getKontoMarkers();
-        const newMarkers = markers.filter(m => m.date !== dateStr);
-        
-        if (markers.length === newMarkers.length) {
-          return false; // Kein Marker gefunden
-        }
-        
-        storeToLS("kontoMarkers", JSON.stringify(newMarkers));
-        
-        // Berechne History neu ohne den gelöschten Marker
-        saveAndReload(getHistory());
-        return true;
-      }
-
-      // Funktion zum Anzeigen der Marker-Verwaltungsseite
-      function showMarkerManagementModal() {
-        const markers = getKontoMarkers();
-        const modalContent = $("marker-management-content");
-        
-        if (markers.length === 0) {
-          modalContent.innerHTML = "<p>Keine Konto-Marker vorhanden.</p>";
-        } else {
-          let html = "<ul class='marker-list'>";
-          markers.forEach(marker => {
-            const displayDate = new Date(marker.date + "T12:00:00Z").toLocaleDateString("de-DE");
-            const formattedValue = formatDecimalToTime(marker.value) + ` (${marker.value.toFixed(2)}h)`;
-            const valueClass = marker.value > 0 ? "positive-value" : 
-                            marker.value < 0 ? "negative-value" : "zero-value";
-            
-            html += `
-              <li class="marker-item">
-                <div class="marker-info">
-                  <div class="marker-date"><strong>${displayDate}</strong></div>
-                  <div class="marker-value"><span class="diff-badge ${valueClass}">${formattedValue}</span></div>
-                  ${marker.comment ? `<div class="marker-comment">${marker.comment}</div>` : ''}
-                </div>
-                <div class="marker-actions">
-                  <button class="inline-button" onclick="showAddMarkerModal('${marker.date}')">Edit</button>
-                  <button class="delete-button" onclick="deleteKontoMarker('${marker.date}')">×</button>
-                </div>
-              </li>
-            `;
-          });
-          html += "</ul>";
-          modalContent.innerHTML = html;
-        }
-        
-        $("marker-management-modal").style.display = "flex";
-      }
-
-      // Funktion zum Öffnen des "Marker hinzufügen" Modals
-      function showAddMarkerModal(editDateStr = null) {
-        // Schließe das Management-Modal, wenn es offen ist
-        $("marker-management-modal").style.display = "none";
-        
-        const modal = $("add-marker-modal");
-        const dateInput = $("marker-date-input");
-        const valueInput = $("marker-value-input");
-        const commentInput = $("marker-comment-input");
-        
-        // Setze das heutige Datum als Standard, falls nicht im Edit-Modus
-        if (!editDateStr) {
-          const today = new Date();
-          const year = today.getFullYear();
-          const month = pad(today.getMonth() + 1);
-          const day = pad(today.getDate());
-          dateInput.value = `${year}-${month}-${day}`;
-          valueInput.value = "";
-          commentInput.value = "";
-          $("add-marker-title").textContent = "Neuen Kontomarker hinzufügen";
-          $("add-marker-button").textContent = "Hinzufügen";
-        } else {
-          // Bearbeiten eines bestehenden Markers
-          const markers = getKontoMarkers();
-          const marker = markers.find(m => m.date === editDateStr);
-          
-          if (marker) {
-            dateInput.value = marker.date;
-            valueInput.value = marker.value.toFixed(2);
-            commentInput.value = marker.comment || "";
-            $("add-marker-title").textContent = "Kontomarker bearbeiten";
-            $("add-marker-button").textContent = "Aktualisieren";
-          }
-        }
-        
-        modal.style.display = "flex";
-      }
-
-      // Funktion zum Speichern des Markers aus dem Modal
-      function saveMarkerFromModal() {
-        const dateStr = $("marker-date-input").value;
-        const valueStr = $("marker-value-input").value;
-        const comment = $("marker-comment-input").value;
-        
-        if (!dateStr || valueStr === "" || isNaN(parseFloat(valueStr))) {
-          alert("Bitte geben Sie ein gültiges Datum und einen gültigen Wert ein.");
-          return;
-        }
-        
-        // Speichere den Marker
-        if (saveKontoMarker(dateStr, parseFloat(valueStr), comment)) {
-          // Schließe das Modal
-          $("add-marker-modal").style.display = "none";
-          
-          // Aktualisiere die Marker-Verwaltungsansicht
-          showMarkerManagementModal();
-        }
-      }
-
-      // Schließt das Marker Management Modal
-      function closeMarkerManagementModal() {
-        $("marker-management-modal").style.display = "none";
-      }
-
-      // Schließt das Add Marker Modal
-      function closeAddMarkerModal() {
-        $("add-marker-modal").style.display = "none";
-      }
-
       // =========================================================================
       // ÜBERARBEITET: parseTimeForDate() - Erzeugt lokales Date Objekt
       // =========================================================================
@@ -1755,8 +1587,6 @@
         dayData.gehen = formatLocalDateTimeString(gehenDateManual);
         dayData.pcBuchung = isPcBuchungAddDay; // Speichere PC-Status
         dayData.zusatzPause = additionalPauseManualValue;
-        dayData.usedWochenarbeitszeit = settings.wochenarbeitszeit;
-        dayData.usedSollProTag = settings.wochenarbeitszeit / 5;
 
         // Speichere Eintrag
         if (existingIndex !== -1) history[existingIndex] = dayData;
@@ -1796,87 +1626,84 @@
         loadOptions();
       }
 
-      // Überarbeitete saveAndReload Funktion, um Kontomarker zu berücksichtigen
+      // =========================================================================
+      // REFACTURED: saveAndReload() - Verwendet Override korrekt
+      // =========================================================================
       function saveAndReload(history) {
-        // Speichere usedWochenarbeitszeit und usedSollProTag für alle Einträge, die dies noch nicht haben
-        history.forEach(entry => {
-          if (entry.usedWochenarbeitszeit === undefined) {
-            entry.usedWochenarbeitszeit = settings.wochenarbeitszeit;
-            entry.usedSollProTag = settings.wochenarbeitszeit / 5;
-          }
-        });
+        const overrideValueStr = getFromLS("pendingBalanceOverrideValue");
+        let activeOverrideValue = null;
+        if (overrideValueStr !== null) {
+          activeOverrideValue = parseFloat(overrideValueStr);
+          localStorage.removeItem("pendingBalanceOverrideValue");
+          loadOptions(); // Update options view if open
+        }
 
-        // Sortiere History nach Datum
-        history.forEach(entry => {
+        history.forEach((entry) => {
+          entry.type =
+            entry.type ||
+            (entry.urlaub ||
+            entry.krank ||
+            entry.schulung ||
+            entry.glaz ||
+            entry.isEzaTag
+              ? "special"
+              : "work");
           // Verwende nur Datumsteil für Sortierung
           const datePart = entry.datum || "1970-01-01";
           entry.dateObj = new Date(datePart + "T12:00:00Z"); // UTC für Sortierkonsistenz
         });
         history.sort((a, b) => a.dateObj - b.dateObj);
-        history.forEach(entry => delete entry.dateObj);
+        history.forEach((entry) => delete entry.dateObj);
 
-        // Lade Kontomarker
-        const kontoMarkers = getKontoMarkers();
-        
-        // Basiswert für die Berechnung
         let initialKontoValueForCalculation = parseFloat(
           getFromLS("initialKontoValue", "0")
         );
 
-        // Berechne das Stundenkonto für jeden Eintrag neu
         for (let i = 0; i < history.length; i++) {
           const entry = history[i];
           let baseKontoDecimal;
-          
-          // Prüfe, ob für dieses Datum ein Marker existiert
-          const marker = kontoMarkers.find(m => m.date === entry.datum);
-          
-          if (marker) {
-            // Wenn ein Marker existiert, verwende seinen Wert als neuen Ausgangspunkt
-            baseKontoDecimal = marker.value;
-          } else if (i === 0) {
-            // Für den ersten Eintrag ohne Marker: Verwende den initialen Wert
-            baseKontoDecimal = initialKontoValueForCalculation;
+
+          if (i === 0) {
+            baseKontoDecimal =
+              activeOverrideValue !== null
+                ? activeOverrideValue
+                : initialKontoValueForCalculation;
           } else {
-            // Ansonsten: Verwende den Kontostand vom vorherigen Eintrag
             baseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
           }
 
-          // Verwende die gespeicherte Differenz und berechne den neuen Kontostand
+          // Verwende die gespeicherte (ggf. abgeschnittene) Differenz
           const diffDecimal = parseFloat(entry.differenz || "0");
           let newKontoDecimal = baseKontoDecimal + diffDecimal;
-          
-          // Speichere Stundenkonto ggf. abgeschnitten
+          // Speichere das Stundenkonto ggf. auch abgeschnitten, um Konsistenz zu wahren
           entry.stundenkonto = truncateDecimals(newKontoDecimal, 2).toFixed(2);
         }
 
-        // Speichere die aktualisierte History
         storeToLS("history", JSON.stringify(history));
 
-        // Aktualisiere den aktuellen Kontostand basierend auf dem letzten Eintrag
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
         const latestCalculatedKontoDecimal = latestEntry
-          ? parseFloat(latestEntry.stundenkonto || "0")
-          : initialKontoValueForCalculation;
-        
+          ? parseFloat(latestEntry.stundenkonto || "0") // Nimm den gespeicherten (ggf. abgeschnittenen) Wert
+          : activeOverrideValue !== null // If override was used, it IS the new base if history is empty now
+          ? activeOverrideValue
+          : initialKontoValueForCalculation; // Otherwise use initial
         storeToLS(
           "aktuellesStundenkonto",
-          latestCalculatedKontoDecimal.toFixed(2)
+          latestCalculatedKontoDecimal.toFixed(2) // Speichere den aktuellen Stand (kann gerundet sein für Anzeige)
         );
 
-        // Aktualisiere UI
         updateCalculations();
         closeAddDayModal();
         closeDetailModal();
         closeBulkModal();
-        closeMarkerManagementModal();
-        closeAddMarkerModal();
-        
-        // Aktualisiere die aktuelle Ansicht
         if (currentView === "history") loadHistory();
         if (currentView === "month") loadMonthData();
         if (currentView === "stats") calculateAndDisplayStats();
-        if (currentView === "options") loadOptions();
+      }
+
+      function closeAddDayModal() {
+        const modal = $("add-day-modal");
+        if (modal) modal.style.display = "none";
       }
 
       // =========================================================================
@@ -3590,65 +3417,7 @@
         color: var(--nav-icon-active-color); /* Active color */
       }
       /* --- END BOTTOM NAV STYLES --- */
-
-      /* Marker Management Styles */
-      .marker-list {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        max-height: 300px;
-        overflow-y: auto;
-        background-color: var(--card-background-color);
-        border-radius: 8px;
-        border: 1px solid var(--separator-color);
-      }
-
-      .marker-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px;
-        border-bottom: 1px solid var(--separator-color);
-      }
-
-      .marker-item:last-child {
-        border-bottom: none;
-      }
-
-      .marker-info {
-        flex-grow: 1;
-      }
-
-      .marker-date {
-        font-size: 16px;
-        margin-bottom: 4px;
-      }
-
-      .marker-value {
-        margin-bottom: 4px;
-      }
-
-      .marker-comment {
-        font-size: 14px;
-        color: var(--secondary-text-color);
-        font-style: italic;
-        margin-top: 4px;
-        word-break: break-word;
-      }
-
-      .marker-actions {
-        display: flex;
-        gap: 6px;
-      }
-
-      #marker-count-display {
-        display: inline-block;
-        font-size: 15px;
-        color: var(--secondary-text-color);
-        padding: 10px 0;
-      }
     </style>
-
   </head>
   <body>
     <div id="app-container">
@@ -3983,73 +3752,49 @@
             </p>
           </div>
 
-            <!-- In der Options Page, nach der Stundenkonto anpassen Sektion -->
           <div class="section">
-            <h3>Kontomarker Verwaltung</h3>
-            <p>
-              Marker setzen feste Kontostände zu bestimmten Datumspunkten. 
-              Sie dienen als neue Ausgangswerte für die Berechnung ab diesem Datum.
+            <h3>Stundenkonto anpassen</h3>
+            <div class="row">
+              <div class="column">
+                <label for="hauptkonto-korrektur-wert"
+                  >Neuer Kontostand (Std):</label
+                >
+                <input
+                  type="number"
+                  id="hauptkonto-korrektur-wert"
+                  step="0.01"
+                />
+              </div>
+              <div class="column">
+                <button
+                  id="hauptkonto-setzen-button"
+                  class="button"
+                  style="height: 47px"
+                >
+                  Konto vormerken
+                </button>
+              </div>
+            </div>
+            <p
+              style="
+                font-size: 14px;
+                color: var(--secondary-text-color);
+                margin-top: 15px;
+                margin-bottom: 15px;
+              "
+            >
+              Der eingetragene Wert wird für die nächste Buchung verwendet.
             </p>
-            <div class="row">
-              <div class="column">
-                <span id="marker-count-display">0 Marker gespeichert</span>
-              </div>
-              <div class="column">
-                <button id="manage-marker-button" class="button" onclick="showMarkerManagementModal()">
-                  Marker verwalten
-                </button>
-              </div>
-            </div>
-            <div class="row">
-              <div class="column">
-                <button id="add-marker-button-options" class="button" onclick="showAddMarkerModal()">
-                  Neuen Marker erstellen
-                </button>
-              </div>
-            </div>
+            <p
+              id="pending-korrektur-info"
+              style="
+                font-size: 14px;
+                color: var(--secondary-text-color);
+                margin-top: 10px;
+                display: none;
+              "
+            ></p>
           </div>
-
-          <!-- Marker Management Modal -->
-          <div id="marker-management-modal" class="modal" style="display: none">
-            <div class="modal-content">
-              <button class="close-button" onclick="closeMarkerManagementModal()">×</button>
-              <h3>Kontomarker verwalten</h3>
-              <p>Diese Marker definieren feste Kontostände zu bestimmten Datumspunkten.</p>
-              <div id="marker-management-content">
-                <!-- Wird dynamisch gefüllt -->
-              </div>
-              <div style="text-align: center; margin-top: 20px;">
-                <button class="button" onclick="showAddMarkerModal()">Neuen Marker hinzufügen</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Add Marker Modal -->
-          <div id="add-marker-modal" class="modal" style="display: none">
-            <div class="modal-content">
-              <button class="close-button" onclick="closeAddMarkerModal()">×</button>
-              <h3 id="add-marker-title">Kontomarker hinzufügen</h3>
-              <p>Setze einen festen Kontostand für ein bestimmtes Datum.</p>
-              
-              <div style="margin-bottom: 15px;">
-                <label for="marker-date-input">Datum:</label>
-                <input type="date" id="marker-date-input" required />
-              </div>
-              
-              <div style="margin-bottom: 15px;">
-                <label for="marker-value-input">Kontostand (Std):</label>
-                <input type="number" id="marker-value-input" step="0.01" required placeholder="z.B. 10.50" />
-              </div>
-              
-              <div style="margin-bottom: 15px;">
-                <label for="marker-comment-input">Kommentar (optional):</label>
-                <input type="text" id="marker-comment-input" placeholder="z.B. Korrektur nach Gespräch" />
-              </div>
-              
-              <button id="add-marker-button" class="button" onclick="saveMarkerFromModal()">Hinzufügen</button>
-            </div>
-          </div>
-
 
           <div class="section">
             <h3>Daten</h3>
