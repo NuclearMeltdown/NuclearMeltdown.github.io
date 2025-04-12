@@ -159,7 +159,161 @@
         }
       }
 
-      // Hilfsfunktionen für Marker
+      function getHistory() {
+        const history = JSON.parse(getFromLS("history", "[]"));
+        history.forEach((entry) => {
+          entry.datum = entry.datum || "1970-01-01";
+          entry.differenz = entry.differenz || "0.00";
+          entry.differenzTime = entry.differenzTime || "0:00";
+          entry.stundenkonto = entry.stundenkonto || "0.00";
+          entry.kommen = entry.kommen || null;
+          entry.gehen = entry.gehen || null;
+          entry.urlaub = entry.urlaub || false;
+          entry.krank = entry.krank || false;
+          entry.schulung = entry.schulung || false;
+          entry.glaz = entry.glaz || false;
+          entry.pcBuchung = entry.pcBuchung || false;
+          entry.buero = entry.buero || false;
+          entry.isEzaTag = entry.isEzaTag || false;
+          entry.ezaActiveDuringBooking =
+            entry.ezaActiveDuringBooking || false;
+          entry.zusatzPause = entry.zusatzPause || "";
+          // NEU: Stelle sicher, dass historische Sollzeiten vorhanden sind (Fallback)
+          entry.usedWochenarbeitszeit = entry.usedWochenarbeitszeit || settings.wochenarbeitszeit; // Fallback auf aktuelle Settings
+          entry.usedSollProTag = entry.usedSollProTag || (entry.usedWochenarbeitszeit / 5);
+
+          const datePart = entry.datum || "1970-01-01";
+          entry.dateObj = new Date(datePart + "T12:00:00Z"); // UTC für Konsistenz bei Sortierung
+        });
+        history.sort((a, b) => a.dateObj - b.dateObj);
+        history.forEach((entry) => delete entry.dateObj); // Entferne temporäres Objekt
+        return history;
+      }
+
+      // --- Feiertagslogik (unverändert) ---
+      const holidays = {
+        NATIONAL: {
+          "01-01": "Neujahr",
+          "05-01": "Tag der Arbeit",
+          "10-03": "Tag der Deutschen Einheit",
+          "12-25": "1. Weihnachtstag",
+          "12-26": "2. Weihnachtstag",
+        },
+        BW: { "01-06": "Heilige Drei Könige", "11-01": "Allerheiligen" },
+        BY: {
+          "01-06": "Heilige Drei Könige",
+          "08-15": "Mariä Himmelfahrt",
+          "11-01": "Allerheiligen",
+        },
+        BE: { "03-08": "Internationaler Frauentag" },
+        BB: { "10-31": "Reformationstag" },
+        HB: { "10-31": "Reformationstag" },
+        HH: { "10-31": "Reformationstag" },
+        HE: {},
+        MV: { "10-31": "Reformationstag" },
+        NI: { "10-31": "Reformationstag" },
+        NW: { "11-01": "Allerheiligen" },
+        RP: { "11-01": "Allerheiligen" },
+        SL: { "08-15": "Mariä Himmelfahrt", "11-01": "Allerheiligen" },
+        SN: { "10-31": "Reformationstag" },
+        ST: { "01-06": "Heilige Drei Könige", "10-31": "Reformationstag" },
+        SH: { "10-31": "Reformationstag" },
+        TH: { "09-20": "Weltkindertag", "10-31": "Reformationstag" },
+      };
+      const regionalMovableHolidays = {
+        BW: ["fronleichnam"],
+        BY: ["fronleichnam"],
+        HE: ["fronleichnam"],
+        NW: ["fronleichnam"],
+        RP: ["fronleichnam"],
+        SL: ["fronleichnam"],
+        SN: ["bussbettag"],
+      };
+      function getEasterSunday(year) {
+        const a = year % 19,
+          b = Math.floor(year / 100),
+          c = year % 100;
+        const d = Math.floor(b / 4),
+          e = b % 4;
+        const f = Math.floor((b + 8) / 25);
+        const g = Math.floor((b - f + 1) / 3);
+        const h = (19 * a + b - d - g + 15) % 30;
+        const i = Math.floor(c / 4),
+          k = c % 4;
+        const l = (32 + 2 * e + 2 * i - h - k) % 7;
+        const m = Math.floor((a + 11 * h + 22 * l) / 451);
+        const month = Math.floor((h + l - 7 * m + 114) / 31);
+        const day = ((h + l - 7 * m + 114) % 31) + 1;
+        return new Date(Date.UTC(year, month - 1, day));
+      }
+      function getHolidayName(date, bundesland) {
+        if (!date || isNaN(date.getTime())) return null;
+        const year = date.getUTCFullYear();
+        const month = date.getUTCMonth() + 1;
+        const day = date.getUTCDate();
+        const mmdd = `${pad(month)}-${pad(day)}`;
+
+        if (holidays.NATIONAL[mmdd]) return holidays.NATIONAL[mmdd];
+        const regionalFixed = holidays[bundesland] || {};
+        if (regionalFixed[mmdd]) return regionalFixed[mmdd];
+
+        const easterSunday = getEasterSunday(year);
+        const movableHolidays = {};
+
+        const goodFriday = new Date(easterSunday);
+        goodFriday.setUTCDate(easterSunday.getUTCDate() - 2);
+        movableHolidays[
+          `${pad(goodFriday.getUTCMonth() + 1)}-${pad(goodFriday.getUTCDate())}`
+        ] = "Karfreitag";
+
+        const easterMonday = new Date(easterSunday);
+        easterMonday.setUTCDate(easterSunday.getUTCDate() + 1);
+        movableHolidays[
+          `${pad(easterMonday.getUTCMonth() + 1)}-${pad(
+            easterMonday.getUTCDate()
+          )}`
+        ] = "Ostermontag";
+
+        const ascensionDay = new Date(easterSunday);
+        ascensionDay.setUTCDate(easterSunday.getUTCDate() + 39);
+        movableHolidays[
+          `${pad(ascensionDay.getUTCMonth() + 1)}-${pad(
+            ascensionDay.getUTCDate()
+          )}`
+        ] = "Christi Himmelfahrt";
+
+        const whitMonday = new Date(easterSunday);
+        whitMonday.setUTCDate(easterSunday.getUTCDate() + 50);
+        movableHolidays[
+          `${pad(whitMonday.getUTCMonth() + 1)}-${pad(whitMonday.getUTCDate())}`
+        ] = "Pfingstmontag";
+
+        if (regionalMovableHolidays[bundesland]?.includes("fronleichnam")) {
+          const corpusChristi = new Date(easterSunday);
+          corpusChristi.setUTCDate(easterSunday.getUTCDate() + 60);
+          movableHolidays[
+            `${pad(corpusChristi.getUTCMonth() + 1)}-${pad(
+              corpusChristi.getUTCDate()
+            )}`
+          ] = "Fronleichnam";
+        }
+        if (regionalMovableHolidays[bundesland]?.includes("bussbettag")) {
+          const nov23 = new Date(Date.UTC(year, 10, 23)); // November 23rd UTC
+          const dayOfWeekNov23 = nov23.getUTCDay(); // 0=Sun, 1=Mon, ..., 3=Wed, ...
+          const daysToSubtract = (dayOfWeekNov23 + 4) % 7;
+          const bussBettag = new Date(nov23);
+          bussBettag.setUTCDate(nov23.getUTCDate() - daysToSubtract);
+          movableHolidays[
+            `${pad(bussBettag.getUTCMonth() + 1)}-${pad(
+              bussBettag.getUTCDate()
+            )}`
+          ] = "Buß- und Bettag";
+        }
+        return movableHolidays[mmdd] || null;
+      }
+      // --- ENDE Feiertagslogik ---
+
+      // *** NEUE HILFSFUNKTIONEN für Marker ***
       function getBalanceMarkers() {
         const markers = JSON.parse(getFromLS("balanceMarkers", "[]"));
         // Stelle sicher, dass kontostand ein String ist (für Konsistenz)
@@ -172,43 +326,6 @@
         markers.sort((a, b) => a.datum.localeCompare(b.datum)); // Immer sortiert speichern
         storeToLS("balanceMarkers", JSON.stringify(markers));
       }
-
-      function getHistory() {
-        const history = JSON.parse(getFromLS("history", "[]"));
-        history.forEach((entry) => {
-          entry.datum = entry.datum || "1970-01-01";
-          entry.differenz = entry.differenz || "0.00";
-          entry.differenzTime = entry.differenzTime || "0:00";
-          entry.stundenkonto = entry.stundenkonto || "0.00";
-          entry.kommen = entry.kommen || null; // lokale ISO-Strings
-          entry.gehen = entry.gehen || null;   // lokale ISO-Strings
-          entry.urlaub = entry.urlaub || false;
-          entry.krank = entry.krank || false;
-          entry.schulung = entry.schulung || false;
-          entry.glaz = entry.glaz || false;
-          entry.pcBuchung = entry.pcBuchung || false;
-          entry.buero = entry.buero || false;
-          entry.isEzaTag = entry.isEzaTag || false;
-          entry.ezaActiveDuringBooking = entry.ezaActiveDuringBooking || false;
-          entry.zusatzPause = entry.zusatzPause || "";
-          // NEU: Historische Sollzeit (Default null für alte Einträge)
-          entry.usedWochenarbeitszeit = entry.usedWochenarbeitszeit || null;
-          entry.usedSollProTag = entry.usedSollProTag || null;
-          // Temporäres Objekt für Sortierung
-          const datePart = entry.datum || "1970-01-01";
-          entry.dateObj = new Date(datePart + "T12:00:00Z"); // UTC für Konsistenz
-        });
-        history.sort((a, b) => a.dateObj - b.dateObj);
-        history.forEach((entry) => delete entry.dateObj); // Entferne temporäres Objekt
-        return history;
-      }
-
-      // --- Feiertagslogik (unverändert) ---
-      const holidays = { NATIONAL: { "01-01": "Neujahr", "05-01": "Tag der Arbeit", "10-03": "Tag der Deutschen Einheit", "12-25": "1. Weihnachtstag", "12-26": "2. Weihnachtstag" }, BW: { "01-06": "Heilige Drei Könige", "11-01": "Allerheiligen" }, BY: { "01-06": "Heilige Drei Könige", "08-15": "Mariä Himmelfahrt", "11-01": "Allerheiligen" }, BE: { "03-08": "Internationaler Frauentag" }, BB: { "10-31": "Reformationstag" }, HB: { "10-31": "Reformationstag" }, HH: { "10-31": "Reformationstag" }, HE: {}, MV: { "10-31": "Reformationstag" }, NI: { "10-31": "Reformationstag" }, NW: { "11-01": "Allerheiligen" }, RP: { "11-01": "Allerheiligen" }, SL: { "08-15": "Mariä Himmelfahrt", "11-01": "Allerheiligen" }, SN: { "10-31": "Reformationstag" }, ST: { "01-06": "Heilige Drei Könige", "10-31": "Reformationstag" }, SH: { "10-31": "Reformationstag" }, TH: { "09-20": "Weltkindertag", "10-31": "Reformationstag" } };
-      const regionalMovableHolidays = { BW: ["fronleichnam"], BY: ["fronleichnam"], HE: ["fronleichnam"], NW: ["fronleichnam"], RP: ["fronleichnam"], SL: ["fronleichnam"], SN: ["bussbettag"] };
-      function getEasterSunday(year) { const a = year % 19, b = Math.floor(year / 100), c = year % 100; const d = Math.floor(b / 4), e = b % 4; const f = Math.floor((b + 8) / 25); const g = Math.floor((b - f + 1) / 3); const h = (19 * a + b - d - g + 15) % 30; const i = Math.floor(c / 4), k = c % 4; const l = (32 + 2 * e + 2 * i - h - k) % 7; const m = Math.floor((a + 11 * h + 22 * l) / 451); const month = Math.floor((h + l - 7 * m + 114) / 31); const day = ((h + l - 7 * m + 114) % 31) + 1; return new Date(Date.UTC(year, month - 1, day)); }
-      function getHolidayName(date, bundesland) { if (!date || isNaN(date.getTime())) return null; const year = date.getUTCFullYear(); const month = date.getUTCMonth() + 1; const day = date.getUTCDate(); const mmdd = `${pad(month)}-${pad(day)}`; if (holidays.NATIONAL[mmdd]) return holidays.NATIONAL[mmdd]; const regionalFixed = holidays[bundesland] || {}; if (regionalFixed[mmdd]) return regionalFixed[mmdd]; const easterSunday = getEasterSunday(year); const movableHolidays = {}; const goodFriday = new Date(easterSunday); goodFriday.setUTCDate(easterSunday.getUTCDate() - 2); movableHolidays[`${pad(goodFriday.getUTCMonth() + 1)}-${pad(goodFriday.getUTCDate())}`] = "Karfreitag"; const easterMonday = new Date(easterSunday); easterMonday.setUTCDate(easterSunday.getUTCDate() + 1); movableHolidays[`${pad(easterMonday.getUTCMonth() + 1)}-${pad(easterMonday.getUTCDate())}`] = "Ostermontag"; const ascensionDay = new Date(easterSunday); ascensionDay.setUTCDate(easterSunday.getUTCDate() + 39); movableHolidays[`${pad(ascensionDay.getUTCMonth() + 1)}-${pad(ascensionDay.getUTCDate())}`] = "Christi Himmelfahrt"; const whitMonday = new Date(easterSunday); whitMonday.setUTCDate(easterSunday.getUTCDate() + 50); movableHolidays[`${pad(whitMonday.getUTCMonth() + 1)}-${pad(whitMonday.getUTCDate())}`] = "Pfingstmontag"; if (regionalMovableHolidays[bundesland]?.includes("fronleichnam")) { const corpusChristi = new Date(easterSunday); corpusChristi.setUTCDate(easterSunday.getUTCDate() + 60); movableHolidays[`${pad(corpusChristi.getUTCMonth() + 1)}-${pad(corpusChristi.getUTCDate())}`] = "Fronleichnam"; } if (regionalMovableHolidays[bundesland]?.includes("bussbettag")) { const nov23 = new Date(Date.UTC(year, 10, 23)); const dayOfWeekNov23 = nov23.getUTCDay(); const daysToSubtract = (dayOfWeekNov23 + 4) % 7; const bussBettag = new Date(nov23); bussBettag.setUTCDate(nov23.getUTCDate() - daysToSubtract); movableHolidays[`${pad(bussBettag.getUTCMonth() + 1)}-${pad(bussBettag.getUTCDate())}`] = "Buß- und Bettag"; } return movableHolidays[mmdd] || null; }
-      // --- ENDE Feiertagslogik ---
 
       function loadSettings() {
         settings.wochenarbeitszeit = parseFloat(
@@ -238,11 +355,13 @@
         );
         storeToLS("ezaActive", settings.ezaActive ? "true" : "false");
         $("wochenarbeitszeit").value = settings.wochenarbeitszeit.toFixed(1);
-        // Keine Neuberechnung hier, wird bei Bedarf in EventListenern gemacht
-        updateCalculations(); // Nur Hauptseite aktualisieren
-        if (currentView === "history") loadHistory();
-        if (currentView === "month") loadMonthData();
-        if (currentView === "options") loadOptions();
+        // Neuberechnung ist nicht *immer* nötig, nur wenn sich Sollzeit ändert
+        // Wird jetzt im Event Listener für wochenarbeitszeit-setting gemacht
+        // updateCalculations(); // Nur UI der Hauptseite aktualisieren
+        // if (currentView === "history") loadHistory();
+        // if (currentView === "month") loadMonthData();
+        if (currentView === "options") loadOptions(); // Optionen neu laden
+        // saveAndReload(getHistory()); // Nicht hier, sonst bei jeder kleinen Änderung Neuberechnung
       }
 
       function saveEzaKonto() {
@@ -258,8 +377,8 @@
         settings.ezaKontoStand = newStand;
         storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
         updateEzaKontoDisplay();
-        // EZA-Konto Änderung erfordert keine Neuberechnung des Hauptkontos
         alert("EZA-Kontostand gespeichert.");
+        // EZA-Kontostand-Änderung erfordert keine Neuberechnung des Hauptkontos
       }
 
       function updateEzaKontoDisplay() {
@@ -275,6 +394,7 @@
         }
       }
 
+      // *** GEÄNDERTE init() Funktion ***
       function init() {
         loadSettings();
         balanceMarkers = getBalanceMarkers(); // Lade Marker beim Start
@@ -304,9 +424,7 @@
             if (sortedMarkers.length > 0) {
                lastKontoValue = parseFloat(sortedMarkers[sortedMarkers.length - 1].kontostand);
             } else {
-               // Standard-Startwert, falls keine History und keine Marker
-               lastKontoValue = 0; // Oder einen konfigurierbaren Startwert
-               storeToLS("initialKontoValue", "0"); // Initialwert setzen, falls nicht vorhanden
+               lastKontoValue = parseFloat(getFromLS("initialKontoValue", "0"));
             }
           }
           storeToLS("aktuellesStundenkonto", lastKontoValue.toFixed(2));
@@ -326,6 +444,7 @@
         closeAddMarkerModal(); // Sicherstellen, dass es geschlossen ist
       }
 
+      // *** GEÄNDERTE setupEventListeners() Funktion ***
       function setupEventListeners() {
         $("nav-main").addEventListener("click", () => switchView("main"));
         $("nav-history").addEventListener("click", () => switchView("history"));
@@ -341,6 +460,8 @@
           btn.onclick = () => {
             const modal = btn.closest(".modal");
             if (modal) modal.style.display = "none";
+            // Spezifische Close-Handler, falls nötig
+            if (modal && modal.id === 'add-marker-modal') closeAddMarkerModal();
           };
         });
         $("stats-period").onchange = () => calculateAndDisplayStats();
@@ -356,49 +477,55 @@
         );
         $("bundesland-select").onchange = (e) => {
           settings.bundesland = e.target.value;
-          saveSettings(); // Speichert nur, keine Neuberechnung hier
+          saveSettings();
+          // Neuberechnung nicht nötig, nur Feiertagsanzeige betroffen
+          if (currentView === 'history') loadHistory();
+          if (currentView === 'month') loadMonthData();
+          if (currentView === 'stats') calculateAndDisplayStats();
         };
         $("wochenarbeitszeit-setting").onchange = (e) => {
           const val = parseFloat(e.target.value);
-          if (!isNaN(val) && val > 0 && val !== settings.wochenarbeitszeit) {
+          if (!isNaN(val) && val > 0) {
             settings.wochenarbeitszeit = val;
             saveSettings(); // Speichert neuen Wert
-            // Wichtig: Neuberechnung anstoßen, da sich Sollzeit ändert
+            // Wichtig: Neuberechnung anstoßen, da sich Sollzeit für *zukünftige* Einträge ändert
+            // saveAndReload berechnet nur Kontostände neu, nicht die Differenzen alter Einträge
             saveAndReload(getHistory());
+            updateCalculations(); // Aktualisiert Anzeige auf Hauptseite
           } else {
-            e.target.value = settings.wochenarbeitszeit.toFixed(1);
+            e.target.value = settings.wochenarbeitszeit.toFixed(1); // Reset bei ungültiger Eingabe
           }
         };
         $("wochenende-toggle").onchange = (e) => {
           settings.allowWochenende = e.target.checked;
           saveSettings();
-          // Ansicht aktualisieren, falls History oder Monat offen
-          if (currentView === "history") loadHistory();
-          if (currentView === "month") loadMonthData();
+          // Neuberechnung nicht nötig, nur Anzeige/Buchung betroffen
+          if (currentView === 'history') loadHistory();
+          if (currentView === 'month') loadMonthData();
         };
         $("nachtarbeit-toggle").onchange = (e) => {
           settings.allowNachtarbeit = e.target.checked;
           saveSettings();
-          // Ansicht aktualisieren, falls History oder Monat offen (für 🌙/!)
-          if (currentView === "history") loadHistory();
-          if (currentView === "month") loadMonthData();
-          updateCalculations(); // Hauptseite aktualisieren
+          // Neuberechnung nicht nötig, nur Anzeige/Warnungen betroffen
+          updateCalculations(); // Aktualisiert Hauptseite (Warnungen)
+          if (currentView === 'history') loadHistory(); // Aktualisiert Verlauf (Symbole)
+          if (currentView === 'month') loadMonthData(); // Aktualisiert Monat (Symbole)
         };
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
+        // Entferne Listener für alten Hauptkonto-Korrektur-Button (falls noch vorhanden)
+        // $("hauptkonto-setzen-button").addEventListener("click", setHauptkontoManuell);
         $("eza-toggle").onchange = (e) => {
-          const newState = e.target.checked;
-          if (newState !== settings.ezaActive) {
-              settings.ezaActive = newState;
-              saveSettings();
-              // Neuberechnung anstoßen, da EZA-Logik sich ändert
-              saveAndReload(getHistory());
-          }
+          settings.ezaActive = e.target.checked;
+          saveSettings();
+          // Neuberechnung anstoßen, da EZA-Logik sich ändert und Differenzen beeinflusst
+          saveAndReload(getHistory());
+          updateCalculations(); // Aktualisiert Hauptseite
         };
         $("eza-konto-speichern-button").addEventListener("click", saveEzaKonto);
         $("show-legend-button").addEventListener("click", showLegendModal);
-        // NEU: Listener für Marker-Button (wird jetzt direkt im HTML gesetzt via onclick)
-        // $("add-marker-button").addEventListener("click", showAddMarkerModal);
+        // NEU: Listener für Marker-Button
+        $("add-marker-button").addEventListener("click", showAddMarkerModal);
       }
 
       function restoreInputsFromLocalStorage() {
@@ -406,7 +533,7 @@
         const storedGehen = getFromLS("gehenZeitValue");
         if (storedKommen) {
           $("kommen-display").value = storedKommen;
-          kommenZeit = parseTime(storedKommen);
+          kommenZeit = parseTime(storedKommen); // Parse original time
         }
         if (storedGehen) {
           $("gehen-display").value = storedGehen;
@@ -435,7 +562,7 @@
       function setZeit(type) {
         const now = new Date();
         if (type === "kommen") {
-          kommenZeit = now;
+          kommenZeit = now; // Store original time
           $("kommen-display").value = formatTime(kommenZeit);
         } else {
           gehenZeit = now;
@@ -446,12 +573,13 @@
       }
 
       function onInputChange() {
-        kommenZeit = parseTime($("kommen-display").value);
+        kommenZeit = parseTime($("kommen-display").value); // Parse original time
         gehenZeit = parseTime($("gehen-display").value);
         storeInputsToLocalStorage();
         updateCalculations();
       }
 
+      // Parst Pauseneingabe (hh:mm oder h.hh) und gibt Dezimalstunden zurück
       function parsePauseInput(inputId) {
         const val = $(inputId).value;
         if (!val) return 0;
@@ -467,6 +595,7 @@
         }
       }
 
+      // Berechnet die reine Anwesenheitszeit (Dezimalstunden)
       function calculatePresenceTime(start, end) {
         if (!start || !end) return 0;
         let endAdjusted = new Date(end.getTime());
@@ -477,8 +606,12 @@
         return diffMs / (1000 * 60 * 60); // Dezimalstunden
       }
 
+      // Berechnet Netto-Arbeitszeit (nutzt Trunkierung)
       function calculateArbeitszeit(
-        start, end, additionalPauseDecimal, isPcBuchung
+        start, // Originale Startzeit (Date)
+        end, // Endzeit (Date)
+        additionalPauseDecimal, // Zusätzliche Pause (Dezimal)
+        isPcBuchung // Boolean
       ) {
         const rawPresenceHoursDecimal = calculatePresenceTime(start, end);
         if (rawPresenceHoursDecimal <= 0) return 0;
@@ -494,8 +627,12 @@
         return Math.max(0, netArbeitszeitDecimal);
       }
 
+      // Berechnet Endzeit (nutzt neue Logik)
       function calculateEndTimeFixpoint(
-        desiredNetDecimal, start, additionalPauseMainDecimal, isPcBuchung
+        desiredNetDecimal, // Gewünschte Netto-AZ (Dezimal)
+        start, // Originale Startzeit (Date)
+        additionalPauseMainDecimal, // Zus. Pause Hauptseite (Dezimal)
+        isPcBuchung // PC-Buchung Hauptseite (Boolean)
       ) {
         if (!start) return "--:--";
         let requiredPresenceDecimal = desiredNetDecimal;
@@ -536,6 +673,7 @@
         if (elSoll) elSoll.value = `(${sollProTagDecimal.toFixed(2)}h): ${outS}`;
       }
 
+      // Aktualisiert Berechnungen auf Hauptseite
       function updateCalculations() {
         const start = kommenZeit;
         const end = gehenZeit;
@@ -548,13 +686,16 @@
         const impliedBreakDecimal = Math.max(0, presenceHoursDecimal - (netArbeitszeitDecimal - (isPc ? 0.13 : 0)));
         const impliedBreakMin = Math.round(impliedBreakDecimal * 60);
 
+        // Verwende aktuelle Wochenarbeitszeit für die *aktuelle* Berechnung
         const sollProTagDecimal = settings.wochenarbeitszeit / 5;
         let diffDecimal = netArbeitszeitDecimal > 0 ? netArbeitszeitDecimal - sollProTagDecimal : 0;
 
-        // Hole aktuellen Kontostand aus LS (wird von saveAndReload gesetzt)
+        // Hole den zuletzt berechneten Kontostand
         const aktKontoValDecimal = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
+        // Berechne den *prognostizierten* neuen Kontostand für die Anzeige
         let newKtoDecimal = aktKontoValDecimal + diffDecimal;
 
+        // Update display fields
         $("aktuelles-konto").value = aktKontoValDecimal.toFixed(2);
         $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoValDecimal);
         $("anwesend-zeit").value = `${formatDecimalToTime(presenceHoursDecimal)} (${presenceHoursDecimal.toFixed(2)}h)`;
@@ -566,7 +707,12 @@
         $("neues-konto").value = truncateDecimals(newKtoDecimal, 2).toFixed(2);
         $("neues-konto-time").value = formatDecimalToTime(newKtoDecimal);
 
-        const fieldsToColor = [ { id: "differenz", value: diffDecimal }, { id: "differenz-time", value: diffDecimal }, { id: "neues-konto", value: newKtoDecimal }, { id: "neues-konto-time", value: newKtoDecimal }, { id: "aktuelles-konto", value: aktKontoValDecimal }, { id: "aktuelles-konto-time", value: aktKontoValDecimal } ];
+        // Color coding
+        const fieldsToColor = [
+          { id: "differenz", value: diffDecimal }, { id: "differenz-time", value: diffDecimal },
+          { id: "neues-konto", value: newKtoDecimal }, { id: "neues-konto-time", value: newKtoDecimal },
+          { id: "aktuelles-konto", value: aktKontoValDecimal }, { id: "aktuelles-konto-time", value: aktKontoValDecimal },
+        ];
         fieldsToColor.forEach((item) => {
           const el = $(item.id);
           if (!el) return;
@@ -576,6 +722,7 @@
           else el.classList.add("zero-value");
         });
 
+        // Violation checks
         let hinweisText = "";
         let showKommenMoon = false, showGehenMoon = false, showArbeitszeitMoon = false;
         const kommenField = $("kommen-display");
@@ -593,11 +740,17 @@
         }
         if (violations.kommen) {
           if (settings.allowNachtarbeit) showKommenMoon = true;
-          else { hinweisText += "Achtung: Kommen außerhalb 06:00-16:00!<br>"; kommenField.classList.add("invalid-time"); }
+          else {
+            hinweisText += "Achtung: Kommen außerhalb 06:00-16:00!<br>";
+            kommenField.classList.add("invalid-time");
+          }
         }
         if (violations.gehen) {
           if (settings.allowNachtarbeit) showGehenMoon = true;
-          else { hinweisText += "Achtung: Gehen nach 20:00!<br>"; gehenField.classList.add("invalid-time"); }
+          else {
+            hinweisText += "Achtung: Gehen nach 20:00!<br>";
+            gehenField.classList.add("invalid-time");
+          }
         }
         const hinweis = $("hinweis");
         hinweis.innerHTML = hinweisText;
@@ -609,6 +762,7 @@
         updateEndTimes();
       }
 
+      // Prüft Regelverstöße
       function checkViolations(kommenDate, gehenDate, netArbeitszeitDecimal) {
         const violations = { kommen: false, gehen: false, arbeitszeit: false, any: false };
         if (!kommenDate || !gehenDate) return violations;
@@ -618,10 +772,13 @@
         const gehenStunde = gehenAdjusted.getHours() + gehenAdjusted.getMinutes() / 60;
         if (kommenStunde < 6 || kommenStunde > 16) { violations.kommen = true; violations.any = true; }
         if (gehenStunde > 20) { violations.gehen = true; violations.any = true; }
-        if ((netArbeitszeitDecimal > 0 && netArbeitszeitDecimal < 4) || netArbeitszeitDecimal > 10) { violations.arbeitszeit = true; violations.any = true; }
+        if ((netArbeitszeitDecimal > 0 && netArbeitszeitDecimal < 4) || netArbeitszeitDecimal > 10) {
+          violations.arbeitszeit = true; violations.any = true;
+        }
         return violations;
       }
 
+      // *** GEÄNDERTE saveDay() Funktion ***
       function saveDay() {
         updateCalculations(); // Ensure calculations are fresh
         const today = new Date();
@@ -669,7 +826,11 @@
           netArbeitszeitDecimal
         );
         if (violations.any && !settings.allowNachtarbeit) {
-          if (!confirm("Es liegt ein Verstoß gegen die Gleitzeitregeln vor. Trotzdem speichern?"))
+          if (
+            !confirm(
+              "Es liegt ein Verstoß gegen die Gleitzeitregeln vor. Trotzdem speichern?"
+            )
+          )
             return;
         }
 
@@ -701,19 +862,33 @@
           usedSollProTag: currentSollProTag,
         };
         if (existingIndex !== -1) {
-          if (!confirm(`Für heute (${displayDate}) existiert bereits ein Eintrag. Überschreiben?`))
-            return;
+          if (!confirm(`Für heute (${displayDate}) existiert bereits ein Eintrag. Überschreiben?`)) return;
+          // Überschreibe immer mit den aktuellen Settings beim Speichern des *heutigen* Tages
           history[existingIndex] = dayData;
         } else {
           history.push(dayData);
         }
-        saveAndReload(history); // Recalculates all balances
+        saveAndReload(history); // Recalculates all balances based on stored diffs and markers
         alert("Der Tag wurde gespeichert.");
       }
 
       // --- getWeekNumber, getDateOfISOWeek (unverändert) ---
-      function getWeekNumber(d) { const target = new Date(d.valueOf()); const dayNr = (target.getDay() + 6) % 7; target.setDate(target.getDate() - dayNr + 3); const firstThursday = new Date(target.getFullYear(), 0, 4); firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7)); const weekNo = 1 + Math.round(((target - firstThursday) / 86400000 - 3) / 7); return [target.getFullYear(), weekNo]; }
-      function getDateOfISOWeek(w, y) { const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7)); const dow = simple.getUTCDay() || 7; const ISOweekStart = new Date(simple); ISOweekStart.setUTCDate(simple.getUTCDate() - dow + 1); return ISOweekStart; }
+      function getWeekNumber(d) {
+        const target = new Date(d.valueOf());
+        const dayNr = (target.getDay() + 6) % 7;
+        target.setDate(target.getDate() - dayNr + 3);
+        const firstThursday = new Date(target.getFullYear(), 0, 4);
+        firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
+        const weekNo = 1 + Math.round(((target - firstThursday) / 86400000 - 3) / 7);
+        return [target.getFullYear(), weekNo];
+      }
+      function getDateOfISOWeek(w, y) {
+        const simple = new Date(Date.UTC(y, 0, 4 + (w - 1) * 7));
+        const dow = simple.getUTCDay() || 7;
+        const ISOweekStart = new Date(simple);
+        ISOweekStart.setUTCDate(simple.getUTCDate() - dow + 1);
+        return ISOweekStart;
+      }
 
       function switchView(viewId) {
         currentView = viewId;
@@ -729,6 +904,7 @@
         else if (viewId === "options") loadOptions();
       }
 
+      // *** GEÄNDERTE loadOptions() Funktion ***
       function loadOptions() {
         $("bundesland-select").value = settings.bundesland;
         $("wochenarbeitszeit-setting").value = settings.wochenarbeitszeit.toFixed(1);
@@ -737,11 +913,16 @@
         $("eza-toggle").checked = settings.ezaActive;
         $("eza-konto-input").value = settings.ezaKontoStand.toFixed(2);
         updateEzaKontoDisplay();
+
+        // Entferne Logik für pendingBalanceOverrideValue (nicht mehr vorhanden)
+        // const infoP = $("pending-korrektur-info");
+        // if (infoP) infoP.style.display = "none";
+
         // NEU: Lade und zeige Marker an
         renderBalanceMarkers();
       }
 
-      // Funktion zum Anzeigen der Marker in Optionen
+      // *** NEUE FUNKTION zum Anzeigen der Marker in Optionen ***
       function renderBalanceMarkers() {
           const listElement = $("balance-marker-list");
           listElement.innerHTML = ""; // Leeren
@@ -767,69 +948,7 @@
           });
       }
 
-      // Funktionen für das Marker-Modal
-      function showAddMarkerModal() {
-          $("marker-date").value = "";
-          $("marker-balance").value = "";
-          $("add-marker-modal").style.display = "flex";
-      }
-
-      function closeAddMarkerModal() {
-          const modal = $("add-marker-modal");
-          if (modal) modal.style.display = "none";
-      }
-
-      function saveBalanceMarker() {
-          const dateStr = $("marker-date").value; // YYYY-MM-DD
-          const balanceStr = $("marker-balance").value;
-
-          if (!dateStr) {
-              alert("Bitte ein Datum für den Marker auswählen.");
-              return;
-          }
-          if (balanceStr === "" || isNaN(parseFloat(balanceStr))) {
-              alert("Bitte einen gültigen Kontostand eingeben.");
-              return;
-          }
-
-          const newBalance = parseFloat(balanceStr);
-          const displayDate = new Date(dateStr + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
-
-          // Prüfen, ob Marker für dieses Datum schon existiert
-          const existingIndex = balanceMarkers.findIndex(m => m.datum === dateStr);
-
-          if (existingIndex !== -1) {
-              if (!confirm(`Für ${displayDate} existiert bereits ein Marker (${balanceMarkers[existingIndex].kontostand}h).\nSoll dieser überschrieben werden mit ${newBalance.toFixed(2)}h?`)) {
-                  return;
-              }
-              balanceMarkers[existingIndex].kontostand = newBalance.toFixed(2);
-          } else {
-              balanceMarkers.push({ datum: dateStr, kontostand: newBalance.toFixed(2) });
-          }
-
-          storeBalanceMarkers(balanceMarkers); // Speichern (wird sortiert)
-          renderBalanceMarkers(); // Liste in Optionen aktualisieren
-          saveAndReload(getHistory()); // Verlauf neu berechnen mit neuem Marker
-          alert(`Marker für ${displayDate} mit ${newBalance.toFixed(2)}h gespeichert.`);
-          closeAddMarkerModal();
-      }
-
-      function deleteBalanceMarker(dateStr) {
-          const markerIndex = balanceMarkers.findIndex(m => m.datum === dateStr);
-          if (markerIndex === -1) return; // Sollte nicht passieren
-
-          const displayDate = new Date(dateStr + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
-          const markerValue = balanceMarkers[markerIndex].kontostand;
-
-          if (confirm(`Soll der Marker für ${displayDate} (${markerValue}h) wirklich gelöscht werden?`)) {
-              balanceMarkers.splice(markerIndex, 1);
-              storeBalanceMarkers(balanceMarkers);
-              renderBalanceMarkers();
-              saveAndReload(getHistory()); // Verlauf neu berechnen ohne den Marker
-              alert(`Marker für ${displayDate} gelöscht.`);
-          }
-      }
-
+      // Lädt Verlaufsdaten für die Wochenansicht
       function loadHistory() {
         const historyList = $("history-list");
         historyList.innerHTML = "";
@@ -879,8 +998,7 @@
             const diffValDecimal = parseFloat(entry.differenz || "0");
             weeklyTotalDiffDecimal += diffValDecimal;
             const diffClass = diffValDecimal > 0.001 ? "positive-value" : diffValDecimal < -0.001 ? "negative-value" : "zero-value";
-
-            let ezaIndicatorClass = ""; let ezaTagIndicatorClass = "";
+            let ezaIndicatorClass = "", ezaTagIndicatorClass = "";
             if (entry.ezaActiveDuringBooking && !settings.ezaActive) {
               if (entry.urlaub || entry.schulung) ezaIndicatorClass = "eza-related-diff inactive";
               else if (entry.isEzaTag) ezaTagIndicatorClass = "eza-tag-label inactive";
@@ -895,12 +1013,16 @@
             } else {
               const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
               const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-              const netTimeDecimal = calculateNetArbeitszeitFromEntryData(entry);
+              const netTimeDecimal = calculateNetArbeitszeitFromEntryData(entry); // Nutzt zentrale Funktion
               const violations = checkViolations(kommenLokal, gehenLokal, netTimeDecimal);
               let violationMark = "", moonMark = "";
               if (violations.any) {
-                if (settings.allowNachtarbeit) { if (violations.kommen || violations.gehen || violations.arbeitszeit) moonMark = ' <span class="moon-mark">🌙</span>'; }
-                else { violationMark = ' <span class="violation-mark">!</span>'; entryContentDiv.classList.add("violation-day"); }
+                if (settings.allowNachtarbeit) {
+                  if (violations.kommen || violations.gehen || violations.arbeitszeit) moonMark = ' <span class="moon-mark">🌙</span>';
+                } else {
+                  violationMark = ' <span class="violation-mark">!</span>';
+                  entryContentDiv.classList.add("violation-day");
+                }
               }
               if (entry.ezaActiveDuringBooking) entryContentDiv.classList.add("eza-booked-outline-history");
               const kommenTimeToDisplayStr = formatTime(kommenLokal);
@@ -924,6 +1046,7 @@
         updateWeekNavigation();
       }
 
+      // Parst Pausen-String (hh:mm oder h.hh) und gibt Dezimalstunden zurück
       function parsePauseInputFromString(val) {
         if (!val) return 0;
         const cleanedVal = val.replace(",", ".");
@@ -938,6 +1061,7 @@
         }
       }
 
+      // Berechnet Netto-AZ aus gespeicherten Daten (nutzt zentrale Funktion)
       function calculateNetArbeitszeitFromEntryData(entry) {
         if (!entry || !entry.kommen || !entry.gehen || entry.urlaub || entry.krank || entry.schulung || entry.glaz || entry.isEzaTag) {
           return 0;
@@ -956,7 +1080,7 @@
           const displayDate = new Date(dateStr + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
           if (confirm(`Möchten Sie den Eintrag für ${displayDate} wirklich löschen?`)) {
             history.splice(index, 1);
-            saveAndReload(history); // Recalculates balances
+            saveAndReload(history); // Recalculates balances based on markers
           }
         }
       }
@@ -964,25 +1088,53 @@
       function updateWeekNavigation() {
         const pagination = $("pagination");
         pagination.innerHTML = "";
-        const createButton = (text, onClick) => { const btn = document.createElement("button"); btn.textContent = text; btn.onclick = onClick; btn.classList.add("inline-button"); return btn; };
-        const prevWeekBtn = createButton("‹", () => { const d = getDateOfISOWeek(currentWeekNo, currentWeekYear); d.setUTCDate(d.getUTCDate() - 7); [currentWeekYear, currentWeekNo] = getWeekNumber(d); loadHistory(); });
-        const nextWeekBtn = createButton("›", () => { const d = getDateOfISOWeek(currentWeekNo, currentWeekYear); d.setUTCDate(d.getUTCDate() + 7); const [newYear, newWeek] = getWeekNumber(d); currentWeekYear = newYear; currentWeekNo = newWeek; loadHistory(); });
+        const createButton = (text, onClick) => {
+          const btn = document.createElement("button");
+          btn.textContent = text;
+          btn.onclick = onClick;
+          btn.classList.add("inline-button");
+          return btn;
+        };
+        const prevWeekBtn = createButton("‹", () => {
+          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+          d.setUTCDate(d.getUTCDate() - 7);
+          [currentWeekYear, currentWeekNo] = getWeekNumber(d);
+          loadHistory();
+        });
+        const nextWeekBtn = createButton("›", () => {
+          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+          d.setUTCDate(d.getUTCDate() + 7);
+          const [newYear, newWeek] = getWeekNumber(d);
+          currentWeekYear = newYear;
+          currentWeekNo = newWeek;
+          loadHistory();
+        });
         pagination.appendChild(prevWeekBtn);
         pagination.appendChild(nextWeekBtn);
       }
 
+      // Zeigt Modal zum Hinzufügen/Ändern eines Tages
       function showAddDayModal(dateStr) {
         const dateVal = new Date(dateStr + "T12:00:00Z");
         const displayDate = dateVal.toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
         const weekdayName = dateVal.toLocaleDateString("de-DE", { weekday: "long", timeZone: "Europe/Berlin" });
         const holidayName = getHolidayName(dateVal, settings.bundesland);
-        if (holidayName) { alert(`Buchung am Feiertag (${holidayName}) nicht möglich.`); return; }
+        if (holidayName) {
+          alert(`Buchung am Feiertag (${holidayName}) nicht möglich.`); return;
+        }
         const dayOfWeek = dateVal.getUTCDay();
-        if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) { alert("Buchung am Wochenende ist in den Optionen deaktiviert."); return; }
+        if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) {
+          alert("Buchung am Wochenende ist in den Optionen deaktiviert."); return;
+        }
         const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
         $("add-day-modal-title").textContent = entry ? `Buchung ändern: ${weekdayName}, ${displayDate}` : `${weekdayName}, ${displayDate}`;
-        $("urlaub-toggle").checked = false; $("krank-toggle").checked = false; $("schulung-toggle").checked = false; $("glaz-toggle").checked = false; $("eza-tag-toggle").checked = false;
+
+        // Reset toggles
+        $("urlaub-toggle").checked = false; $("krank-toggle").checked = false;
+        $("schulung-toggle").checked = false; $("glaz-toggle").checked = false;
+        $("eza-tag-toggle").checked = false;
+
         if (entry) {
           $("add-day-kommen").value = entry.kommen ? formatTime(new Date(entry.kommen)) : "";
           $("add-day-gehen").value = entry.gehen ? formatTime(new Date(entry.gehen)) : "";
@@ -997,8 +1149,10 @@
           const isSpecial = entry.urlaub || entry.krank || entry.schulung || entry.glaz || entry.isEzaTag;
           toggleTimeFieldsDisabled(isSpecial);
         } else {
-          $("add-day-kommen").value = ""; $("add-day-gehen").value = ""; $("add-day-zusatzliche-pause").value = "";
-          $("pc-buchung-add-day").checked = $("pc-buchung").checked; $("buero-add-day").checked = $("buero-toggle").checked;
+          $("add-day-kommen").value = ""; $("add-day-gehen").value = "";
+          $("add-day-zusatzliche-pause").value = "";
+          $("pc-buchung-add-day").checked = $("pc-buchung").checked; // Default from main page
+          $("buero-add-day").checked = $("buero-toggle").checked; // Default from main page
           toggleTimeFieldsDisabled(false);
         }
         $("add-day-modal").setAttribute("data-date", dateStr);
@@ -1008,16 +1162,21 @@
       function toggleSpecialDay(type) {
         const types = ["urlaub", "krank", "schulung", "glaz", "ezaTag"];
         const isChecked = $(type.replace("Tag", "-tag") + "-toggle").checked;
-        types.forEach((t) => { if (t !== type && isChecked) $(t.replace("Tag", "-tag") + "-toggle").checked = false; });
+        types.forEach((t) => {
+          if (t !== type && isChecked) $(t.replace("Tag", "-tag") + "-toggle").checked = false;
+        });
         const anySpecialChecked = types.some((t) => $(t.replace("Tag", "-tag") + "-toggle").checked);
         toggleTimeFieldsDisabled(anySpecialChecked);
       }
 
       function toggleTimeFieldsDisabled(disabled) {
-        $("add-day-kommen").disabled = disabled; $("add-day-gehen").disabled = disabled;
-        $("add-day-zusatzliche-pause").disabled = disabled; $("pc-buchung-add-day").disabled = disabled;
+        $("add-day-kommen").disabled = disabled;
+        $("add-day-gehen").disabled = disabled;
+        $("add-day-zusatzliche-pause").disabled = disabled;
+        $("pc-buchung-add-day").disabled = disabled;
       }
 
+      // Parst hh:mm und setzt es auf einem gegebenen Datumsobjekt (lokale Zeit)
       function parseTimeForDate(timeStr, targetLocalDate) {
           if (!timeStr || !targetLocalDate) return null;
           const match = timeStr.match(/^(\d{2}):(\d{2})$/);
@@ -1029,6 +1188,7 @@
           return resultDate;
       }
 
+      // *** GEÄNDERTE addManualDay() Funktion ***
       function addManualDay() {
         const dateValStr = $("add-day-modal").getAttribute("data-date"); // YYYY-MM-DD
         if (!dateValStr) { alert("Kein gültiges Datum!"); return; }
@@ -1067,8 +1227,10 @@
             const neededHoursDecimal = currentSollProTag;
             const availableEzaDecimal = settings.ezaKontoStand;
             if (availableEzaDecimal >= neededHoursDecimal) ezaDifferenceDecimal = -neededHoursDecimal;
-            else if (availableEzaDecimal > 0) { ezaDifferenceDecimal = -availableEzaDecimal; mainDifferenceDecimal = -(neededHoursDecimal - availableEzaDecimal); }
-            else mainDifferenceDecimal = -neededHoursDecimal;
+            else if (availableEzaDecimal > 0) {
+              ezaDifferenceDecimal = -availableEzaDecimal;
+              mainDifferenceDecimal = -(neededHoursDecimal - availableEzaDecimal);
+            } else mainDifferenceDecimal = -neededHoursDecimal;
           }
         } else {
           if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifferenceDecimal = 0;
@@ -1084,10 +1246,16 @@
 
         // Basisdaten für Eintrag
         let dayData = {
-          datum: dateValStr, differenz: "0.00", differenzTime: "0:00", stundenkonto: "0.00",
-          kommen: null, gehen: null, urlaub: isUrlaub, krank: isKrank, schulung: isSchulung,
-          glaz: isGlaz, isEzaTag: isEzaTag, ezaActiveDuringBooking: currentEzaActive,
-          pcBuchung: false, buero: isBueroAddDay, zusatzPause: "",
+          datum: dateValStr,
+          differenz: "0.00", // Wird gesetzt
+          differenzTime: "0:00", // Wird gesetzt
+          stundenkonto: "0.00", // Wird neu berechnet
+          kommen: null, gehen: null,
+          urlaub: isUrlaub, krank: isKrank, schulung: isSchulung, glaz: isGlaz, isEzaTag: isEzaTag,
+          ezaActiveDuringBooking: currentEzaActive,
+          pcBuchung: false, // Wird gesetzt
+          buero: isBueroAddDay,
+          zusatzPause: "", // Wird gesetzt
           // NEU: Speichere die zum Zeitpunkt der Buchung gültigen Werte
           usedWochenarbeitszeit: currentWochenAZ,
           usedSollProTag: currentSollProTag,
@@ -1115,10 +1283,15 @@
         if (gehenDateManual < kommenDateManual) gehenDateManual.setDate(gehenDateManual.getDate() + 1);
 
         const additionalPauseManualHoursDecimal = parsePauseInputFromString(additionalPauseManualValue);
-        const netManualDecimal = calculateArbeitszeit(kommenDateManual, gehenDateManual, additionalPauseManualHoursDecimal, isPcBuchungAddDay);
+        const netManualDecimal = calculateArbeitszeit(
+          kommenDateManual, gehenDateManual,
+          additionalPauseManualHoursDecimal, isPcBuchungAddDay
+        );
 
         const violations = checkViolations(kommenDateManual, gehenDateManual, netManualDecimal);
-        if (violations.any && !settings.allowNachtarbeit) { if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return; }
+        if (violations.any && !settings.allowNachtarbeit) {
+          if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
+        }
 
         // Berechne Differenz für normalen Arbeitstag (nutzt aktuellen Sollwert)
         mainDifferenceDecimal = netManualDecimal - currentSollProTag;
@@ -1138,7 +1311,15 @@
         closeAddDayModal();
       }
 
-      // Überarbeitete saveAndReload Funktion mit Marker-Logik
+      // *** VERALTETE Funktion (kann entfernt oder auskommentiert werden) ***
+      /*
+      function setHauptkontoManuell() {
+          console.warn("setHauptkontoManuell() ist veraltet und wird nicht mehr verwendet.");
+          alert("Diese Funktion ist veraltet. Bitte verwenden Sie stattdessen Kontostand-Marker.");
+      }
+      */
+
+      // *** ÜBERARBEITETE saveAndReload() Funktion mit Marker-Logik ***
       function saveAndReload(history) {
           // 1. Verlauf sortieren (nach Datum)
           history.forEach((entry) => {
@@ -1153,8 +1334,8 @@
 
           // 3. Kontostand neu berechnen unter Berücksichtigung der Marker
           let currentMarkerIndex = -1;
-          // Startwert ist 0, es sei denn, ein Marker liegt vor dem ersten Eintrag
-          let baseKontoDecimal = 0; // Standard-Startwert
+          // Startwert ist der 'initialKontoValue' (wird nur verwendet, wenn kein Marker davor liegt)
+          let baseKontoDecimal = parseFloat(getFromLS("initialKontoValue", "0"));
 
           // Prüfen, ob der erste Marker VOR dem ersten History-Eintrag liegt
           if (history.length > 0 && sortedMarkers.length > 0 && sortedMarkers[0].datum < history[0].datum) {
@@ -1178,7 +1359,7 @@
               let currentBaseKontoDecimal;
 
               // Prüfen, ob ein NEUER Marker ab DIESEM Datum gilt
-              // Wichtig: >= verwenden, damit Marker am selben Tag greift
+              // Wichtig: >= Vergleich, damit Marker am selben Tag greift
               if (currentMarkerIndex + 1 < sortedMarkers.length &&
                   entry.datum >= sortedMarkers[currentMarkerIndex + 1].datum) {
                   currentMarkerIndex++;
@@ -1193,6 +1374,7 @@
               }
 
               // Berechne neuen Kontostand basierend auf der gespeicherten Differenz
+              // Die Differenz wurde bereits korrekt mit der damals gültigen Sollzeit berechnet
               const diffDecimal = parseFloat(entry.differenz || "0");
               let newKontoDecimal = currentBaseKontoDecimal + diffDecimal;
               entry.stundenkonto = truncateDecimals(newKontoDecimal, 2).toFixed(2);
@@ -1208,11 +1390,11 @@
           if (latestEntry) {
               latestCalculatedKontoDecimal = parseFloat(latestEntry.stundenkonto || "0");
           } else {
-              // Wenn History leer ist, nimm den Wert des letzten Markers oder den Initialwert 0
+              // Wenn History leer ist, nimm den Wert des letzten Markers oder den Initialwert
               if (sortedMarkers.length > 0) {
                   latestCalculatedKontoDecimal = parseFloat(sortedMarkers[sortedMarkers.length - 1].kontostand);
               } else {
-                  latestCalculatedKontoDecimal = 0; // Standard-Startwert
+                  latestCalculatedKontoDecimal = parseFloat(getFromLS("initialKontoValue", "0"));
               }
           }
           storeToLS("aktuellesStundenkonto", latestCalculatedKontoDecimal.toFixed(2));
@@ -1234,6 +1416,7 @@
         if (modal) modal.style.display = "none";
       }
 
+      // *** GEÄNDERTE showDayDetails() Funktion ***
       function showDayDetails(dateStr) {
         const history = getHistory();
         const entry = history.find((e) => e.datum === dateStr);
@@ -1254,9 +1437,10 @@
         // NEU: Hole die verwendete Sollzeit, falls gespeichert
         const usedSoll = entry.usedSollProTag ? parseFloat(entry.usedSollProTag) : null;
         const usedSollFormatted = usedSoll !== null ? `${formatDecimalToTime(usedSoll)} (${usedSoll.toFixed(2)}h)` : 'N/A (alt)';
-        const sollZeile = `<p><strong>Soll-AZ (damals):</strong> ${usedSollFormatted}</p>`;
+        // Zeile nur anzeigen, wenn es kein Feiertag ist
+        const sollZeile = holidayName ? '' : `<p><strong>Soll-AZ (damals):</strong> ${usedSollFormatted}</p>`;
 
-        let ezaIndicatorClass = ""; let ezaTagIndicatorClass = "";
+        let ezaIndicatorClass = "", ezaTagIndicatorClass = "";
         if (entry.ezaActiveDuringBooking && !settings.ezaActive) {
           if (entry.urlaub || entry.schulung) ezaIndicatorClass = "eza-related-diff inactive";
           else if (entry.isEzaTag) ezaTagIndicatorClass = "eza-tag-label inactive";
@@ -1264,37 +1448,48 @@
 
         if (holidayName) {
            detailsHTML = `<p><strong>Datum:</strong> ${dispDate}</p><p><strong>Status:</strong> ${holidayName} (Feiertag)</p>`;
-           $("detail-edit-button").style.display = "none"; $("detail-delete-button").style.display = "none";
+           $("detail-edit-button").style.display = "none";
+           $("detail-delete-button").style.display = "none";
         } else if (entry.urlaub || entry.krank || entry.schulung || entry.glaz || entry.isEzaTag) {
            const statusText = entry.urlaub ? "Urlaub" : entry.krank ? "Krank" : entry.schulung ? "Schulung" : entry.glaz ? "GLAZ" : "EZA-Tag";
            const tagLabelClass = entry.isEzaTag ? ezaTagIndicatorClass : "";
            const diffDisplay = entry.glaz || entry.urlaub || entry.schulung ? `<span class="diff-badge ${diffClass} ${ezaIndicatorClass}">${entry.differenzTime} (${entry.differenz}h)</span>` : "";
            detailsHTML = `<p><strong>Status:</strong> <span class="${tagLabelClass}">${statusText}</span> ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p>${sollZeile}<p><strong>Differenz:</strong> ${diffDisplay}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal.toFixed(2)}h)</p>`;
-           $("detail-edit-button").style.display = "block"; $("detail-delete-button").style.display = "block";
+           $("detail-edit-button").style.display = "block";
+           $("detail-delete-button").style.display = "block";
         } else {
           const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
           const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-          const kommenFormatted = formatTime(kommenLokal); const gehenFormatted = formatTime(gehenLokal);
-          const isPcBuchung = entry.pcBuchung; const pcBuchungHinweis = isPcBuchung ? " (PC-Buchung aktiv)" : "";
+          const kommenFormatted = formatTime(kommenLokal);
+          const gehenFormatted = formatTime(gehenLokal);
+          const isPcBuchung = entry.pcBuchung;
+          const pcBuchungHinweis = isPcBuchung ? " (PC-Buchung aktiv)" : "";
           const additionalPauseSavedDecimal = parsePauseInputFromString(entry.zusatzPause || "");
+
           const rawPresenceDecimal = calculatePresenceTime(kommenLokal, gehenLokal);
           const presenceDecimal = truncateDecimals(rawPresenceDecimal, 2);
           anwesenheitLabel = `${formatDecimalToTime(presenceDecimal)} (${presenceDecimal.toFixed(2)}h)`;
+
           const netCalculatedDecimal = calculateNetArbeitszeitFromEntryData(entry);
           nettoLabel = `${formatDecimalToTime(netCalculatedDecimal)} (${netCalculatedDecimal.toFixed(2)}h)`;
+
           const impliedBreakDecimal = Math.max(0, presenceDecimal - (netCalculatedDecimal - (isPcBuchung ? 0.13 : 0)));
           pausenLabel = impliedBreakDecimal > 0.001 ? `${Math.round(impliedBreakDecimal * 60)} Min (${impliedBreakDecimal.toFixed(2)}h)` : "0 Min";
           if (additionalPauseSavedDecimal > 0.001) pausenLabel += ` (davon ${formatDecimalToTime(additionalPauseSavedDecimal)} manuell)`;
+
           const violations = checkViolations(kommenLokal, gehenLokal, netCalculatedDecimal);
           let kommenMoon = violations.kommen && settings.allowNachtarbeit ? ' <span class="moon-mark">🌙</span>' : "";
           let gehenMoon = violations.gehen && settings.allowNachtarbeit ? ' <span class="moon-mark">🌙</span>' : "";
           let nettoMoon = violations.arbeitszeit && netCalculatedDecimal > 0 && settings.allowNachtarbeit ? ' <span class="moon-mark">🌙</span>' : "";
           const ezaBookedHint = entry.ezaActiveDuringBooking ? ' <span class="eza-hint-inline" title="EZA-Regel bei Buchung aktiv">(E)</span>' : "";
+
           detailsHTML = `<p><strong>Ort:</strong> ${bueroEmoji}</p><p><strong>Kommen:</strong> ${kommenFormatted}${pcBuchungHinweis}${kommenMoon}</p><p><strong>Gehen:</strong> ${gehenFormatted}${gehenMoon}</p><p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p><p><strong>Pause/Freeze:</strong> ${pausenLabel}</p><p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}${nettoMoon}</p>${sollZeile}<p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${entry.differenzTime} (${entry.differenz}h)</span>${ezaBookedHint}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal.toFixed(2)}h)</p>`;
-          $("detail-edit-button").style.display = "block"; $("detail-delete-button").style.display = "block";
+          $("detail-edit-button").style.display = "block";
+          $("detail-delete-button").style.display = "block";
         }
         $("detail-content").innerHTML = detailsHTML;
-        const editBtn = $("detail-edit-button"); const deleteBtn = $("detail-delete-button");
+        const editBtn = $("detail-edit-button");
+        const deleteBtn = $("detail-delete-button");
         editBtn.onclick = () => { closeDetailModal(); showAddDayModal(dateStr); };
         deleteBtn.onclick = () => { closeDetailModal(); deleteEntryByDate(dateStr); };
         $("detail-modal").style.display = "flex";
@@ -1306,7 +1501,8 @@
       }
 
       function showBulkModal() {
-        $("bulk-modal-start-date").value = ""; $("bulk-modal-end-date").value = "";
+        $("bulk-modal-start-date").value = "";
+        $("bulk-modal-end-date").value = "";
         $("bulk-modal-special-day-type").value = "";
         $("bulk-booking-modal").style.display = "flex";
       }
@@ -1322,51 +1518,92 @@
       function getDaysInMonth(year, month) { return new Date(Date.UTC(year, month + 1, 0)).getUTCDate(); }
       function loadMonthData() {
         const history = getHistory();
-        const monthData = history.filter((entry) => { const entryDate = new Date(entry.datum + "T12:00:00Z"); return entryDate.getUTCFullYear() === currentMonthYear && entryDate.getUTCMonth() === currentMonth; });
+        const monthData = history.filter((entry) => {
+          const entryDate = new Date(entry.datum + "T12:00:00Z");
+          return entryDate.getUTCFullYear() === currentMonthYear && entryDate.getUTCMonth() === currentMonth;
+        });
         renderCalendar(monthData);
         updateMonthNavigation();
       }
       function renderCalendar(monthData) {
-        const calendarGrid = $("calendar-grid"); calendarGrid.innerHTML = "";
+        const calendarGrid = $("calendar-grid");
+        calendarGrid.innerHTML = "";
         $("month-year-display").textContent = `${monthNames[currentMonth]} ${currentMonthYear}`;
         const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
-        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth); firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth);
+        firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
         const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
         calendarGrid.style.gridTemplateColumns = `repeat(7, 1fr)`;
-        weekdays.forEach((wd) => { const headerCell = document.createElement("div"); headerCell.classList.add("calendar-header"); headerCell.textContent = wd; calendarGrid.appendChild(headerCell); });
-        for (let i = 0; i < firstDayIndex; i++) { const emptyCell = document.createElement("div"); emptyCell.classList.add("calendar-day", "empty"); calendarGrid.appendChild(emptyCell); }
+        weekdays.forEach((wd) => {
+          const headerCell = document.createElement("div");
+          headerCell.classList.add("calendar-header"); headerCell.textContent = wd;
+          calendarGrid.appendChild(headerCell);
+        });
+        for (let i = 0; i < firstDayIndex; i++) {
+          const emptyCell = document.createElement("div");
+          emptyCell.classList.add("calendar-day", "empty"); calendarGrid.appendChild(emptyCell);
+        }
         let monthlyTotalDiffDecimal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
           const currentDateObj = new Date(Date.UTC(currentMonthYear, currentMonth, day, 12, 0, 0));
           const dayOfWeek = currentDateObj.getUTCDay();
           const cell = document.createElement("div"); cell.classList.add("calendar-day");
-          const cellContent = document.createElement("div"); cellContent.classList.add("calendar-day-content"); cellContent.textContent = day; cell.appendChild(cellContent);
+          const cellContent = document.createElement("div"); cellContent.classList.add("calendar-day-content");
+          cellContent.textContent = day; cell.appendChild(cellContent);
           const currentDateStr = `${currentMonthYear}-${pad(currentMonth + 1)}-${pad(day)}`;
           const entry = monthData.find((e) => e.datum === currentDateStr);
           const holidayName = getHolidayName(currentDateObj, settings.bundesland);
           const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-          if (holidayName) { cell.classList.add("has-entry", "holiday"); cellContent.classList.add("holiday-day"); cellContent.title = holidayName; cell.onclick = () => alert(`${currentDateObj.toLocaleDateString("de-DE", { timeZone: "UTC" })}: ${holidayName}`); }
-          else if (entry) {
+          if (holidayName) {
+            cell.classList.add("has-entry", "holiday"); cellContent.classList.add("holiday-day");
+            cellContent.title = holidayName;
+            cell.onclick = () => alert(`${currentDateObj.toLocaleDateString("de-DE", { timeZone: "UTC" })}: ${holidayName}`);
+          } else if (entry) {
             cell.classList.add("has-entry");
-            const diffValDecimal = parseFloat(entry.differenz || "0"); monthlyTotalDiffDecimal += diffValDecimal;
+            const diffValDecimal = parseFloat(entry.differenz || "0");
+            monthlyTotalDiffDecimal += diffValDecimal;
             let bgColorClass = "", titleText = "", moonMark = "";
-            if (entry.urlaub) bgColorClass = "special-day-urlaub-bg"; else if (entry.krank) bgColorClass = "special-day-krank-bg"; else if (entry.schulung) bgColorClass = "special-day-schulung-bg"; else if (entry.isEzaTag) bgColorClass = "special-day-eza-bg"; else if (entry.glaz) bgColorClass = "special-day-glaz-bg";
-            else { if (diffValDecimal > 0.001) bgColorClass = "positive-value"; else if (diffValDecimal < -0.001) bgColorClass = "negative-value"; else bgColorClass = "zero-value"; }
-            if (entry.urlaub) titleText = "Urlaub"; else if (entry.krank) titleText = "Krank"; else if (entry.schulung) titleText = "Schulung"; else if (entry.isEzaTag) titleText = "EZA-Tag"; else if (entry.glaz) titleText = `GLAZ (${entry.differenzTime})`; else titleText = `Differenz: ${entry.differenzTime}`;
-            if (!entry.urlaub && !entry.krank && !entry.schulung && !entry.isEzaTag && !entry.glaz) {
-              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null; const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
-              const netTimeDecimal = calculateNetArbeitszeitFromEntryData(entry); const violations = checkViolations(kommenLokal, gehenLokal, netTimeDecimal);
-              if (violations.any && settings.allowNachtarbeit) { if (violations.kommen || violations.gehen || violations.arbeitszeit) moonMark = ' <span class="moon-mark-calendar">🌙</span>'; }
+            if (entry.urlaub) bgColorClass = "special-day-urlaub-bg";
+            else if (entry.krank) bgColorClass = "special-day-krank-bg";
+            else if (entry.schulung) bgColorClass = "special-day-schulung-bg";
+            else if (entry.isEzaTag) bgColorClass = "special-day-eza-bg";
+            else if (entry.glaz) bgColorClass = "special-day-glaz-bg";
+            else {
+              if (diffValDecimal > 0.001) bgColorClass = "positive-value";
+              else if (diffValDecimal < -0.001) bgColorClass = "negative-value";
+              else bgColorClass = "zero-value";
             }
-            cellContent.classList.add(bgColorClass); cellContent.title = titleText; cellContent.innerHTML = day + moonMark;
+            if (entry.urlaub) titleText = "Urlaub";
+            else if (entry.krank) titleText = "Krank";
+            else if (entry.schulung) titleText = "Schulung";
+            else if (entry.isEzaTag) titleText = "EZA-Tag";
+            else if (entry.glaz) titleText = `GLAZ (${entry.differenzTime})`;
+            else titleText = `Differenz: ${entry.differenzTime}`;
+            if (!entry.urlaub && !entry.krank && !entry.schulung && !entry.isEzaTag && !entry.glaz) {
+              const kommenLokal = entry.kommen ? new Date(entry.kommen) : null;
+              const gehenLokal = entry.gehen ? new Date(entry.gehen) : null;
+              const netTimeDecimal = calculateNetArbeitszeitFromEntryData(entry);
+              const violations = checkViolations(kommenLokal, gehenLokal, netTimeDecimal);
+              if (violations.any && settings.allowNachtarbeit) {
+                if (violations.kommen || violations.gehen || violations.arbeitszeit) moonMark = ' <span class="moon-mark-calendar">🌙</span>';
+              }
+            }
+            cellContent.classList.add(bgColorClass); cellContent.title = titleText;
+            cellContent.innerHTML = day + moonMark;
             if (entry.ezaActiveDuringBooking) cellContent.classList.add("eza-booked-outline");
             cell.onclick = () => showDayDetails(currentDateStr);
           } else if (isWeekend) {
             cell.classList.add("weekend"); cellContent.classList.add("weekend-text");
-            if (settings.allowWochenende) { cell.classList.add("no-entry"); cell.onclick = () => showAddDayModal(currentDateStr); cellContent.title = "Klicken zum Hinzufügen"; }
-            else { cellContent.title = "Wochenende"; cell.style.cursor = "default"; }
-          } else { cell.classList.add("no-entry"); cell.onclick = () => showAddDayModal(currentDateStr); cellContent.title = "Klicken zum Hinzufügen"; }
-          const today = new Date(); today.setHours(0, 0, 0, 0); const cellDate = new Date(currentDateObj); cellDate.setUTCHours(0, 0, 0, 0);
+            if (settings.allowWochenende) {
+              cell.classList.add("no-entry"); cell.onclick = () => showAddDayModal(currentDateStr);
+              cellContent.title = "Klicken zum Hinzufügen";
+            } else { cellContent.title = "Wochenende"; cell.style.cursor = "default"; }
+          } else {
+            cell.classList.add("no-entry"); cell.onclick = () => showAddDayModal(currentDateStr);
+            cellContent.title = "Klicken zum Hinzufügen";
+          }
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const cellDate = new Date(currentDateObj); cellDate.setUTCHours(0, 0, 0, 0);
           if (cellDate.getTime() === today.getTime()) cellContent.classList.add("today");
           calendarGrid.appendChild(cell);
         }
@@ -1374,29 +1611,41 @@
         $("month-summary-content").innerHTML = `Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(monthlyTotalDiffDecimal)} (${monthlyTotalDiffDecimal.toFixed(2)}h)</span>`;
       }
       function updateMonthNavigation() {
-        $("prev-month").onclick = () => { currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentMonthYear--; } loadMonthData(); };
-        $("next-month").onclick = () => { currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentMonthYear++; } loadMonthData(); };
+        $("prev-month").onclick = () => {
+          currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentMonthYear--; } loadMonthData();
+        };
+        $("next-month").onclick = () => {
+          currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentMonthYear++; } loadMonthData();
+        };
       }
 
+      // *** GEÄNDERTE applyBulkBooking() Funktion ***
       function applyBulkBooking() {
-        const startDateStr = $("bulk-modal-start-date").value, endDateStr = $("bulk-modal-end-date").value, specialType = $("bulk-modal-special-day-type").value;
+        const startDateStr = $("bulk-modal-start-date").value,
+              endDateStr = $("bulk-modal-end-date").value,
+              specialType = $("bulk-modal-special-day-type").value;
+
         if (!startDateStr || !endDateStr || !specialType) { alert("Bitte Start, Ende und Typ auswählen."); return; }
-        const startDate = new Date(startDateStr + "T12:00:00Z"), endDate = new Date(endDateStr + "T12:00:00Z");
+        const startDate = new Date(startDateStr + "T12:00:00Z"),
+              endDate = new Date(endDateStr + "T12:00:00Z");
         if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) { alert("Ungültiges Datum."); return; }
         if (endDate < startDate) { alert("Enddatum vor Startdatum."); return; }
 
         let history = getHistory();
         const historyMap = new Map(history.map((entry) => [entry.datum, entry]));
-        let modified = false; let skippedDays = 0; let processedCount = 0;
+        let modified = false, skippedDays = 0, processedCount = 0;
         let currentDate = new Date(startDate.getTime());
         // Verwende die *aktuellen* Einstellungen für die Sollzeit dieser Bulk-Buchung
         const currentWochenAZ = settings.wochenarbeitszeit;
         const currentSollProTag = currentWochenAZ / 5;
         const currentEzaActive = settings.ezaActive;
-        let currentEzaStandDecimal = settings.ezaKontoStand;
+        let currentEzaStandDecimal = settings.ezaKontoStand; // Temporärer Stand für Bulk
 
         const typeLabel = { urlaub: "Urlaub", krank: "Krank", schulung: "Schulung", glaz: "GLAZ", ezaTag: "EZA-Tag", delete: "Löschen" }[specialType];
-        if (!confirm(`Wirklich für ${startDate.toLocaleDateString("de-DE", { timeZone: "UTC" })} bis ${endDate.toLocaleDateString("de-DE", { timeZone: "UTC" })} Aktion "${typeLabel}" für Mo-Fr (keine Feiertage) durchführen?\n\nACHTUNG: Bestehende Einträge werden überschrieben oder gelöscht!`)) return;
+
+        if (!confirm(`Wirklich für ${startDate.toLocaleDateString("de-DE", { timeZone: "UTC" })} bis ${endDate.toLocaleDateString("de-DE", { timeZone: "UTC" })} Aktion "${typeLabel}" für Mo-Fr (keine Feiertage) durchführen?\n\nACHTUNG: Bestehende Einträge werden überschrieben oder gelöscht!`)) {
+          return;
+        }
 
         while (currentDate <= endDate) {
           const dayOfWeek = currentDate.getUTCDay();
@@ -1405,22 +1654,31 @@
 
           if (dayOfWeek >= 1 && dayOfWeek <= 5 && !holidayName) {
             if (specialType === "delete") {
-              if (historyMap.has(currentDateStr)) { historyMap.delete(currentDateStr); modified = true; processedCount++; }
-              else { skippedDays++; }
+              if (historyMap.has(currentDateStr)) {
+                historyMap.delete(currentDateStr); modified = true; processedCount++;
+              } else { skippedDays++; }
             } else {
               let mainDifferenceDecimal = 0, ezaDifferenceDecimal = 0;
               let isUrlaub = false, isKrank = false, isSchulung = false, isGlaz = false, isEzaTag = false;
-              switch (specialType) { case "urlaub": isUrlaub = true; break; case "krank": isKrank = true; break; case "schulung": isSchulung = true; break; case "glaz": isGlaz = true; break; case "ezaTag": isEzaTag = true; break; }
+              switch (specialType) {
+                case "urlaub": isUrlaub = true; break; case "krank": isKrank = true; break;
+                case "schulung": isSchulung = true; break; case "glaz": isGlaz = true; break;
+                case "ezaTag": isEzaTag = true; break;
+              }
+
               // Berechne Differenzen (nutzt aktuellen Sollwert)
               if (currentEzaActive) {
                 if (isUrlaub || isSchulung) mainDifferenceDecimal = -0.4;
                 else if (isKrank) ezaDifferenceDecimal = -0.4;
                 else if (isGlaz) mainDifferenceDecimal = -currentSollProTag;
                 else if (isEzaTag) {
-                  const neededHoursDecimal = currentSollProTag; const availableEzaDecimal = currentEzaStandDecimal;
+                  const neededHoursDecimal = currentSollProTag;
+                  const availableEzaDecimal = currentEzaStandDecimal;
                   if (availableEzaDecimal >= neededHoursDecimal) ezaDifferenceDecimal = -neededHoursDecimal;
-                  else if (availableEzaDecimal > 0) { ezaDifferenceDecimal = -availableEzaDecimal; mainDifferenceDecimal = -(neededHoursDecimal - availableEzaDecimal); }
-                  else mainDifferenceDecimal = -neededHoursDecimal;
+                  else if (availableEzaDecimal > 0) {
+                    ezaDifferenceDecimal = -availableEzaDecimal;
+                    mainDifferenceDecimal = -(neededHoursDecimal - availableEzaDecimal);
+                  } else mainDifferenceDecimal = -neededHoursDecimal;
                 }
               } else {
                 if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifferenceDecimal = 0;
@@ -1430,14 +1688,22 @@
 
               const existingEntry = historyMap.get(currentDateStr);
               const dayData = {
-                datum: currentDateStr, differenz: truncateDecimals(mainDifferenceDecimal, 2).toFixed(2), differenzTime: formatDecimalToTime(mainDifferenceDecimal),
-                stundenkonto: "0.00", kommen: null, gehen: null, urlaub: isUrlaub, krank: isKrank, schulung: isSchulung, glaz: isGlaz, isEzaTag: isEzaTag,
-                ezaActiveDuringBooking: currentEzaActive, pcBuchung: false, buero: existingEntry ? existingEntry.buero : ($("buero-toggle") ? $("buero-toggle").checked : false), zusatzPause: "",
+                datum: currentDateStr,
+                differenz: truncateDecimals(mainDifferenceDecimal, 2).toFixed(2),
+                differenzTime: formatDecimalToTime(mainDifferenceDecimal),
+                stundenkonto: "0.00", // Wird neu berechnet
+                kommen: null, gehen: null,
+                urlaub: isUrlaub, krank: isKrank, schulung: isSchulung, glaz: isGlaz, isEzaTag: isEzaTag,
+                ezaActiveDuringBooking: currentEzaActive,
+                pcBuchung: false,
+                buero: existingEntry ? existingEntry.buero : ($("buero-toggle") ? $("buero-toggle").checked : false),
+                zusatzPause: "",
                 // NEU: Speichere die zum Zeitpunkt der Buchung gültigen Werte
                 usedWochenarbeitszeit: currentWochenAZ,
                 usedSollProTag: currentSollProTag,
               };
-              historyMap.set(currentDateStr, dayData); modified = true; processedCount++;
+              historyMap.set(currentDateStr, dayData);
+              modified = true; processedCount++;
             }
           } else { skippedDays++; }
           currentDate.setUTCDate(currentDate.getUTCDate() + 1);
@@ -1445,9 +1711,11 @@
 
         if (modified) {
           settings.ezaKontoStand = currentEzaStandDecimal; // Final EZA stand speichern
-          storeToLS("ezaKontoStand", settings.ezaKontoStand.toString()); updateEzaKontoDisplay();
+          storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
+          updateEzaKontoDisplay();
+
           const updatedHistory = Array.from(historyMap.values());
-          saveAndReload(updatedHistory);
+          saveAndReload(updatedHistory); // Speichern und Neuberechnen mit Markern
           alert(`Bulk-Aktion "${typeLabel}" erfolgreich für ${processedCount} Tage angewendet. ${skippedDays > 0 ? `(${skippedDays} Tage übersprungen)` : ""}`);
           closeBulkModal();
         } else {
@@ -1456,6 +1724,7 @@
         }
       }
 
+      // Berechnet und zeigt Statistiken an
       function calculateAndDisplayStats() {
         const period = $("stats-period").value;
         const history = getHistory();
@@ -1464,11 +1733,24 @@
         today.setHours(12, 0, 0, 0); // Use local noon
 
         switch (period) {
-          case "current_month": startDate = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0, 0); break;
-          case "last_month": startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear(), today.getMonth(), 0, 12, 0, 0, 0); break;
-          case "current_year": startDate = new Date(today.getFullYear(), 0, 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear(), 11, 31, 12, 0, 0, 0); break;
-          case "last_year": startDate = new Date(today.getFullYear() - 1, 0, 1, 12, 0, 0, 0); endDate = new Date(today.getFullYear() - 1, 11, 31, 12, 0, 0, 0); break;
-          case "all_time": default:
+          case "current_month":
+            startDate = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0, 0);
+            break;
+          case "last_month":
+            startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear(), today.getMonth(), 0, 12, 0, 0, 0);
+            break;
+          case "current_year":
+            startDate = new Date(today.getFullYear(), 0, 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear(), 11, 31, 12, 0, 0, 0);
+            break;
+          case "last_year":
+            startDate = new Date(today.getFullYear() - 1, 0, 1, 12, 0, 0, 0);
+            endDate = new Date(today.getFullYear() - 1, 11, 31, 12, 0, 0, 0);
+            break;
+          case "all_time":
+          default:
             if (history.length === 0) { startDate = new Date(today); endDate = new Date(today); }
             else { startDate = new Date(history[0].datum + "T12:00:00Z"); endDate = new Date(history[history.length - 1].datum + "T12:00:00Z"); }
             break;
@@ -1477,10 +1759,18 @@
         const startDateMs = Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate());
         const endDateMs = Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate());
 
-        const filteredHistory = history.filter((entry) => { const entryDate = new Date(entry.datum + "T12:00:00Z"); const entryDateMs = Date.UTC(entryDate.getUTCFullYear(), entryDate.getUTCMonth(), entryDate.getUTCDate()); return entryDateMs >= startDateMs && entryDateMs <= endDateMs; });
+        const filteredHistory = history.filter((entry) => {
+          const entryDate = new Date(entry.datum + "T12:00:00Z");
+          const entryDateMs = Date.UTC(entryDate.getUTCFullYear(), entryDate.getUTCMonth(), entryDate.getUTCDate());
+          return entryDateMs >= startDateMs && entryDateMs <= endDateMs;
+        });
 
-        let totalNetHoursDecimal = 0, totalDiffDecimal = 0, workDays = 0, officeDays = 0, homeDays = 0, vacationDays = 0, sickDays = 0, trainingDays = 0, glazDays = 0, ezaDays = 0, holidayCount = 0;
-        let currentDate = new Date(startDateMs); const endCheckDateMs = endDateMs;
+        let totalNetHoursDecimal = 0, totalDiffDecimal = 0, workDays = 0, officeDays = 0,
+            homeDays = 0, vacationDays = 0, sickDays = 0, trainingDays = 0,
+            glazDays = 0, ezaDays = 0, holidayCount = 0;
+
+        let currentDate = new Date(startDateMs);
+        const endCheckDateMs = endDateMs;
         const dateMap = new Map(filteredHistory.map((e) => [e.datum, e]));
 
         while (currentDate.getTime() <= endCheckDateMs) {
@@ -1489,12 +1779,17 @@
           const dayOfWeek = currentDate.getUTCDay();
           const holidayName = getHolidayName(currentDate, settings.bundesland);
           if (holidayName && dayOfWeek !== 0 && dayOfWeek !== 6) holidayCount++;
+
           if (entry) {
-            totalDiffDecimal += parseFloat(entry.differenz || "0");
-            if (entry.urlaub) vacationDays++; else if (entry.krank) sickDays++; else if (entry.schulung) trainingDays++; else if (entry.glaz) glazDays++; else if (entry.isEzaTag) ezaDays++;
+            totalDiffDecimal += parseFloat(entry.differenz || "0"); // Summiere gespeicherte Differenz
+            if (entry.urlaub) vacationDays++;
+            else if (entry.krank) sickDays++;
+            else if (entry.schulung) trainingDays++;
+            else if (entry.glaz) glazDays++;
+            else if (entry.isEzaTag) ezaDays++;
             else if (entry.kommen && entry.gehen) {
               workDays++;
-              const netHoursDecimal = calculateNetArbeitszeitFromEntryData(entry);
+              const netHoursDecimal = calculateNetArbeitszeitFromEntryData(entry); // Berechne Netto für Statistik
               totalNetHoursDecimal += netHoursDecimal;
               if (entry.buero) officeDays++; else homeDays++;
             }
@@ -1504,7 +1799,9 @@
 
         const avgDailyHoursDecimal = workDays > 0 ? totalNetHoursDecimal / workDays : 0;
         const statsContent = $("stats-content");
-        if (filteredHistory.length === 0 && holidayCount === 0) { statsContent.innerHTML = `<li>Keine Daten für ausgewählten Zeitraum.</li>`; return; }
+        if (filteredHistory.length === 0 && holidayCount === 0) {
+          statsContent.innerHTML = `<li>Keine Daten für ausgewählten Zeitraum.</li>`; return;
+        }
         statsContent.innerHTML = `
           <li>Gesamt Netto: <span>${formatDecimalToTime(totalNetHoursDecimal)} (${totalNetHoursDecimal.toFixed(2)}h)</span></li>
           <li>Ø Netto / Tag: <span>${formatDecimalToTime(avgDailyHoursDecimal)} (${avgDailyHoursDecimal.toFixed(2)}h)</span></li>
@@ -1521,34 +1818,34 @@
         `;
       }
 
+      // *** GEÄNDERTE exportHistoryToJson() Funktion ***
       function exportHistoryToJson() {
         const history = getHistory(); // Enthält jetzt usedWochenarbeitszeit etc.
         const markers = getBalanceMarkers(); // Marker auch exportieren
+        const initialKonto = getFromLS("initialKontoValue", "0"); // Initialwert auch
 
         if (history.length === 0 && markers.length === 0) {
           alert("Keine Daten zum Export.");
           return;
         }
 
-        // Exportiere nur relevante Felder aus History
         const exportHistory = history.map((entry) => {
           const { dateObj, type, ...rest } = entry; // Exclude temporary/derived fields
           return rest;
         });
 
         const exportData = {
-          settings: {
+          settings: { // Exportiere relevante Settings
             wochenarbeitszeit: settings.wochenarbeitszeit,
             bundesland: settings.bundesland,
             allowWochenende: settings.allowWochenende,
             allowNachtarbeit: settings.allowNachtarbeit,
             ezaActive: settings.ezaActive,
             ezaKontoStand: settings.ezaKontoStand,
-            // initialKontoValue wird nicht mehr direkt verwendet, aber ggf. für Kompatibilität exportieren?
-            // initialKontoValue: parseFloat(getFromLS("initialKontoValue", "0")),
+            initialKontoValue: parseFloat(initialKonto), // Exportiere als Zahl
           },
-          history: exportHistory,
-          balanceMarkers: markers, // Exportiere die Marker
+          balanceMarkers: markers, // Exportiere Marker
+          history: exportHistory, // Exportiere Verlauf
         };
         const jsonData = JSON.stringify(exportData, null, 2);
         const blob = new Blob([jsonData], { type: "application/json" });
@@ -1564,6 +1861,7 @@
         alert("Verlauf, Marker & Optionen exportiert.");
       }
 
+      // *** GEÄNDERTE importHistoryFromJson() Funktion ***
       function importHistoryFromJson() {
         const input = document.createElement("input");
         input.type = "file"; input.accept = ".json"; input.style.display = "none";
@@ -1573,29 +1871,38 @@
           reader.onload = (e) => {
             try {
               const importedJson = JSON.parse(e.target.result);
-              let importedHistory = [], importedSettings = null, importedMarkers = [];
+              let importedHistory = [], importedSettings = null, importedMarkers = [], initialKontoValue = 0;
 
-              if (Array.isArray(importedJson)) { // Altes Format (nur History)
-                importedHistory = importedJson;
-                alert("Altes Exportformat erkannt (nur Verlauf). Einstellungen und Marker werden nicht importiert.");
-              } else if (typeof importedJson === "object" && importedJson !== null) {
-                importedHistory = importedJson.history || [];
-                importedSettings = importedJson.settings || {};
-                importedMarkers = importedJson.balanceMarkers || []; // Importiere Marker
+              // Prüfe neues Format (Objekt mit history, settings, balanceMarkers)
+              if (typeof importedJson === 'object' && importedJson !== null && Array.isArray(importedJson.history)) {
+                  importedHistory = importedJson.history;
+                  importedSettings = importedJson.settings || {};
+                  importedMarkers = importedJson.balanceMarkers || [];
+                  initialKontoValue = parseFloat(importedSettings.initialKontoValue || "0");
+              }
+              // Prüfe altes Format (nur Array)
+              else if (Array.isArray(importedJson)) {
+                  importedHistory = importedJson;
+                  alert("Altes Exportformat erkannt (nur Verlauf). Einstellungen, Marker und Initialwert werden nicht importiert. Standardwerte werden verwendet.");
+                  // Setze Standardwerte für fehlende Daten
+                  importedSettings = {}; // Leeres Objekt, damit Fallbacks greifen
+                  importedMarkers = [];
+                  initialKontoValue = 0;
               } else {
-                throw new Error("Unbekanntes oder ungültiges Importformat.");
+                  throw new Error("Unbekanntes oder ungültiges Importformat.");
               }
 
               if (importedHistory.length > 0 && (importedHistory[0].datum === undefined)) {
                 throw new Error("Ungültige Verlaufsdaten im Import ('datum' fehlt).");
               }
               if (importedMarkers.length > 0 && (importedMarkers[0].datum === undefined || importedMarkers[0].kontostand === undefined)) {
-                  throw new Error("Ungültige Markerdaten im Import ('datum' oder 'kontostand' fehlt).");
+                throw new Error("Ungültige Markerdaten im Import ('datum' oder 'kontostand' fehlt).");
               }
 
-              // Bereinige History-Importdaten
+              // Bereinige Verlaufsdaten
               const sanitizedHistory = importedHistory.map((entry) => ({
-                datum: entry.datum, differenz: entry.differenz || "0.00",
+                datum: entry.datum,
+                differenz: entry.differenz || "0.00",
                 differenzTime: entry.differenzTime || formatDecimalToTime(parseFloat(entry.differenz || "0")),
                 stundenkonto: "0.00", // Immer zurücksetzen
                 kommen: entry.kommen || null, gehen: entry.gehen || null,
@@ -1604,44 +1911,43 @@
                 ezaActiveDuringBooking: entry.ezaActiveDuringBooking || false,
                 pcBuchung: entry.pcBuchung || false, buero: entry.buero || false,
                 zusatzPause: entry.zusatzPause || "",
-                // NEU: Historische Sollzeit übernehmen oder null setzen
-                usedWochenarbeitszeit: entry.usedWochenarbeitszeit || null,
-                usedSollProTag: entry.usedSollProTag || null,
+                // Übernehme historische Sollzeiten oder setze Fallback
+                usedWochenarbeitszeit: entry.usedWochenarbeitszeit || parseFloat(importedSettings.wochenarbeitszeit || 38),
+                usedSollProTag: entry.usedSollProTag || (entry.usedWochenarbeitszeit || parseFloat(importedSettings.wochenarbeitszeit || 38)) / 5,
               }));
 
-              // Bereinige Marker-Importdaten
+              // Bereinige Markerdaten
               const sanitizedMarkers = importedMarkers.map(marker => ({
                   datum: marker.datum,
                   kontostand: String(marker.kontostand || "0") // Sicherstellen, dass String
               }));
 
-              let confirmationMessage = `Wirklich ${sanitizedHistory.length} Einträge und ${sanitizedMarkers.length} Marker importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`;
-              if (importedSettings) confirmationMessage += "\n\nGespeicherte Einstellungen werden ebenfalls übernommen.";
+              let confirmationMessage = `Wirklich ${sanitizedHistory.length} Einträge`;
+              if (sanitizedMarkers.length > 0) confirmationMessage += ` und ${sanitizedMarkers.length} Marker`;
+              confirmationMessage += ` importieren? ACHTUNG: Alle vorhandenen Daten werden überschrieben!`;
+              if (importedSettings && Object.keys(importedSettings).length > 0) confirmationMessage += "\n\nGespeicherte Einstellungen werden ebenfalls übernommen.";
 
               if (confirm(confirmationMessage)) {
-                if (importedSettings) {
-                  settings.wochenarbeitszeit = parseFloat(importedSettings.wochenarbeitszeit || 38);
-                  settings.bundesland = importedSettings.bundesland || "NATIONAL";
-                  settings.allowWochenende = !!importedSettings.allowWochenende;
-                  settings.allowNachtarbeit = !!importedSettings.allowNachtarbeit;
-                  settings.ezaActive = !!importedSettings.ezaActive;
-                  settings.ezaKontoStand = parseFloat(importedSettings.ezaKontoStand || 0);
-                  saveSettings(); // Speichert Settings in LS
-                  storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
-                  updateEzaKontoDisplay();
-                }
+                // Einstellungen übernehmen (mit Fallbacks)
+                settings.wochenarbeitszeit = parseFloat(importedSettings.wochenarbeitszeit || 38);
+                settings.bundesland = importedSettings.bundesland || "NATIONAL";
+                settings.allowWochenende = !!importedSettings.allowWochenende;
+                settings.allowNachtarbeit = !!importedSettings.allowNachtarbeit;
+                settings.ezaActive = !!importedSettings.ezaActive;
+                settings.ezaKontoStand = parseFloat(importedSettings.ezaKontoStand || 0);
+                saveSettings(); // Speichert die übernommenen Settings
+                storeToLS("ezaKontoStand", settings.ezaKontoStand.toString()); // EZA extra speichern
+                updateEzaKontoDisplay();
 
-                // Speichere importierte Marker (werden in storeBalanceMarkers sortiert)
-                storeBalanceMarkers(sanitizedMarkers);
-                balanceMarkers = getBalanceMarkers(); // Lade sie ins globale Array
+                // Initialwert und Marker speichern
+                storeToLS("initialKontoValue", initialKontoValue.toString());
+                storeBalanceMarkers(sanitizedMarkers); // Speichert die bereinigten Marker
 
-                // Initialwert wird nicht mehr direkt verwendet, kann aber auf 0 gesetzt werden
-                storeToLS("initialKontoValue", "0");
-
-                saveAndReload(sanitizedHistory); // Speichern & Neuberechnen mit neuen Daten und Markern
+                // Verlauf speichern & Neuberechnung anstoßen
+                saveAndReload(sanitizedHistory);
 
                 alert("Daten erfolgreich importiert.");
-                switchView("main"); // Zur Hauptseite wechseln
+                switchView("main"); // Zur Hauptansicht wechseln
               }
             } catch (error) {
               console.error("Importfehler:", error);
@@ -1667,28 +1973,210 @@
         if (modal) modal.style.display = "none";
       }
 
+      // *** NEUE FUNKTIONEN für das Marker-Modal ***
+      function showAddMarkerModal() {
+          $("marker-date").value = "";
+          $("marker-balance").value = "";
+          $("add-marker-modal").style.display = "flex";
+      }
+
+      function closeAddMarkerModal() {
+          const modal = $("add-marker-modal");
+          if (modal) modal.style.display = "none";
+      }
+
+      function saveBalanceMarker() {
+          const dateStr = $("marker-date").value; // YYYY-MM-DD
+          const balanceStr = $("marker-balance").value;
+
+          if (!dateStr) { alert("Bitte ein Datum für den Marker auswählen."); return; }
+          if (balanceStr === "" || isNaN(parseFloat(balanceStr))) { alert("Bitte einen gültigen Kontostand eingeben."); return; }
+
+          const newBalance = parseFloat(balanceStr);
+          const displayDate = new Date(dateStr + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
+
+          balanceMarkers = getBalanceMarkers(); // Aktuelle Marker holen
+          const existingIndex = balanceMarkers.findIndex(m => m.datum === dateStr);
+
+          if (existingIndex !== -1) {
+              if (!confirm(`Für ${displayDate} existiert bereits ein Marker (${balanceMarkers[existingIndex].kontostand}h).\nSoll dieser überschrieben werden mit ${newBalance.toFixed(2)}h?`)) {
+                  return;
+              }
+              balanceMarkers[existingIndex].kontostand = newBalance.toFixed(2);
+          } else {
+              balanceMarkers.push({ datum: dateStr, kontostand: newBalance.toFixed(2) });
+          }
+
+          storeBalanceMarkers(balanceMarkers); // Speichern (wird sortiert)
+          renderBalanceMarkers(); // Liste in Optionen aktualisieren
+          saveAndReload(getHistory()); // Verlauf neu berechnen mit neuem Marker
+          alert(`Marker für ${displayDate} mit ${newBalance.toFixed(2)}h gespeichert.`);
+          closeAddMarkerModal();
+      }
+
+      function deleteBalanceMarker(dateStr) {
+          balanceMarkers = getBalanceMarkers(); // Aktuelle Marker holen
+          const markerIndex = balanceMarkers.findIndex(m => m.datum === dateStr);
+          if (markerIndex === -1) return; // Sollte nicht passieren
+
+          const displayDate = new Date(dateStr + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
+          const markerValue = balanceMarkers[markerIndex].kontostand;
+
+          if (confirm(`Soll der Marker für ${displayDate} (${markerValue}h) wirklich gelöscht werden?`)) {
+              balanceMarkers.splice(markerIndex, 1);
+              storeBalanceMarkers(balanceMarkers);
+              renderBalanceMarkers();
+              saveAndReload(getHistory()); // Verlauf neu berechnen ohne den Marker
+              alert(`Marker für ${displayDate} gelöscht.`);
+          }
+      }
+
+
       document.addEventListener("DOMContentLoaded", init);
     </script>
 
     <style>
-      /* CSS (inkl. neue Marker-Styles) */
+      /* CSS (inkl. Marker-Liste und Modal-Styles) */
       :root {
         /* Light Mode */
-        --system-background-light: #f2f2f7; --system-secondary-background-light: #ffffff; --system-tertiary-background-light: #e5e5ea; --text-color-light: #000000; --secondary-text-color-light: rgba(60, 60, 67, 0.6); --readonly-text-color-light: rgba(0, 0, 0, 0.75); --separator-color-light: rgba(60, 60, 67, 0.29); --input-border-color-light: rgba(60, 60, 67, 0.2); --system-blue-light: #007aff; --system-green-light: #34c759; --system-red-light: #ff3b30; --system-orange-light: #ff9500; --system-yellow-light: #ffcc00; --system-teal-light: #5ac8fa; --system-purple-light: #af52de; --system-indigo-light: #5856d6; --system-pink-light: #ff2d55; --system-pastel-green-light: #a1e8b5; --system-gray-light: #8e8e93; --system-gray2-light: #aeaeb2;
+        --system-background-light: #f2f2f7;
+        --system-secondary-background-light: #ffffff;
+        --system-tertiary-background-light: #e5e5ea; /* Used for marker list bg */
+        --text-color-light: #000000;
+        --secondary-text-color-light: rgba(60, 60, 67, 0.6);
+        --readonly-text-color-light: rgba(0, 0, 0, 0.75);
+        --separator-color-light: rgba(60, 60, 67, 0.29);
+        --input-border-color-light: rgba(60, 60, 67, 0.2);
+        --system-blue-light: #007aff; /* Positiv */
+        --system-green-light: #34c759; /* Null Saldo */
+        --system-red-light: #ff3b30; /* Krank / Delete */
+        --system-orange-light: #ff9500; /* Negativ */
+        --system-yellow-light: #ffcc00; /* GLAZ */
+        --system-teal-light: #5ac8fa; /* Urlaub */
+        --system-purple-light: #af52de;
+        --system-indigo-light: #5856d6; /* Holiday */
+        --system-pink-light: #ff2d55; /* EZA-Tag */
+        --system-pastel-green-light: #a1e8b5; /* Schulung */
+        --system-gray-light: #8e8e93;
+        --system-gray2-light: #aeaeb2;
+
         /* Dark Mode */
-        --system-background-dark: #000000; --system-secondary-background-dark: #1c1c1e; --system-tertiary-background-dark: #2c2c2e; --text-color-dark: #ffffff; --secondary-text-color-dark: rgba(235, 235, 245, 0.6); --readonly-text-color-dark: rgba(255, 255, 255, 0.75); --separator-color-dark: rgba(84, 84, 88, 0.65); --input-border-color-dark: rgba(84, 84, 88, 0.5); --system-blue-dark: #0a84ff; --system-green-dark: #30d158; --system-red-dark: #ff453a; --system-orange-dark: #ff9f0a; --system-yellow-dark: #ffd60a; --system-teal-dark: #64d2ff; --system-purple-dark: #bf5af2; --system-indigo-dark: #5e5ce6; --system-pink-dark: #ff375f; --system-pastel-green-dark: #4f8a61; --system-gray-dark: #8e8e93; --system-gray2-dark: #3a3a3c;
+        --system-background-dark: #000000;
+        --system-secondary-background-dark: #1c1c1e;
+        --system-tertiary-background-dark: #2c2c2e; /* Used for marker list bg */
+        --text-color-dark: #ffffff;
+        --secondary-text-color-dark: rgba(235, 235, 245, 0.6);
+        --readonly-text-color-dark: rgba(255, 255, 255, 0.75);
+        --separator-color-dark: rgba(84, 84, 88, 0.65);
+        --input-border-color-dark: rgba(84, 84, 88, 0.5);
+        --system-blue-dark: #0a84ff; /* Positiv */
+        --system-green-dark: #30d158; /* Null Saldo */
+        --system-red-dark: #ff453a; /* Krank / Delete */
+        --system-orange-dark: #ff9f0a; /* Negativ */
+        --system-yellow-dark: #ffd60a; /* GLAZ */
+        --system-teal-dark: #64d2ff; /* Urlaub */
+        --system-purple-dark: #bf5af2;
+        --system-indigo-dark: #5e5ce6; /* Holiday */
+        --system-pink-dark: #ff375f; /* EZA-Tag */
+        --system-pastel-green-dark: #4f8a61; /* Schulung */
+        --system-gray-dark: #8e8e93;
+        --system-gray2-dark: #3a3a3c;
+
         /* Semantic Colors */
-        --background-color: var(--system-background-light); --card-background-color: var(--system-secondary-background-light); --input-background-color: var(--system-tertiary-background-light); --text-color: var(--text-color-light); --secondary-text-color: var(--secondary-text-color-light); --readonly-text-color: var(--readonly-text-color-light); --separator-color: var(--separator-color-light); --input-border-color: var(--input-border-color-light); --button-background-color: var(--system-blue-light); --button-text-color: #ffffff; --positive-value-bg: var(--system-blue-light); --negative-value-bg: var(--system-orange-light); --zero-value-bg: var(--system-green-light); --hint-color: var(--system-red-light); --special-day-urlaub-bg: var(--system-teal-light); --special-day-krank-bg: var(--system-red-light); --special-day-glaz-bg: var(--system-yellow-light); --special-day-schulung-bg: var(--system-pastel-green-light); --special-day-eza-bg: var(--system-pink-light); --holiday-bg: var(--system-indigo-light); --special-day-text: #000000; --special-day-krank-text: #ffffff; --special-day-glaz-text: #000000; --special-day-schulung-text: #000000; --special-day-eza-text: #ffffff; --holiday-text: #ffffff; --nav-background: var(--system-secondary-background-light); --nav-icon-color: var(--system-gray-light); --nav-icon-active-color: var(--system-blue-light); --slider-bg-color: var(--system-gray2-light); --slider-checked-bg-color: var(--system-green-light); --outline-color: var(--secondary-text-color-light); --inactive-indicator-color: var(--secondary-text-color-light);
-        --safe-area-top: env(safe-area-inset-top, 0px); --safe-area-bottom: env(safe-area-inset-bottom, 0px); --safe-area-left: env(safe-area-inset-left, 0px); --safe-area-right: env(safe-area-inset-right, 0px);
+        --background-color: var(--system-background-light);
+        --card-background-color: var(--system-secondary-background-light);
+        --input-background-color: var(--system-tertiary-background-light);
+        --text-color: var(--text-color-light);
+        --secondary-text-color: var(--secondary-text-color-light);
+        --readonly-text-color: var(--readonly-text-color-light);
+        --separator-color: var(--separator-color-light);
+        --input-border-color: var(--input-border-color-light);
+        --button-background-color: var(--system-blue-light);
+        --button-text-color: #ffffff;
+        --positive-value-bg: var(--system-blue-light);
+        --negative-value-bg: var(--system-orange-light);
+        --zero-value-bg: var(--system-green-light);
+        --hint-color: var(--system-red-light);
+        --delete-button-bg: var(--system-red-light);
+        --special-day-urlaub-bg: var(--system-teal-light);
+        --special-day-krank-bg: var(--system-red-light);
+        --special-day-glaz-bg: var(--system-yellow-light);
+        --special-day-schulung-bg: var(--system-pastel-green-light);
+        --special-day-eza-bg: var(--system-pink-light);
+        --holiday-bg: var(--system-indigo-light);
+        --special-day-text: #000000;
+        --special-day-krank-text: #ffffff;
+        --special-day-glaz-text: #000000;
+        --special-day-schulung-text: #000000;
+        --special-day-eza-text: #ffffff;
+        --holiday-text: #ffffff;
+        --nav-background: var(--system-secondary-background-light);
+        --nav-icon-color: var(--system-gray-light);
+        --nav-icon-active-color: var(--system-blue-light);
+        --slider-bg-color: var(--system-gray2-light);
+        --slider-checked-bg-color: var(--system-green-light);
+        --outline-color: var(--secondary-text-color-light);
+        --inactive-indicator-color: var(--secondary-text-color-light);
+        --marker-list-bg: var(--system-tertiary-background-light);
+
+        --safe-area-top: env(safe-area-inset-top, 0px);
+        --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+        --safe-area-left: env(safe-area-inset-left, 0px);
+        --safe-area-right: env(safe-area-inset-right, 0px);
       }
+
       @media (prefers-color-scheme: dark) {
         :root {
-          --background-color: var(--system-background-dark); --card-background-color: var(--system-secondary-background-dark); --input-background-color: var(--system-tertiary-background-dark); --text-color: var(--text-color-dark); --secondary-text-color: var(--secondary-text-color-dark); --readonly-text-color: var(--readonly-text-color-dark); --separator-color: var(--separator-color-dark); --input-border-color: var(--input-border-color-dark); --button-background-color: var(--system-blue-dark); --positive-value-bg: var(--system-blue-dark); --negative-value-bg: var(--system-orange-dark); --zero-value-bg: var(--system-green-dark); --hint-color: var(--system-red-dark); --special-day-urlaub-bg: var(--system-teal-dark); --special-day-krank-bg: var(--system-red-dark); --special-day-glaz-bg: var(--system-yellow-dark); --special-day-schulung-bg: var(--system-pastel-green-dark); --special-day-eza-bg: var(--system-pink-dark); --holiday-bg: var(--system-indigo-dark); --special-day-text: #000000; --special-day-krank-text: #ffffff; --special-day-glaz-text: #000000; --special-day-schulung-text: #ffffff; --special-day-eza-text: #ffffff; --holiday-text: #ffffff; --nav-background: var(--system-secondary-background-dark); --nav-icon-color: var(--system-gray-dark); --nav-icon-active-color: var(--system-blue-dark); --slider-bg-color: var(--system-gray2-dark); --slider-checked-bg-color: var(--system-green-dark); --outline-color: var(--secondary-text-color-dark); --inactive-indicator-color: var(--secondary-text-color-dark);
+          --background-color: var(--system-background-dark);
+          --card-background-color: var(--system-secondary-background-dark);
+          --input-background-color: var(--system-tertiary-background-dark);
+          --text-color: var(--text-color-dark);
+          --secondary-text-color: var(--secondary-text-color-dark);
+          --readonly-text-color: var(--readonly-text-color-dark);
+          --separator-color: var(--separator-color-dark);
+          --input-border-color: var(--input-border-color-dark);
+          --button-background-color: var(--system-blue-dark);
+          --positive-value-bg: var(--system-blue-dark);
+          --negative-value-bg: var(--system-orange-dark);
+          --zero-value-bg: var(--system-green-dark);
+          --hint-color: var(--system-red-dark);
+          --delete-button-bg: var(--system-red-dark);
+          --special-day-urlaub-bg: var(--system-teal-dark);
+          --special-day-krank-bg: var(--system-red-dark);
+          --special-day-glaz-bg: var(--system-yellow-dark);
+          --special-day-schulung-bg: var(--system-pastel-green-dark);
+          --special-day-eza-bg: var(--system-pink-dark);
+          --holiday-bg: var(--system-indigo-dark);
+          --special-day-text: #000000;
+          --special-day-krank-text: #ffffff;
+          --special-day-glaz-text: #000000;
+          --special-day-schulung-text: #ffffff;
+          --special-day-eza-text: #ffffff;
+          --holiday-text: #ffffff;
+          --nav-background: var(--system-secondary-background-dark);
+          --nav-icon-color: var(--system-gray-dark);
+          --nav-icon-active-color: var(--system-blue-dark);
+          --slider-bg-color: var(--system-gray2-dark);
+          --slider-checked-bg-color: var(--system-green-dark);
+          --outline-color: var(--secondary-text-color-dark);
+          --inactive-indicator-color: var(--secondary-text-color-dark);
+          --marker-list-bg: var(--system-tertiary-background-dark);
         }
       }
-      html, body { background-color: var(--background-color); color: var(--text-color); margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: rgba(0, 0, 0, 0); height: 100%; overflow: hidden; }
+
+      html, body {
+        background-color: var(--background-color); color: var(--text-color);
+        margin: 0; padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+        height: 100%; overflow: hidden;
+      }
       #app-container { display: flex; flex-direction: column; height: 100vh; }
-      .page { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: var(--safe-area-top) calc(15px + var(--safe-area-left)) calc(105px + var(--safe-area-bottom)) calc(15px + var(--safe-area-right)); display: none; } /* Adjusted bottom padding for nav bar */
+      .page {
+        flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+        padding: var(--safe-area-top) calc(15px + var(--safe-area-left)) calc(105px + var(--safe-area-bottom)) calc(15px + var(--safe-area-right)); /* Adjusted bottom padding */
+        display: none;
+      }
       .page.active { display: block; }
       .container { max-width: 600px; margin: 0 auto; padding-bottom: 0; }
       h1 { font-size: 34px; font-weight: 700; margin: 10px 0 20px 0; }
@@ -1696,18 +2184,28 @@
       h3 { font-size: 17px; font-weight: 600; margin: 0 0 10px 0; color: var(--secondary-text-color); text-transform: uppercase; }
       label { font-size: 15px; font-weight: 400; color: var(--secondary-text-color); display: block; margin-bottom: 5px; }
       p { font-size: 17px; line-height: 1.4; margin: 5px 0 15px 0; }
-      .section { background-color: var(--card-background-color); border-radius: 10px; padding: 15px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+      .section { background-color: var(--card-background-color); border-radius: 10px; padding: 15px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
       @media (prefers-color-scheme: dark) { .section { box-shadow: none; } }
-      .button, .inline-button, .delete-button, .add-button, .link-button { background-color: var(--button-background-color); color: var(--button-text-color); border: none; border-radius: 8px; font-weight: 600; cursor: pointer; box-sizing: border-box; line-height: 1.2em; text-align: center; transition: background-color 0.1s ease-in-out; -webkit-appearance: none; appearance: none; }
+      .button, .inline-button, .delete-button, .add-button, .link-button {
+        background-color: var(--button-background-color); color: var(--button-text-color);
+        border: none; border-radius: 8px; font-weight: 600; cursor: pointer;
+        box-sizing: border-box; line-height: 1.2em; text-align: center;
+        transition: background-color 0.1s ease-in-out; -webkit-appearance: none; appearance: none;
+      }
       .button { width: 100%; padding: 12px 15px; font-size: 17px; min-height: 44px; margin-bottom: 10px; }
       .inline-button, .delete-button, .add-button { font-size: 15px; padding: 8px 12px; min-height: 36px; }
-      .delete-button { background-color: var(--hint-color); }
+      .delete-button { background-color: var(--delete-button-bg); }
       .add-button { background-color: var(--system-green-light); }
       @media (prefers-color-scheme: dark) { .add-button { background-color: var(--system-green-dark); } }
       .link-button { background: none; color: var(--button-background-color); padding: 5px 0; font-size: 15px; text-decoration: none; display: inline-block; margin-top: 10px; }
       .button:active, .inline-button:active, .delete-button:active, .add-button:active, .link-button:active { filter: brightness(0.85); }
-      input[type="time"], input[type="number"], input[type="text"], input[type="date"], select { width: 100%; padding: 12px 15px; font-size: 17px; border: 1px solid var(--input-border-color); border-radius: 8px; margin-bottom: 10px; background-color: var(--input-background-color); color: var(--text-color); box-sizing: border-box; -webkit-appearance: none; appearance: none; line-height: 1.2em; min-height: 44px; }
-      #eza-konto-input, #eza-konto-display { height: 44px; box-sizing: border-box; }
+      input[type="time"], input[type="number"], input[type="text"], input[type="date"], select {
+        width: 100%; padding: 12px 15px; font-size: 17px; border: 1px solid var(--input-border-color);
+        border-radius: 8px; margin-bottom: 10px; background-color: var(--input-background-color);
+        color: var(--text-color); box-sizing: border-box; -webkit-appearance: none; appearance: none;
+        line-height: 1.2em; min-height: 44px;
+      }
+      #korrektur-datum, #korrektur-wert, #eza-konto-input, #eza-konto-display, #marker-date, #marker-balance { height: 44px; box-sizing: border-box; } /* Ensure consistent height */
       input:read-only { background-color: var(--card-background-color); color: var(--readonly-text-color); cursor: default; border: 1px solid var(--input-border-color); }
       input:disabled { background-color: var(--system-tertiary-background-light); color: var(--secondary-text-color); opacity: 0.7; cursor: not-allowed; }
       @media (prefers-color-scheme: dark) { input:disabled { background-color: var(--system-tertiary-background-dark); } }
@@ -1724,7 +2222,7 @@
       .moon-mark-calendar { font-size: 0.7em; vertical-align: super; margin-left: 1px; }
       .switch-container { display: flex; align-items: center; margin-bottom: 15px; min-height: 44px; }
       .switch-container span { margin-left: 10px; font-size: 17px; }
-      .switch { position: relative; display: inline-block; width: 64px; height: 31px; flex-shrink: 0; } /* iOS Standard Size */
+      .switch { position: relative; display: inline-block; width: 65px; height: 31px; flex-shrink: 0; } /* iOS Standard Size */
       .switch input { opacity: 0; width: 0; height: 0; }
       .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--slider-bg-color); transition: .4s; border-radius: 15.5px; }
       .slider:before { position: absolute; content: ""; height: 27px; width: 27px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
@@ -1742,14 +2240,26 @@
       .history-item:last-child { border-bottom: none; }
       .history-entry-content { flex-grow: 1; padding: 5px; border-radius: 6px; background-color: transparent; border-left: 3px solid transparent; transition: background-color 0.2s ease; }
       .history-entry-content.holiday-day { background-color: var(--holiday-bg); color: var(--holiday-text); }
-      .history-entry-content.special-day.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); } .history-entry-content.special-day.special-day-krank-bg { background-color: var(--special-day-krank-bg); } .history-entry-content.special-day.special-day-schulung-bg { background-color: var(--special-day-schulung-bg); } .history-entry-content.special-day.special-day-eza-bg { background-color: var(--special-day-eza-bg); } .history-entry-content.special-day.special-day-glaz-bg { background-color: var(--special-day-glaz-bg); }
-      .history-entry-content.special-day[style*="--special-day-text"] { color: var(--special-day-text); } .history-entry-content.special-day[style*="--special-day-krank-text"] { color: var(--special-day-krank-text); } .history-entry-content.special-day[style*="--special-day-glaz-text"] { color: var(--special-day-glaz-text); } .history-entry-content.special-day[style*="--special-day-schulung-text"] { color: var(--special-day-schulung-text); } .history-entry-content.special-day[style*="--special-day-eza-text"] { color: var(--special-day-eza-text); }
+      .history-entry-content.special-day.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); }
+      .history-entry-content.special-day.special-day-krank-bg { background-color: var(--special-day-krank-bg); }
+      .history-entry-content.special-day.special-day-schulung-bg { background-color: var(--special-day-schulung-bg); }
+      .history-entry-content.special-day.special-day-eza-bg { background-color: var(--special-day-eza-bg); }
+      .history-entry-content.special-day.special-day-glaz-bg { background-color: var(--special-day-glaz-bg); }
+      .history-entry-content.special-day[style*="--special-day-text"] { color: var(--special-day-text); }
+      .history-entry-content.special-day[style*="--special-day-krank-text"] { color: var(--special-day-krank-text); }
+      .history-entry-content.special-day[style*="--special-day-glaz-text"] { color: var(--special-day-glaz-text); }
+      .history-entry-content.special-day[style*="--special-day-schulung-text"] { color: var(--special-day-schulung-text); }
+      .history-entry-content.special-day[style*="--special-day-eza-text"] { color: var(--special-day-eza-text); }
       .history-entry-content.holiday-day div:last-child { color: var(--holiday-text); }
       .history-entry-content.violation-day { border-left: 3px solid var(--hint-color); background-color: rgba(255, 59, 48, 0.05); }
       .history-entry-content.no-data { color: var(--secondary-text-color); }
       .history-entry-content div:first-child { font-weight: 500; }
       .history-entry-content div:last-child { font-size: 15px; color: var(--secondary-text-color); margin-top: 4px; }
-      .history-entry-content.special-day[style*="--special-day-text"] div:last-child { color: var(--special-day-text); } .history-entry-content.special-day[style*="--special-day-krank-text"] div:last-child { color: var(--special-day-krank-text); } .history-entry-content.special-day[style*="--special-day-glaz-text"] div:last-child { color: var(--special-day-glaz-text); } .history-entry-content.special-day[style*="--special-day-schulung-text"] div:last-child { color: var(--special-day-schulung-text); } .history-entry-content.special-day[style*="--special-day-eza-text"] div:last-child { color: var(--special-day-eza-text); }
+      .history-entry-content.special-day[style*="--special-day-text"] div:last-child { color: var(--special-day-text); }
+      .history-entry-content.special-day[style*="--special-day-krank-text"] div:last-child { color: var(--special-day-krank-text); }
+      .history-entry-content.special-day[style*="--special-day-glaz-text"] div:last-child { color: var(--special-day-glaz-text); }
+      .history-entry-content.special-day[style*="--special-day-schulung-text"] div:last-child { color: var(--special-day-schulung-text); }
+      .history-entry-content.special-day[style*="--special-day-eza-text"] div:last-child { color: var(--special-day-eza-text); }
       .history-entry-content.holiday-day div:last-child { color: var(--holiday-text); }
       .violation-mark { color: var(--hint-color); font-weight: bold; }
       .history-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
@@ -1760,8 +2270,8 @@
       .history-entry-content.eza-booked-outline-history { outline: 1px solid var(--outline-color); outline-offset: -2px; }
       #weekly-summary, #month-summary { padding: 15px; background-color: var(--card-background-color); border-radius: 10px; margin-top: 20px; text-align: center; font-size: 17px; font-weight: 500; }
       #pagination, #month-pagination { display: flex; justify-content: space-between; align-items: center; margin: 20px 0; }
-      .modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0, 0, 0, 0.4); justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
-      .modal-content { background-color: var(--card-background-color); border-radius: 14px; padding: 20px; max-width: 400px; width: 90%; margin: auto; color: var(--text-color); box-sizing: border-box; position: relative; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); }
+      .modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; }
+      .modal-content { background-color: var(--card-background-color); border-radius: 14px; padding: 20px; max-width: 400px; width: 90%; margin: auto; color: var(--text-color); box-sizing: border-box; position: relative; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
       .modal-content h3 { margin-top: 0; margin-bottom: 15px; }
       .close-button { position: absolute; top: 10px; right: 10px; background: var(--system-gray2-light); border: none; color: var(--secondary-text-color); font-size: 14px; font-weight: bold; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; justify-content: center; align-items: center; line-height: 1; padding: 0; }
       @media (prefers-color-scheme: dark) { .close-button { background: var(--system-gray2-dark); } }
@@ -1772,10 +2282,18 @@
       .calendar-day { display: flex; justify-content: center; align-items: center; aspect-ratio: 1 / 1; font-size: 16px; position: relative; cursor: default; }
       .calendar-day.empty { visibility: hidden; }
       .calendar-day.weekend .calendar-day-content { color: var(--secondary-text-color); }
-      .calendar-day.no-entry { cursor: pointer; } .calendar-day.has-entry { cursor: pointer; } .calendar-day.holiday { cursor: help; }
+      .calendar-day.no-entry { cursor: pointer; }
+      .calendar-day.has-entry { cursor: pointer; }
+      .calendar-day.holiday { cursor: help; }
       .calendar-day-content { display: flex; justify-content: center; align-items: center; width: 85%; height: 85%; border-radius: 50%; transition: transform 0.1s ease; position: relative; box-sizing: border-box; }
-      .calendar-day-content.positive-value { color: var(--button-text-color); } .calendar-day-content.negative-value { color: #000000; } .calendar-day-content.zero-value { color: #000000; }
-      .calendar-day-content.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text) !important; } .calendar-day-content.special-day-krank-bg { background-color: var(--special-day-krank-bg); color: var(--special-day-krank-text) !important; } .calendar-day-content.special-day-schulung-bg { background-color: var(--special-day-schulung-bg); color: var(--special-day-schulung-text) !important; } .calendar-day-content.special-day-eza-bg { background-color: var(--special-day-eza-bg); color: var(--special-day-eza-text) !important; } .calendar-day-content.special-day-glaz-bg { background-color: var(--special-day-glaz-bg); color: var(--special-day-glaz-text) !important; }
+      .calendar-day-content.positive-value { color: var(--button-text-color); }
+      .calendar-day-content.negative-value { color: #000000; }
+      .calendar-day-content.zero-value { color: #000000; }
+      .calendar-day-content.special-day-urlaub-bg { background-color: var(--special-day-urlaub-bg); color: var(--special-day-text) !important; }
+      .calendar-day-content.special-day-krank-bg { background-color: var(--special-day-krank-bg); color: var(--special-day-krank-text) !important; }
+      .calendar-day-content.special-day-schulung-bg { background-color: var(--special-day-schulung-bg); color: var(--special-day-schulung-text) !important; }
+      .calendar-day-content.special-day-eza-bg { background-color: var(--special-day-eza-bg); color: var(--special-day-eza-text) !important; }
+      .calendar-day-content.special-day-glaz-bg { background-color: var(--special-day-glaz-bg); color: var(--special-day-glaz-text) !important; }
       .calendar-day-content.holiday-day { background-color: var(--holiday-bg); color: var(--holiday-text) !important; }
       .calendar-day-content.today { font-weight: bold; border: 2px solid var(--button-background-color); }
       .calendar-day.has-entry .calendar-day-content.today { border: 2px solid var(--text-color); }
@@ -1790,23 +2308,57 @@
       #legend-modal .modal-content { max-width: 450px; }
       .legend-list { list-style: none; padding: 0; margin: 0; }
       .legend-item { display: flex; align-items: center; margin-bottom: 10px; font-size: 15px; }
-      .legend-color-dot { width: 18px; height: 18px; border-radius: 50%; margin-right: 10px; flex-shrink: 0; border: 1px solid rgba(0, 0, 0, 0.1); }
+      .legend-color-dot { width: 18px; height: 18px; border-radius: 50%; margin-right: 10px; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.1); }
       .legend-outline-indicator { width: 18px; height: 18px; border-radius: 50%; margin-right: 10px; flex-shrink: 0; border: 3px solid var(--outline-color); box-sizing: border-box; background-color: var(--card-background-color); }
       .legend-text { flex-grow: 1; }
-      /* NEU: Styling für Marker-Liste */
-      .marker-list { list-style: none; padding: 0; margin: 0; background-color: var(--system-tertiary-background-light); border-radius: 8px; padding: 10px; }
-      @media (prefers-color-scheme: dark) { .marker-list { background-color: var(--system-tertiary-background-dark); } }
-      .marker-list li { display: flex; justify-content: space-between; align-items: center; padding: 8px 5px; font-size: 15px; border-bottom: 1px solid var(--separator-color); }
-      .marker-list li:last-child { border-bottom: none; }
-      .marker-list li span { flex-grow: 1; margin-right: 10px; }
-      .marker-list .delete-button { flex-shrink: 0; padding: 4px 8px; font-size: 14px; min-height: auto; }
-      /* NEU: Styling für Marker-Modal */
-      #add-marker-modal .modal-content { max-width: 350px; }
-      /* Bottom Nav Styles */
       #bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; height: 40px; background-color: var(--nav-background); border-top: 0.5px solid var(--separator-color); display: flex; justify-content: space-around; align-items: flex-start; padding-top: 5px; padding-bottom: var(--safe-area-bottom); z-index: 1000; }
-      .nav-item { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; /* Align top */ flex: 1; color: var(--nav-icon-color); text-decoration: none; font-size: 10px; cursor: pointer; padding: 0 2px; text-align: center; height: 45px; box-sizing: border-box; }
+      .nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; color: var(--nav-icon-color); text-decoration: none; font-size: 10px; cursor: pointer; padding: 0 2px; text-align: center; height: 45px; box-sizing: border-box; }
       .nav-item svg { width: 24px; height: 24px; margin-bottom: 2px; fill: currentColor; }
       .nav-item.active { color: var(--nav-icon-active-color); }
+
+      /* NEU: Styling für die Marker-Liste in den Optionen */
+      .marker-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        background-color: var(--marker-list-bg); /* Etwas abgesetzt */
+        border-radius: 8px;
+        padding: 10px;
+      }
+
+      .marker-list li {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 5px;
+        font-size: 15px;
+        border-bottom: 1px solid var(--separator-color);
+      }
+
+      .marker-list li:last-child {
+        border-bottom: none;
+      }
+
+      .marker-list li span {
+        flex-grow: 1;
+        margin-right: 10px;
+      }
+      .marker-list li span .diff-badge { /* Style für Badge in der Liste */
+          margin-left: 5px;
+      }
+
+      .marker-list .delete-button {
+        flex-shrink: 0; /* Verhindert Schrumpfen */
+        padding: 4px 8px; /* Kleinere Buttons */
+        font-size: 14px;
+        min-height: auto;
+      }
+
+      /* NEU: Styling für das Marker-Modal (nutzt bestehende Modal-Styles) */
+      #add-marker-modal .modal-content {
+        max-width: 350px; /* Etwas schmaler als Detail-Modal */
+      }
+
     </style>
   </head>
   <body>
@@ -1815,6 +2367,7 @@
       <div id="main-page" class="page active">
         <div class="container">
           <h1>Arbeitszeit</h1>
+
           <div class="section">
             <h3>Zeiterfassung</h3>
             <div class="time-button-row">
@@ -1843,6 +2396,7 @@
             </div>
             <p id="hinweis"></p>
           </div>
+
           <div class="section">
             <h3>Übersicht (Aktuell)</h3>
             <div class="row">
@@ -1866,6 +2420,7 @@
               </div>
             </div>
           </div>
+
           <div class="section">
             <h3>Zeitenübersicht (Heute)</h3>
             <div class="row">
@@ -1911,6 +2466,7 @@
             </div>
             <button class="button" onclick="saveDay()">Tag speichern</button>
           </div>
+
           <div class="section">
             <h3>Ausstempelzeiten</h3>
             <div class="row">
@@ -2070,7 +2626,7 @@
             </p>
           </div>
 
-          <!-- Entfernte Sektion für alte Kontokorrektur -->
+          <!-- ENTFERNT: Alter Abschnitt zur Kontokorrektur -->
           <!--
           <div class="section">
             <h3>Stundenkonto anpassen</h3>
@@ -2088,22 +2644,23 @@
             </p>
             <p id="pending-korrektur-info" style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px; display: none;"></p>
           </div>
-           -->
+          -->
 
-          <!-- NEUER Abschnitt für Kontostand-Marker -->
+          <!-- NEU: Abschnitt für Kontostand-Marker -->
           <div class="section">
             <h3>Kontostand-Marker</h3>
             <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 0; margin-bottom: 15px;">
-              Setze Ankerpunkte (Datum + Kontostand), ab denen der Kontostand neu berechnet wird. Berechnungen vor dem Marker bleiben unberührt.
+              Setze Ankerpunkte (Datum + Kontostand), ab denen der Kontostand neu berechnet wird. Berechnungen vor dem letzten Marker bleiben unberührt.
             </p>
             <ul id="balance-marker-list" class="marker-list">
               <!-- Marker werden hier per JS eingefügt -->
               <li>Keine Marker gesetzt.</li>
             </ul>
-            <button id="add-marker-button" class="button" style="margin-top: 15px" onclick="showAddMarkerModal()">
+            <button id="add-marker-button" class="button" style="margin-top: 15px">
               Marker hinzufügen
             </button>
           </div>
+
 
           <div class="section">
             <h3>Daten</h3>
@@ -2112,7 +2669,7 @@
               <button id="import-button-options" class="button">Import</button>
             </div>
             <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px;">
-              Beim Import werden alle vorhandenen Daten überschrieben. Der Export enthält Verlauf, Marker und Einstellungen.
+              Beim Import werden alle vorhandenen Daten überschrieben. Der Export enthält den Verlauf, Marker und die aktuellen Einstellungen.
             </p>
           </div>
         </div>
@@ -2210,7 +2767,7 @@
           <button class="close-button">×</button>
           <h3 id="bulk-modal-title">Bulk-Buchung / Löschen</h3>
           <p style="font-size: 14px; color: var(--secondary-text-color); margin-bottom: 15px;">
-            Aktion für Mo-Fr (keine Feiertage). Bestehende Einträge im Zeitraum werden überschrieben oder gelöscht. EZA-Logik wird angewendet, falls global aktiv.
+            Aktion für Mo-Fr (keine Feiertage). Bestehende Einträge im Zeitraum werden überschrieben oder gelöscht. EZA-Logik wird angewendet, falls global aktiv. Die zum Zeitpunkt der Bulk-Buchung gültige Soll-Arbeitszeit wird verwendet.
           </p>
           <div class="row">
             <div class="column">
@@ -2262,18 +2819,21 @@
       <div id="add-marker-modal" class="modal" style="display: none">
         <div class="modal-content">
           <button class="close-button" onclick="closeAddMarkerModal()">×</button>
-          <h3 id="add-marker-modal-title">Kontostand-Marker hinzufügen</h3>
+          <h3 id="add-marker-modal-title">Kontostand-Marker hinzufügen/ändern</h3>
           <div style="margin-bottom: 15px">
             <label for="marker-date">Datum:</label>
             <input type="date" id="marker-date" />
           </div>
           <div style="margin-bottom: 15px">
             <label for="marker-balance">Neuer Kontostand (Std) ab Datum:</label>
-            <input type="number" id="marker-balance" step="0.01" />
+            <input type="number" id="marker-balance" step="0.01" placeholder="z.B. 15.75" />
           </div>
-          <button class="button" onclick="saveBalanceMarker()" style="margin-top: 10px">Marker speichern</button>
+          <button class="button" onclick="saveBalanceMarker()" style="margin-top: 10px">
+            Marker speichern
+          </button>
         </div>
       </div>
+
 
       <!-- Bottom Navigation -->
       <nav id="bottom-nav">
