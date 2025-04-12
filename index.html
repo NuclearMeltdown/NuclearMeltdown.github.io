@@ -90,7 +90,7 @@
         return `${pad(hours)}:${pad(minutes)}`;
       }
 
-      // NEU: Formatiert ein Date-Objekt als lokalen ISO-ähnlichen String
+      // Formatiert ein Date-Objekt als lokalen ISO-ähnlichen String
       function formatLocalDateTimeString(date) {
         if (!date || isNaN(date.getTime())) return null;
         const YYYY = date.getFullYear();
@@ -107,10 +107,17 @@
         if (isNaN(decimalH)) return "0:00";
         const sign = decimalH < 0 ? "-" : "";
         const absVal = Math.abs(decimalH);
+        // Wichtig: Hier weiterhin runden für die hh:mm Anzeige
         const totalMinutes = Math.round(absVal * 60);
         const hh = Math.floor(totalMinutes / 60);
         const mm = totalMinutes % 60;
         return `${sign}${hh}:${pad(mm)}`;
+      }
+
+      // NEU: Schneidet Dezimalzahl nach N Stellen ab (Trunkierung)
+      function truncateDecimals(number, digits) {
+          const multiplier = Math.pow(10, digits);
+          return Math.floor(number * multiplier) / multiplier;
       }
 
       // Formatiert EZA-Konto in Tage + Stunden
@@ -541,7 +548,7 @@
       }
 
       // =========================================================================
-      // NEU: Berechnet die reine Anwesenheitszeit (Dezimalstunden)
+      // Berechnet die reine Anwesenheitszeit (Dezimalstunden)
       // Verwendet immer die originalen Start/Endzeiten
       // =========================================================================
       function calculatePresenceTime(start, end) {
@@ -556,6 +563,7 @@
 
       // =========================================================================
       // ÜBERARBEITET: calculateArbeitszeit() - Implementiert echtes "Freeze"
+      // und schneidet Anwesenheit auf 2 Dezimalstellen ab
       // =========================================================================
       function calculateArbeitszeit(
         start, // Originale Startzeit (Date)
@@ -564,10 +572,13 @@
         isPcBuchung // Boolean
       ) {
         // 1. Berechne rohe Anwesenheit (P)
-        const presenceHoursDecimal = calculatePresenceTime(start, end);
-        if (presenceHoursDecimal <= 0) return 0;
+        const rawPresenceHoursDecimal = calculatePresenceTime(start, end);
+        if (rawPresenceHoursDecimal <= 0) return 0;
 
-        // 2. Bestimme die "zählende" Anwesenheitszeit (CountableP) basierend auf P
+        // 2. Schneide Anwesenheit auf 2 Dezimalstellen ab (Trunkierung)
+        const presenceHoursDecimal = truncateDecimals(rawPresenceHoursDecimal, 2);
+
+        // 3. Bestimme die "zählende" Anwesenheitszeit (CountableP) basierend auf P (abgeschnitten)
         let countablePresenceDecimal;
         if (presenceHoursDecimal <= 6.0) {
           // Bis 6h Anwesenheit: Zählende Zeit = Anwesenheit
@@ -586,14 +597,14 @@
           countablePresenceDecimal = presenceHoursDecimal - 0.75;
         }
 
-        // 3. Berechne Nettozeit vor PC-Bonus
+        // 4. Berechne Nettozeit vor PC-Bonus
         // Ziehe die *zusätzliche* Pause von der zählenden Zeit ab
         let netArbeitszeitDecimal = Math.max(
           0,
           countablePresenceDecimal - additionalPauseDecimal
         );
 
-        // 4. Füge PC-Buchungs-Bonus hinzu
+        // 5. Füge PC-Buchungs-Bonus hinzu
         if (isPcBuchung) {
           netArbeitszeitDecimal += 0.13;
         }
@@ -697,7 +708,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: updateCalculations() - Passt Anzeige der Pause an
+      // ÜBERARBEITET: updateCalculations() - Schneidet Anwesenheit ab
       // =========================================================================
       function updateCalculations() {
         const start = kommenZeit; // Originale Startzeit
@@ -705,10 +716,12 @@
         const isPc = $("pc-buchung").checked;
         const additionalPauseDecimal = parsePauseInput("zusatzliche-pause");
 
-        // 1. Anwesenheit (immer mit originalen Zeiten)
-        const presenceHoursDecimal = calculatePresenceTime(start, end);
+        // 1. Rohe Anwesenheit berechnen
+        const rawPresenceHoursDecimal = calculatePresenceTime(start, end);
+        // Schneide Anwesenheit für Anzeige und weitere Berechnungen ab
+        const presenceHoursDecimal = truncateDecimals(rawPresenceHoursDecimal, 2);
 
-        // 2. Netto-Arbeitszeit (berücksichtigt Freeze und PC-Buchung)
+        // 2. Netto-Arbeitszeit (nutzt intern bereits abgeschnittene Anwesenheit)
         const netArbeitszeitDecimal = calculateArbeitszeit(
           start,
           end,
@@ -717,13 +730,14 @@
         );
 
         // 3. Implizite Pause/Freeze für Anzeige berechnen
-        // Differenz zwischen Anwesenheit und Netto (korrigiert um PC-Bonus)
+        //    (basiert auf abgeschnittener Anwesenheit)
         const impliedBreakDecimal = Math.max(0, presenceHoursDecimal - (netArbeitszeitDecimal - (isPc ? 0.13 : 0)));
-        const impliedBreakMin = Math.round(impliedBreakDecimal * 60);
+        const impliedBreakMin = Math.round(impliedBreakDecimal * 60); // Hier runden für Minutenanzeige
 
 
         // 4. Differenz und neues Konto
         const sollProTagDecimal = settings.wochenarbeitszeit / 5;
+        // Wichtig: Differenz basiert auf der Nettozeit, die mit abgeschnittener Anwesenheit berechnet wurde
         let diffDecimal =
           netArbeitszeitDecimal > 0
             ? netArbeitszeitDecimal - sollProTagDecimal
@@ -737,10 +751,10 @@
         $("aktuelles-konto").value = aktKontoValDecimal.toFixed(2);
         $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoValDecimal);
 
-        // Anwesenheit
+        // Anwesenheit (abgeschnitten anzeigen)
         $("anwesend-zeit").value = `${formatDecimalToTime(
-          presenceHoursDecimal
-        )} (${presenceHoursDecimal.toFixed(2)}h)`;
+          presenceHoursDecimal // Abgeschnittener Wert
+        )} (${presenceHoursDecimal.toFixed(2)}h)`; // Abgeschnittener Wert
         // Implizite Pause (Gesetzlich/Freeze + Zusätzlich)
         $("pausenzeit").value = `${impliedBreakMin} Min (${impliedBreakDecimal.toFixed(
           2
@@ -752,10 +766,12 @@
         $("sollarbeitszeit-display").value = `${formatDecimalToTime(
           sollProTagDecimal
         )} (${sollProTagDecimal.toFixed(2)}h)`;
-        $("differenz").value = diffDecimal.toFixed(2);
-        $("differenz-time").value = formatDecimalToTime(diffDecimal);
-        $("neues-konto").value = newKtoDecimal.toFixed(2);
-        $("neues-konto-time").value = formatDecimalToTime(newKtoDecimal);
+        // Differenz (abgeschnitten anzeigen)
+        $("differenz").value = truncateDecimals(diffDecimal, 2).toFixed(2);
+        $("differenz-time").value = formatDecimalToTime(diffDecimal); // hh:mm basiert auf gerundeten Minuten
+        // Neues Konto (abgeschnitten anzeigen)
+        $("neues-konto").value = truncateDecimals(newKtoDecimal, 2).toFixed(2);
+        $("neues-konto-time").value = formatDecimalToTime(newKtoDecimal); // hh:mm basiert auf gerundeten Minuten
 
         // Color coding (unverändert)
         const fieldsToColor = [
@@ -861,7 +877,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: saveDay() - Speichert lokale Zeit als String
+      // ÜBERARBEITET: saveDay() - Speichert lokale Zeit als String, Differenz ggf. abschneiden
       // =========================================================================
       function saveDay() {
         updateCalculations(); // Ensure calculations are fresh
@@ -889,7 +905,7 @@
           return;
         }
 
-        // Berechne Netto-AZ mit aktueller Logik
+        // Berechne Netto-AZ mit aktueller Logik (nutzt intern Trunkierung)
         const netArbeitszeitDecimal = calculateArbeitszeit(
           originalKommenDate,
           currentGehen,
@@ -933,8 +949,9 @@
         const existingIndex = history.findIndex((e) => e.datum === datum);
         const dayData = {
           datum: datum, // Nur YYYY-MM-DD
-          differenz: mainDifferenceDecimal.toFixed(2),
-          differenzTime: formatDecimalToTime(mainDifferenceDecimal),
+          // Speichere die Differenz abgeschnitten auf 2 Stellen
+          differenz: truncateDecimals(mainDifferenceDecimal, 2).toFixed(2),
+          differenzTime: formatDecimalToTime(mainDifferenceDecimal), // hh:mm basiert auf gerundeten Minuten
           stundenkonto: "0.00", // Wird von saveAndReload berechnet
           kommen: kommenLocalISO, // Lokaler String YYYY-MM-DDTHH:mm:ss
           gehen: gehenLocalISO,   // Lokaler String YYYY-MM-DDTHH:mm:ss
@@ -1098,7 +1115,7 @@
               textColorVar = "--special-day-glaz-text";
             }
 
-            const diffValDecimal = parseFloat(entry.differenz || "0");
+            const diffValDecimal = parseFloat(entry.differenz || "0"); // Verwende gespeicherte (ggf. abgeschnittene) Differenz
             weeklyTotalDiffDecimal += diffValDecimal;
             const diffClass =
               diffValDecimal > 0.001
@@ -1166,7 +1183,7 @@
               const pcBuchungHinweis = entry.pcBuchung ? " (PC)" : "";
 
               entryContentDiv.innerHTML = `<div><strong>${weekdayName}</strong> (${displayDate})</div><div>${kommenTimeToDisplayStr}${pcBuchungHinweis} - ${gehenTimeToDisplayStr} ${locationEmoji}<span class="diff-badge ${diffClass}" style="margin-left: 8px;">${
-                entry.differenzTime
+                entry.differenzTime // Zeige gespeicherte hh:mm Differenz
               }</span>${violationMark} ${moonMark}</div>`;
             }
             actionsDiv.innerHTML = `<button class="inline-button" onclick="showDayDetails('${entry.datum}')">i</button><button class="delete-button" onclick="deleteEntryByDate('${entry.datum}')">×</button>`;
@@ -1187,7 +1204,7 @@
             ? "negative-value"
             : "zero-value";
         $("weekly-summary-content").innerHTML = `Gesamtdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(
-          weeklyTotalDiffDecimal
+          weeklyTotalDiffDecimal // Summe der (ggf. abgeschnittenen) Differenzen
         )} (${weeklyTotalDiffDecimal.toFixed(2)}h)</span>`;
         updateWeekNavigation();
       }
@@ -1232,7 +1249,7 @@
         );
         const isPcBuchung = entry.pcBuchung; // Status aus Eintrag
 
-        // Nutze die zentrale Berechnungsfunktion
+        // Nutze die zentrale Berechnungsfunktion (die intern Trunkierung anwendet)
         return calculateArbeitszeit(
           kommenLokal,
           gehenLokal,
@@ -1404,7 +1421,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: addManualDay() - Speichert lokale Zeit als String
+      // ÜBERARBEITET: addManualDay() - Speichert lokale Zeit als String, Differenz ggf. abschneiden
       // =========================================================================
       function addManualDay() {
         const dateValStr = $("add-day-modal").getAttribute("data-date"); // YYYY-MM-DD
@@ -1497,7 +1514,8 @@
 
         // --- Fall 1: Sondertag ---
         if (isUrlaub || isKrank || isSchulung || isGlaz || isEzaTag) {
-          dayData.differenz = mainDifferenceDecimal.toFixed(2);
+          // Speichere Differenz ggf. abgeschnitten
+          dayData.differenz = truncateDecimals(mainDifferenceDecimal, 2).toFixed(2);
           dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimal);
           let label = isUrlaub
             ? "Urlaub"
@@ -1535,7 +1553,7 @@
         if (gehenDateManual < kommenDateManual)
           gehenDateManual.setDate(gehenDateManual.getDate() + 1);
 
-        // Berechne Netto-AZ mit zentraler Funktion (nutzt lokale Date Objekte)
+        // Berechne Netto-AZ mit zentraler Funktion (nutzt intern Trunkierung)
         const additionalPauseManualHoursDecimal = parsePauseInputFromString(
           additionalPauseManualValue
         );
@@ -1561,7 +1579,8 @@
         mainDifferenceDecimal = netManualDecimal - sollProTagDecimal;
 
         // Update dayData für normalen Arbeitstag
-        dayData.differenz = mainDifferenceDecimal.toFixed(2);
+        // Speichere Differenz ggf. abgeschnitten
+        dayData.differenz = truncateDecimals(mainDifferenceDecimal, 2).toFixed(2);
         dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimal);
         // Speichere Zeiten als lokale ISO-ähnliche Strings
         dayData.kommen = formatLocalDateTimeString(kommenDateManual);
@@ -1653,22 +1672,24 @@
             baseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
           }
 
+          // Verwende die gespeicherte (ggf. abgeschnittene) Differenz
           const diffDecimal = parseFloat(entry.differenz || "0");
           let newKontoDecimal = baseKontoDecimal + diffDecimal;
-          entry.stundenkonto = newKontoDecimal.toFixed(2);
+          // Speichere das Stundenkonto ggf. auch abgeschnitten, um Konsistenz zu wahren
+          entry.stundenkonto = truncateDecimals(newKontoDecimal, 2).toFixed(2);
         }
 
         storeToLS("history", JSON.stringify(history));
 
         const latestEntry = history.length > 0 ? history[history.length - 1] : null;
         const latestCalculatedKontoDecimal = latestEntry
-          ? parseFloat(latestEntry.stundenkonto || "0")
+          ? parseFloat(latestEntry.stundenkonto || "0") // Nimm den gespeicherten (ggf. abgeschnittenen) Wert
           : activeOverrideValue !== null // If override was used, it IS the new base if history is empty now
           ? activeOverrideValue
           : initialKontoValueForCalculation; // Otherwise use initial
         storeToLS(
           "aktuellesStundenkonto",
-          latestCalculatedKontoDecimal.toFixed(2)
+          latestCalculatedKontoDecimal.toFixed(2) // Speichere den aktuellen Stand (kann gerundet sein für Anzeige)
         );
 
         updateCalculations();
@@ -1686,7 +1707,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: showDayDetails() - Parst lokale Strings, passt Pause an
+      // ÜBERARBEITET: showDayDetails() - Schneidet Anwesenheit ab
       // =========================================================================
       function showDayDetails(dateStr) {
         const history = getHistory();
@@ -1708,15 +1729,15 @@
           nettoLabel = "N/A";
 
         let bueroEmoji = entry.buero ? "🏢 Büro" : "🏠 Homeoffice";
-        const diffValDecimal = parseFloat(entry.differenz || "0");
+        const diffValDecimal = parseFloat(entry.differenz || "0"); // Gespeicherte (ggf. abgeschnittene) Differenz
         const diffClass =
           diffValDecimal > 0.001
             ? "positive-value"
             : diffValDecimal < -0.001
             ? "negative-value"
             : "zero-value";
-        const kontoDecimal = parseFloat(entry.stundenkonto || "0");
-        const kontoFormatted = formatDecimalToTime(kontoDecimal);
+        const kontoDecimal = parseFloat(entry.stundenkonto || "0"); // Gespeicherter (ggf. abgeschnittener) Kontostand
+        const kontoFormatted = formatDecimalToTime(kontoDecimal); // hh:mm basiert auf gerundeten Minuten
         const holidayName = getHolidayName(entryDateUTC, settings.bundesland);
 
         let ezaIndicatorClass = "";
@@ -1774,24 +1795,26 @@
             entry.zusatzPause || ""
           );
 
-          // Berechne Anwesenheit
-          const presenceDecimal = calculatePresenceTime(kommenLokal, gehenLokal);
+          // Berechne rohe Anwesenheit
+          const rawPresenceDecimal = calculatePresenceTime(kommenLokal, gehenLokal);
+          // Schneide Anwesenheit für Anzeige ab
+          const presenceDecimal = truncateDecimals(rawPresenceDecimal, 2);
           anwesenheitLabel = `${formatDecimalToTime(
-            presenceDecimal
-          )} (${presenceDecimal.toFixed(2)}h)`;
+            presenceDecimal // Abgeschnittener Wert
+          )} (${presenceDecimal.toFixed(2)}h)`; // Abgeschnittener Wert
 
-          // Berechne Netto-AZ (berücksichtigt PC intern)
+          // Berechne Netto-AZ (nutzt intern Trunkierung)
           const netCalculatedDecimal =
-            calculateNetArbeitszeitFromEntryData(entry); // Nutzt die zentrale Funktion
+            calculateNetArbeitszeitFromEntryData(entry);
           nettoLabel = `${formatDecimalToTime(
             netCalculatedDecimal
           )} (${netCalculatedDecimal.toFixed(2)}h)`;
 
-          // Berechne implizite Pause/Freeze für Anzeige
+          // Berechne implizite Pause/Freeze für Anzeige (basiert auf abgeschnittener Anwesenheit)
           const impliedBreakDecimal = Math.max(0, presenceDecimal - (netCalculatedDecimal - (isPcBuchung ? 0.13 : 0)));
           pausenLabel =
             impliedBreakDecimal > 0.001
-              ? `${Math.round(
+              ? `${Math.round( // Hier runden für Minutenanzeige
                   impliedBreakDecimal * 60
                 )} Min (${impliedBreakDecimal.toFixed(2)}h)`
               : "0 Min";
@@ -1828,11 +1851,11 @@
             : "";
 
           detailsHTML = `<p><strong>Ort:</strong> ${bueroEmoji}</p><p><strong>Kommen:</strong> ${kommenFormatted}${pcBuchungHinweis}${kommenMoon}</p><p><strong>Gehen:</strong> ${gehenFormatted}${gehenMoon}</p><p><strong>Anwesenheit:</strong> ${anwesenheitLabel}</p><p><strong>Pause/Freeze:</strong> ${pausenLabel}</p><p><strong>Netto-Arbeitszeit:</strong> ${nettoLabel}${nettoMoon}</p><p><strong>Differenz:</strong> <span class="diff-badge ${diffClass}">${
-            entry.differenzTime
+            entry.differenzTime // Zeige gespeicherte hh:mm Differenz
           } (${
-            entry.differenz
+            entry.differenz // Zeige gespeicherte (ggf. abgeschnittene) Dezimaldifferenz
           }h)</span>${ezaBookedHint}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal.toFixed(
-            2
+            2 // Zeige gespeicherten (ggf. abgeschnittenen) Kontostand
           )}h)</p>`;
           $("detail-edit-button").style.display = "block";
           $("detail-delete-button").style.display = "block";
@@ -1947,7 +1970,7 @@
               );
           } else if (entry) {
             cell.classList.add("has-entry");
-            const diffValDecimal = parseFloat(entry.differenz || "0");
+            const diffValDecimal = parseFloat(entry.differenz || "0"); // Verwende gespeicherte (ggf. abgeschnittene) Differenz
             monthlyTotalDiffDecimal += diffValDecimal;
             let bgColorClass = "", titleText = "", moonMark = "";
 
@@ -2025,7 +2048,7 @@
             ? "negative-value"
             : "zero-value";
         $("month-summary-content").innerHTML = `Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(
-          monthlyTotalDiffDecimal
+          monthlyTotalDiffDecimal // Summe der (ggf. abgeschnittenen) Differenzen
         )} (${monthlyTotalDiffDecimal.toFixed(2)}h)</span>`;
       }
 
@@ -2049,7 +2072,7 @@
       }
 
       // =========================================================================
-      // ÜBERARBEITET: applyBulkBooking() - Verwendet neue Logik für Differenz
+      // ÜBERARBEITET: applyBulkBooking() - Speichert Differenz ggf. abgeschnitten
       // =========================================================================
       function applyBulkBooking() {
         const startDateStr = $("bulk-modal-start-date").value, // YYYY-MM-DD
@@ -2157,7 +2180,8 @@
               const existingEntry = historyMap.get(currentDateStr);
               const dayData = {
                 datum: currentDateStr, // YYYY-MM-DD
-                differenz: mainDifferenceDecimal.toFixed(2),
+                // Speichere Differenz ggf. abgeschnitten
+                differenz: truncateDecimals(mainDifferenceDecimal, 2).toFixed(2),
                 differenzTime: formatDecimalToTime(mainDifferenceDecimal),
                 stundenkonto: "0.00", // Wird neu berechnet
                 kommen: null, // Keine Zeiten für Sondertage
@@ -2274,6 +2298,7 @@
           }
 
           if (entry) {
+            // Summiere die gespeicherte (ggf. abgeschnittene) Differenz
             totalDiffDecimal += parseFloat(entry.differenz || "0");
 
             if (entry.urlaub) vacationDays++;
@@ -2283,7 +2308,7 @@
             else if (entry.isEzaTag) ezaDays++;
             else if (entry.kommen && entry.gehen) { // Nur für normale Arbeitstage Netto berechnen
               workDays++;
-              // Nutze die zentrale Funktion zur Netto-Berechnung
+              // Nutze die zentrale Funktion zur Netto-Berechnung (die intern Trunkierung verwendet)
               const netHoursDecimal = calculateNetArbeitszeitFromEntryData(entry);
               totalNetHoursDecimal += netHoursDecimal;
 
@@ -2316,7 +2341,7 @@
               ? "negative-value"
               : "zero-value"
           }">${formatDecimalToTime(totalDiffDecimal)} (${totalDiffDecimal.toFixed(
-          2
+          2 // Zeige Summe der (ggf. abgeschnittenen) Differenzen
         )}h)</span></li>
           <li>Arbeitstage: <span>${workDays}</span></li>
           <li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li>
@@ -2417,7 +2442,7 @@
               // Bereinige Importdaten
               const sanitizedHistory = importedHistory.map((entry) => ({
                 datum: entry.datum, // YYYY-MM-DD
-                differenz: entry.differenz || "0.00",
+                differenz: entry.differenz || "0.00", // Übernehme gespeicherte Differenz
                 differenzTime: entry.differenzTime || formatDecimalToTime(parseFloat(entry.differenz || "0")),
                 stundenkonto: "0.00", // Immer zurücksetzen
                 kommen: entry.kommen || null, // Lokaler String YYYY-MM-DDTHH:mm:ss
