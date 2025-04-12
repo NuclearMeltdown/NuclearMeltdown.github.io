@@ -2467,7 +2467,7 @@
     </script>
 
     <style>
-      /* CSS bleibt unverändert - Hier nur ein Platzhalter */
+      /* CSS mit zurückgesetzten Slider-, Nav- und Page-Padding-Styles */
       :root {
         /* Light Mode */
         --system-background-light: #f2f2f7;
@@ -2614,13 +2614,13 @@
         height: 100vh;
       }
 
-      /* --- PAGE PADDING --- */
+      /* --- PAGE PADDING (Original) --- */
       .page {
         flex-grow: 1;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
         padding: var(--safe-area-top) calc(15px + var(--safe-area-left))
-          calc(60px + var(--safe-area-bottom)) /* Adjusted for nav bar height + padding */
+          calc(105px + var(--safe-area-bottom)) /* Adjusted for nav bar height + padding */
           calc(15px + var(--safe-area-right));
         display: none;
       }
@@ -2839,7 +2839,7 @@
         margin-left: 1px;
       }
 
-      /* --- SLIDER STYLES --- */
+      /* --- SLIDER STYLES (Original) --- */
       .switch-container {
         display: flex;
         align-items: center;
@@ -2853,7 +2853,7 @@
       .switch {
         position: relative;
         display: inline-block;
-        width: 51px; /* iOS standard width */
+        width: 65px; /* iOS standard width */
         height: 31px; /* iOS standard height */
         flex-shrink: 0; /* Prevent shrinking */
       }
@@ -2889,7 +2889,7 @@
         background-color: var(--slider-checked-bg-color);
       }
       input:checked + .slider:before {
-        transform: translateX(20px); /* Move knob to the right (51 - 27 - 2*2) */
+        transform: translateX(24px); /* Move knob to the right (51 - 27 - 2*2) */
       }
       /* --- END SLIDER STYLES --- */
 
@@ -3259,7 +3259,7 @@
       }
       /* EZA Outline for Calendar (inset box-shadow) */
       .calendar-day-content.eza-booked-outline {
-        box-shadow: inset 0 0 0 3px var(--outline-color); /* Inner outline */
+         box-shadow: inset 0 0 0 3px var(--outline-color); /* Inner outline */
       }
 
       #stats-content {
@@ -3330,7 +3330,7 @@
         flex-grow: 1;
       }
 
-      /* --- BOTTOM NAV STYLES --- */
+      /* --- BOTTOM NAV STYLES (Original) --- */
       #bottom-nav {
         position: fixed;
         bottom: 0;
