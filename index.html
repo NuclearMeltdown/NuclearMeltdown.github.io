@@ -69,6 +69,19 @@
       const $ = (id) => document.getElementById(id);
       const pad = (num) => num.toString().padStart(2, "0");
 
+      // Hilfsfunktionen für Zeitumrechnung
+      function decimalHoursToSeconds(decimal) {
+        return Math.floor(decimal * 3600);
+      }
+      function secondsToDecimalHours(seconds) {
+        return seconds / 3600;
+      }
+      function truncateDecimalHoursFromSeconds(seconds, digits) {
+        const dec = secondsToDecimalHours(seconds);
+        const multiplier = Math.pow(10, digits);
+        return Math.floor(dec * multiplier) / multiplier;
+      }
+
       // Parst hh:mm und gibt ein lokales Date-Objekt zurück
       function parseTime(str) {
         if (!str) return null;
@@ -509,8 +522,8 @@
           // Neuberechnung nicht nötig, nur Anzeige/Warnungen betroffen
           updateCalculations(); // Aktualisiert Hauptseite (Warnungen)
           if (currentView === 'history') loadHistory(); // Aktualisiert Verlauf (Symbole)
-          if (currentView === 'month') loadMonthData(); // Aktualisiert Monat (Symbole)
-        };
+          if (currentView === 'month') loadMonthData();
+        }
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
         // Entferne Listener für alten Hauptkonto-Korrektur-Button (falls noch vorhanden)
@@ -595,36 +608,51 @@
         }
       }
 
-      // Berechnet die reine Anwesenheitszeit (Dezimalstunden)
-      function calculatePresenceTime(start, end) {
+      // Berechnet die reine Anwesenheitszeit (Sekunden)
+      function calculatePresenceSeconds(start, end) {
         if (!start || !end) return 0;
         let endAdjusted = new Date(end.getTime());
         if (endAdjusted < start)
           endAdjusted.setDate(endAdjusted.getDate() + 1);
         const diffMs = endAdjusted - start;
         if (diffMs < 0) return 0;
-        return diffMs / (1000 * 60 * 60); // Dezimalstunden
+        return Math.floor(diffMs / 1000); // Sekunden
       }
 
-      // Berechnet Netto-Arbeitszeit (nutzt Trunkierung)
-      function calculateArbeitszeit(
-        start, // Originale Startzeit (Date)
-        end, // Endzeit (Date)
-        additionalPauseDecimal, // Zusätzliche Pause (Dezimal)
+      // Berechnet Netto-Arbeitszeit (Sekunden, intern)
+      function calculateArbeitszeitSeconds(
+        start, // Date
+        end, // Date
+        additionalPauseDecimal, // Dezimalstunden
         isPcBuchung // Boolean
       ) {
-        const rawPresenceHoursDecimal = calculatePresenceTime(start, end);
-        if (rawPresenceHoursDecimal <= 0) return 0;
-        const presenceHoursDecimal = truncateDecimals(rawPresenceHoursDecimal, 2);
-        let countablePresenceDecimal;
-        if (presenceHoursDecimal <= 6.0) countablePresenceDecimal = presenceHoursDecimal;
-        else if (presenceHoursDecimal <= 6.5) countablePresenceDecimal = 6.0;
-        else if (presenceHoursDecimal <= 9.0) countablePresenceDecimal = presenceHoursDecimal - 0.5;
-        else if (presenceHoursDecimal <= 9.75) countablePresenceDecimal = 9.0;
-        else countablePresenceDecimal = presenceHoursDecimal - 0.75;
-        let netArbeitszeitDecimal = Math.max(0, countablePresenceDecimal - additionalPauseDecimal);
-        if (isPcBuchung) netArbeitszeitDecimal += 0.13;
-        return Math.max(0, netArbeitszeitDecimal);
+        const presenceSec = calculatePresenceSeconds(start, end);
+        if (presenceSec <= 0) return 0;
+        // Pausenregelung wie bisher, aber alles in Sekunden
+        let countablePresenceSec;
+        if (presenceSec <= 6 * 3600) countablePresenceSec = presenceSec;
+        else if (presenceSec <= 6.5 * 3600) countablePresenceSec = 6 * 3600;
+        else if (presenceSec <= 9 * 3600) countablePresenceSec = presenceSec - 1800;
+        else if (presenceSec <= 9.75 * 3600) countablePresenceSec = 9 * 3600;
+        else countablePresenceSec = presenceSec - 2700;
+        let netArbeitszeitSec = Math.max(0, countablePresenceSec - Math.floor(additionalPauseDecimal * 3600));
+        if (isPcBuchung) netArbeitszeitSec += 468; // 0.13h = 468s
+        return Math.max(0, netArbeitszeitSec);
+      }
+
+      // Wrapper für Anzeige: Berechnet Anwesenheit in Dezimalstunden (trunkiert)
+      function calculatePresenceTime(start, end) {
+        return truncateDecimalHoursFromSeconds(calculatePresenceSeconds(start, end), 2);
+      }
+
+      // Wrapper für Anzeige: Berechnet Netto-Arbeitszeit in Dezimalstunden (trunkiert)
+      function calculateArbeitszeit(
+        start,
+        end,
+        additionalPauseDecimal,
+        isPcBuchung
+      ) {
+        return truncateDecimalHoursFromSeconds(calculateArbeitszeitSeconds(start, end, additionalPauseDecimal, isPcBuchung), 2);
       }
 
       // Berechnet Endzeit (nutzt neue Logik)
