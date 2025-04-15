@@ -439,14 +439,19 @@
       }
 
       function setupEventListeners() {
+        // Bottom Navigation Event Listener robust setzen
         ["main", "history", "month", "stats", "options"].forEach((id) => {
           const navItem = document.getElementById("nav-" + id);
           if (navItem) {
-            navItem.onclick = function (event) {
+            navItem.onclick = null; // Vorherige Listener entfernen
+            navItem.addEventListener("click", function (event) {
               event.preventDefault();
               switchView(id);
+              // Klasse 'active' setzen
+              document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+              navItem.classList.add('active');
               return false;
-            };
+            });
           }
         });
         $("kommen-display").oninput = onInputChange;
