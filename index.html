@@ -76,10 +76,10 @@
       function secondsToDecimalHours(seconds) {
         return seconds / 3600;
       }
-      // NEU: Mathematisches Runden auf N Nachkommastellen
-      function roundDecimals(number, digits) {
-          const multiplier = Math.pow(10, digits);
-          return Math.round(number * multiplier) / multiplier;
+      function truncateDecimalHoursFromSeconds(seconds, digits) {
+        const dec = secondsToDecimalHours(seconds);
+        const multiplier = Math.pow(10, digits);
+        return Math.floor(dec * multiplier) / multiplier;
       }
 
       // Parst hh:mm und gibt ein lokales Date-Objekt zurück
@@ -126,6 +126,12 @@
         const hh = Math.floor(totalMinutes / 60);
         const mm = totalMinutes % 60;
         return `${sign}${hh}:${pad(mm)}`;
+      }
+
+      // Schneidet Dezimalzahl nach N Stellen ab (Trunkierung)
+      function truncateDecimals(number, digits) {
+          const multiplier = Math.pow(10, digits);
+          return Math.floor(number * multiplier) / multiplier;
       }
 
       // Formatiert EZA-Konto in Tage + Stunden
@@ -516,7 +522,7 @@
           // Neuberechnung nicht nötig, nur Anzeige/Warnungen betroffen
           updateCalculations(); // Aktualisiert Hauptseite (Warnungen)
           if (currentView === 'history') loadHistory(); // Aktualisiert Verlauf (Symbole)
-          if (currentView === 'month") loadMonthData();
+          if (currentView === 'month') loadMonthData();
         }
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
@@ -634,19 +640,19 @@
         return Math.max(0, netArbeitszeitSec);
       }
 
-      // Wrapper für Anzeige: Berechnet Anwesenheit in Dezimalstunden (gerundet)
+      // Wrapper für Anzeige: Berechnet Anwesenheit in Dezimalstunden (trunkiert)
       function calculatePresenceTime(start, end) {
-        return roundDecimals(secondsToDecimalHours(calculatePresenceSeconds(start, end)), 2);
+        return truncateDecimalHoursFromSeconds(calculatePresenceSeconds(start, end), 2);
       }
 
-      // Wrapper für Anzeige: Berechnet Netto-Arbeitszeit in Dezimalstunden (gerundet)
+      // Wrapper für Anzeige: Berechnet Netto-Arbeitszeit in Dezimalstunden (trunkiert)
       function calculateArbeitszeit(
         start,
         end,
         additionalPauseDecimal,
         isPcBuchung
       ) {
-        return roundDecimals(secondsToDecimalHours(calculateArbeitszeitSeconds(start, end, additionalPauseDecimal, isPcBuchung)), 2);
+        return truncateDecimalHoursFromSeconds(calculateArbeitszeitSeconds(start, end, additionalPauseDecimal, isPcBuchung), 2);
       }
 
       // Berechnet Endzeit (nutzt neue Logik)
@@ -703,7 +709,7 @@
         const additionalPauseDecimal = parsePauseInput("zusatzliche-pause");
 
         const rawPresenceHoursDecimal = calculatePresenceTime(start, end);
-        const presenceHoursDecimal = roundDecimals(rawPresenceHoursDecimal, 2);
+        const presenceHoursDecimal = truncateDecimals(rawPresenceHoursDecimal, 2);
         const netArbeitszeitDecimal = calculateArbeitszeit(start, end, additionalPauseDecimal, isPc);
         const impliedBreakDecimal = Math.max(0, presenceHoursDecimal - (netArbeitszeitDecimal - (isPc ? 0.13 : 0)));
         const impliedBreakMin = Math.round(impliedBreakDecimal * 60);
@@ -724,9 +730,9 @@
         $("pausenzeit").value = `${impliedBreakMin} Min (${impliedBreakDecimal.toFixed(2)}h)`;
         $("arbeitszeit").value = `${formatDecimalToTime(netArbeitszeitDecimal)} (${netArbeitszeitDecimal.toFixed(2)}h)`;
         $("sollarbeitszeit-display").value = `${formatDecimalToTime(sollProTagDecimal)} (${sollProTagDecimal.toFixed(2)}h)`;
-        $("differenz").value = roundDecimals(diffDecimal, 2).toFixed(2);
+        $("differenz").value = truncateDecimals(diffDecimal, 2).toFixed(2);
         $("differenz-time").value = formatDecimalToTime(diffDecimal);
-        $("neues-konto").value = roundDecimals(newKtoDecimal, 2).toFixed(2);
+        $("neues-konto").value = truncateDecimals(newKtoDecimal, 2).toFixed(2);
         $("neues-konto-time").value = formatDecimalToTime(newKtoDecimal);
 
         // Color coding
@@ -868,7 +874,7 @@
         let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
-        const differenzDecimal = roundDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
+        const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
         const dayData = {
           datum: datum,
           differenz: differenzDecimal.toFixed(2),
@@ -1287,7 +1293,7 @@
 
         // --- Fall 1: Sondertag ---
         if (isUrlaub || isKrank || isSchulung || isGlaz || isEzaTag) {
-          const differenzDecimal = roundDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
+          const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
           dayData.differenz = differenzDecimal.toFixed(2);
           dayData.differenzTime = formatDecimalToTime(differenzDecimal);
           let label = isUrlaub ? "Urlaub" : isKrank ? "Krank" : isSchulung ? "Schulung" : isGlaz ? "GLAZ" : "EZA-Tag";
@@ -1320,7 +1326,7 @@
 
         // Berechne Differenz für normalen Arbeitstag (nutzt aktuellen Sollwert)
         mainDifferenceSec = netManualSec - sollSec;
-        const differenzDecimal = roundDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
+        const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
 
         dayData.differenz = differenzDecimal.toFixed(2);
         dayData.differenzTime = formatDecimalToTime(differenzDecimal);
@@ -1402,7 +1408,7 @@
               // Berechne neuen Kontostand basierend auf der gespeicherten Differenz (differenz ist jetzt Dezimal, rechne in Sekunden)
               const diffSec = Math.round(parseFloat(entry.differenz || "0") * 3600);
               let newKontoSec = currentBaseKontoSec + diffSec;
-              const newKontoDecimal = roundDecimals(secondsToDecimalHours(newKontoSec), 2);
+              const newKontoDecimal = truncateDecimals(secondsToDecimalHours(newKontoSec), 2);
               entry.stundenkonto = newKontoDecimal.toFixed(2);
           }
 
@@ -1423,7 +1429,7 @@
                   latestCalculatedKontoSec = Math.round(parseFloat(getFromLS("initialKontoValue", "0")) * 3600);
               }
           }
-          const latestCalculatedKontoDecimal = roundDecimals(secondsToDecimalHours(latestCalculatedKontoSec), 2);
+          const latestCalculatedKontoDecimal = truncateDecimals(secondsToDecimalHours(latestCalculatedKontoSec), 2);
           storeToLS("aktuellesStundenkonto", latestCalculatedKontoDecimal.toFixed(2));
 
           // 6. UI aktualisieren
@@ -1494,7 +1500,7 @@
           const additionalPauseSavedDecimal = parsePauseInputFromString(entry.zusatzPause || "");
 
           const rawPresenceDecimal = calculatePresenceTime(kommenLokal, gehenLokal);
-          const presenceDecimal = roundDecimals(rawPresenceDecimal, 2);
+          const presenceDecimal = truncateDecimals(rawPresenceDecimal, 2);
           anwesenheitLabel = `${formatDecimalToTime(presenceDecimal)} (${presenceDecimal.toFixed(2)}h)`;
 
           const netCalculatedDecimal = calculateNetArbeitszeitFromEntryData(entry);
@@ -1716,7 +1722,7 @@
               currentEzaStandSec += ezaDifferenceSec; // Update temp EZA stand
 
               const existingEntry = historyMap.get(currentDateStr);
-              const differenzDecimal = roundDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
+              const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
               const dayData = {
                 datum: currentDateStr,
                 differenz: differenzDecimal.toFixed(2),
