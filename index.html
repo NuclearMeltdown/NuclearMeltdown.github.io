@@ -453,11 +453,15 @@
 
       // *** GEÄNDERTE setupEventListeners() Funktion ***
       function setupEventListeners() {
-        $("nav-main").addEventListener("click", () => switchView("main"));
-        $("nav-history").addEventListener("click", () => switchView("history"));
-        $("nav-month").addEventListener("click", () => switchView("month"));
-        $("nav-stats").addEventListener("click", () => switchView("stats"));
-        $("nav-options").addEventListener("click", () => switchView("options"));
+        ["main", "history", "month", "stats", "options"].forEach((id) => {
+          const navItem = $("nav-" + id);
+          if (navItem) {
+            navItem.onclick = (e) => {
+              e.preventDefault();
+              switchView(id);
+            };
+          }
+        });
         $("kommen-display").oninput = onInputChange;
         $("gehen-display").oninput = onInputChange;
         $("pc-buchung").onchange = onInputChange; // Trigger update
@@ -516,7 +520,7 @@
           // Neuberechnung nicht nötig, nur Anzeige/Warnungen betroffen
           updateCalculations(); // Aktualisiert Hauptseite (Warnungen)
           if (currentView === 'history') loadHistory(); // Aktualisiert Verlauf (Symbole)
-          if (currentView === 'month") loadMonthData();
+          if (currentView === 'month') loadMonthData();
         }
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
@@ -2891,3 +2895,4 @@
     </div>
   </body>
 </html>
+`
