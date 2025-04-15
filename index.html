@@ -440,12 +440,11 @@
 
       function setupEventListeners() {
         ["main", "history", "month", "stats", "options"].forEach((id) => {
-          const navItem = document.getElementById("nav-" + id);
+          const navItem = $("nav-" + id);
           if (navItem) {
-            navItem.onclick = function (event) {
-              event.preventDefault();
+            navItem.onclick = (e) => {
+              e.preventDefault();
               switchView(id);
-              return false;
             };
           }
         });
@@ -1015,6 +1014,7 @@
 
       document.addEventListener("DOMContentLoaded", function() {
         init();
+        setupEventListeners(); // Stelle sicher, dass die Navigation nach jedem Laden gesetzt wird
       });
     </script>
 
