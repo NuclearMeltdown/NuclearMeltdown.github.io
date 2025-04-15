@@ -86,6 +86,34 @@
         return date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
       }
 
+      // Berechnet die passende Endzeit für eine gegebene Anzahl an Stunden
+      function calculateEndTimeFixpoint(stunden, startDate, zusatzPause, isPcBuchung) {
+        if (!startDate) return "--:--";
+        
+        const startSec = timeToSeconds(startDate);
+        let goalWorkSec = Math.round(stunden * 3600);
+        if (isPcBuchung) goalWorkSec -= 468; // PC-Buchung abziehen (-0.13h)
+        
+        let additionalPauseSec = Math.round(zusatzPause * 3600);
+        let totalDelay = additionalPauseSec;
+        
+        // Automatische Pausen
+        if (goalWorkSec > 6 * 3600) {
+          totalDelay += 1800; // +30min Pause nach 6h
+        }
+        if (goalWorkSec > 9 * 3600) {
+          totalDelay += 900; // +15min zusätzlich nach 9h (gesamt 45min)
+        }
+        
+        const endSec = startSec + goalWorkSec + totalDelay;
+        
+        // Sekunden in Uhrzeit konvertieren
+        const endHours = Math.floor(endSec / 3600) % 24;
+        const endMinutes = Math.floor((endSec % 3600) / 60);
+        
+        return `${pad(endHours)}:${pad(endMinutes)}`;
+      }
+
       // Parst hh:mm und gibt ein lokales Date-Objekt zurück
       function parseTime(str) {
         if (!str) return null;
