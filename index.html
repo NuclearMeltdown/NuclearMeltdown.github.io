@@ -1012,10 +1012,7 @@
           }
       }
 
-      document.addEventListener("DOMContentLoaded", function() {
-        init();
-        setupEventListeners(); // Stelle sicher, dass die Navigation nach jedem Laden gesetzt wird
-      });
+      document.addEventListener("DOMContentLoaded", init);
     </script>
 
     <style>
