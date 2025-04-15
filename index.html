@@ -833,18 +833,12 @@
           return;
         }
 
-        // NEU: Berechnung komplett in Sekunden
-        const netArbeitszeitSec = calculateArbeitszeitSeconds(
+        const netArbeitszeitDecimal = calculateArbeitszeit(
           originalKommenDate,
           currentGehen,
           parsePauseInput("zusatzliche-pause"),
           isPcBuchung
         );
-        // Sollzeit in Sekunden
-        const currentWochenAZ = settings.wochenarbeitszeit;
-        const currentSollProTag = currentWochenAZ / 5;
-        const sollSec = Math.round(currentSollProTag * 3600);
-        let mainDifferenceSec = netArbeitszeitSec - sollSec;
 
         let gehenCheck = new Date(currentGehen.getTime());
         if (gehenCheck < originalKommenDate)
@@ -857,7 +851,7 @@
         const violations = checkViolations(
           originalKommenDate,
           gehenCheck,
-          secondsToDecimalHours(netArbeitszeitSec)
+          netArbeitszeitDecimal
         );
         if (violations.any && !settings.allowNachtarbeit) {
           if (
@@ -868,17 +862,21 @@
             return;
         }
 
+        // Verwende die *aktuellen* Einstellungen für die Sollzeit dieses Eintrags
+        const currentWochenAZ = settings.wochenarbeitszeit;
+        const currentSollProTag = currentWochenAZ / 5;
+        let mainDifferenceDecimal = netArbeitszeitDecimal - currentSollProTag;
+
         const kommenLocalISO = formatLocalDateTimeString(originalKommenDate);
         const gehenLocalISO = formatLocalDateTimeString(currentGehen);
 
         let history = getHistory();
         const displayDate = today.toLocaleDateString("de-DE");
         const existingIndex = history.findIndex((e) => e.datum === datum);
-        const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
         const dayData = {
           datum: datum,
-          differenz: differenzDecimal.toFixed(2),
-          differenzTime: formatDecimalToTime(differenzDecimal),
+          differenz: truncateDecimals(mainDifferenceDecimal, 2).toFixed(2),
+          differenzTime: formatDecimalToTime(mainDifferenceDecimal),
           stundenkonto: "0.00", // Wird von saveAndReload berechnet
           kommen: kommenLocalISO,
           gehen: gehenLocalISO,
@@ -893,6 +891,7 @@
         };
         if (existingIndex !== -1) {
           if (!confirm(`Für heute (${displayDate}) existiert bereits ein Eintrag. Überschreiben?`)) return;
+          // Überschreibe immer mit den aktuellen Settings beim Speichern des *heutigen* Tages
           history[existingIndex] = dayData;
         } else {
           history.push(dayData);
@@ -1242,34 +1241,33 @@
         // Verwende die *aktuellen* Einstellungen für die Sollzeit dieses Eintrags
         const currentWochenAZ = settings.wochenarbeitszeit;
         const currentSollProTag = currentWochenAZ / 5;
-        const sollSec = Math.round(currentSollProTag * 3600);
 
-        let mainDifferenceSec = 0;
-        let ezaDifferenceSec = 0;
+        let mainDifferenceDecimal = 0;
+        let ezaDifferenceDecimal = 0;
         const currentEzaActive = settings.ezaActive;
 
         // Berechne Differenzen für Sondertage (nutzt aktuellen Sollwert)
         if (currentEzaActive) {
-          if (isUrlaub || isSchulung) mainDifferenceSec = Math.round(-0.4 * 3600);
-          else if (isKrank) ezaDifferenceSec = Math.round(-0.4 * 3600);
-          else if (isGlaz) mainDifferenceSec = -sollSec;
+          if (isUrlaub || isSchulung) mainDifferenceDecimal = -0.4;
+          else if (isKrank) ezaDifferenceDecimal = -0.4;
+          else if (isGlaz) mainDifferenceDecimal = -currentSollProTag;
           else if (isEzaTag) {
-            const neededSec = sollSec;
-            const availableEzaSec = Math.round(settings.ezaKontoStand * 3600);
-            if (availableEzaSec >= neededSec) ezaDifferenceSec = -neededSec;
-            else if (availableEzaSec > 0) {
-              ezaDifferenceSec = -availableEzaSec;
-              mainDifferenceSec = -(neededSec - availableEzaSec);
-            } else mainDifferenceSec = -neededSec;
+            const neededHoursDecimal = currentSollProTag;
+            const availableEzaDecimal = settings.ezaKontoStand;
+            if (availableEzaDecimal >= neededHoursDecimal) ezaDifferenceDecimal = -neededHoursDecimal;
+            else if (availableEzaDecimal > 0) {
+              ezaDifferenceDecimal = -availableEzaDecimal;
+              mainDifferenceDecimal = -(neededHoursDecimal - availableEzaDecimal);
+            } else mainDifferenceDecimal = -neededHoursDecimal;
           }
         } else {
-          if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifferenceSec = 0;
-          else if (isGlaz) mainDifferenceSec = -sollSec;
+          if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifferenceDecimal = 0;
+          else if (isGlaz) mainDifferenceDecimal = -currentSollProTag;
         }
 
         // Update EZA balance immediately if affected
-        if (currentEzaActive && ezaDifferenceSec !== 0) {
-          settings.ezaKontoStand += ezaDifferenceSec / 3600;
+        if (currentEzaActive && ezaDifferenceDecimal !== 0) {
+          settings.ezaKontoStand += ezaDifferenceDecimal;
           storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
           updateEzaKontoDisplay();
         }
@@ -1293,9 +1291,8 @@
 
         // --- Fall 1: Sondertag ---
         if (isUrlaub || isKrank || isSchulung || isGlaz || isEzaTag) {
-          const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
-          dayData.differenz = differenzDecimal.toFixed(2);
-          dayData.differenzTime = formatDecimalToTime(differenzDecimal);
+          dayData.differenz = truncateDecimals(mainDifferenceDecimal, 2).toFixed(2);
+          dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimal);
           let label = isUrlaub ? "Urlaub" : isKrank ? "Krank" : isSchulung ? "Schulung" : isGlaz ? "GLAZ" : "EZA-Tag";
           if (existingIndex !== -1) history[existingIndex] = dayData;
           else history.push(dayData);
@@ -1314,22 +1311,21 @@
         if (gehenDateManual < kommenDateManual) gehenDateManual.setDate(gehenDateManual.getDate() + 1);
 
         const additionalPauseManualHoursDecimal = parsePauseInputFromString(additionalPauseManualValue);
-        const netManualSec = calculateArbeitszeitSeconds(
+        const netManualDecimal = calculateArbeitszeit(
           kommenDateManual, gehenDateManual,
           additionalPauseManualHoursDecimal, isPcBuchungAddDay
         );
 
-        const violations = checkViolations(kommenDateManual, gehenDateManual, secondsToDecimalHours(netManualSec));
+        const violations = checkViolations(kommenDateManual, gehenDateManual, netManualDecimal);
         if (violations.any && !settings.allowNachtarbeit) {
           if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
         }
 
         // Berechne Differenz für normalen Arbeitstag (nutzt aktuellen Sollwert)
-        mainDifferenceSec = netManualSec - sollSec;
-        const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
+        mainDifferenceDecimal = netManualDecimal - currentSollProTag;
 
-        dayData.differenz = differenzDecimal.toFixed(2);
-        dayData.differenzTime = formatDecimalToTime(differenzDecimal);
+        dayData.differenz = truncateDecimals(mainDifferenceDecimal, 2).toFixed(2);
+        dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimal);
         dayData.kommen = formatLocalDateTimeString(kommenDateManual);
         dayData.gehen = formatLocalDateTimeString(gehenDateManual);
         dayData.pcBuchung = isPcBuchungAddDay;
@@ -1367,7 +1363,7 @@
           // 3. Kontostand neu berechnen unter Berücksichtigung der Marker
           let currentMarkerIndex = -1;
           // Startwert ist der 'initialKontoValue' (wird nur verwendet, wenn kein Marker davor liegt)
-          let baseKontoSec = Math.round(parseFloat(getFromLS("initialKontoValue", "0")) * 3600);
+          let baseKontoDecimal = parseFloat(getFromLS("initialKontoValue", "0"));
 
           // Prüfen, ob der erste Marker VOR dem ersten History-Eintrag liegt
           if (history.length > 0 && sortedMarkers.length > 0 && sortedMarkers[0].datum < history[0].datum) {
@@ -1381,14 +1377,14 @@
                  }
              }
              if (initialMarkerIndex !== -1) {
-                 baseKontoSec = Math.round(parseFloat(sortedMarkers[initialMarkerIndex].kontostand) * 3600);
+                 baseKontoDecimal = parseFloat(sortedMarkers[initialMarkerIndex].kontostand);
                  currentMarkerIndex = initialMarkerIndex; // Setze den Start-Marker-Index
              }
           }
 
           for (let i = 0; i < history.length; i++) {
               const entry = history[i];
-              let currentBaseKontoSec;
+              let currentBaseKontoDecimal;
 
               // Prüfen, ob ein NEUER Marker ab DIESEM Datum gilt
               // Wichtig: >= Vergleich, damit Marker am selben Tag greift
@@ -1396,20 +1392,20 @@
                   entry.datum >= sortedMarkers[currentMarkerIndex + 1].datum) {
                   currentMarkerIndex++;
                   // Der Marker setzt den Startkontostand für DIESEN Tag
-                  currentBaseKontoSec = Math.round(parseFloat(sortedMarkers[currentMarkerIndex].kontostand) * 3600);
+                  currentBaseKontoDecimal = parseFloat(sortedMarkers[currentMarkerIndex].kontostand);
               } else if (i > 0) {
                   // Kein neuer Marker, nimm den Endkontostand des Vortages als Startwert
-                  currentBaseKontoSec = Math.round(parseFloat(history[i - 1].stundenkonto || "0") * 3600);
+                  currentBaseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
               } else {
                   // Erster Eintrag in der History, und kein früherer Marker hat gegriffen
-                  currentBaseKontoSec = baseKontoSec; // Nutze den ermittelten Startwert
+                  currentBaseKontoDecimal = baseKontoDecimal; // Nutze den ermittelten Startwert
               }
 
-              // Berechne neuen Kontostand basierend auf der gespeicherten Differenz (differenz ist jetzt Dezimal, rechne in Sekunden)
-              const diffSec = Math.round(parseFloat(entry.differenz || "0") * 3600);
-              let newKontoSec = currentBaseKontoSec + diffSec;
-              const newKontoDecimal = truncateDecimals(secondsToDecimalHours(newKontoSec), 2);
-              entry.stundenkonto = newKontoDecimal.toFixed(2);
+              // Berechne neuen Kontostand basierend auf der gespeicherten Differenz
+              // Die Differenz wurde bereits korrekt mit der damals gültigen Sollzeit berechnet
+              const diffDecimal = parseFloat(entry.differenz || "0");
+              let newKontoDecimal = currentBaseKontoDecimal + diffDecimal;
+              entry.stundenkonto = truncateDecimals(newKontoDecimal, 2).toFixed(2);
           }
 
           // 4. Aktualisierten Verlauf speichern
@@ -1417,19 +1413,18 @@
 
           // 5. Aktuellen Kontostand für die UI setzen
           const latestEntry = history.length > 0 ? history[history.length - 1] : null;
-          let latestCalculatedKontoSec;
+          let latestCalculatedKontoDecimal;
 
           if (latestEntry) {
-              latestCalculatedKontoSec = Math.round(parseFloat(latestEntry.stundenkonto || "0") * 3600);
+              latestCalculatedKontoDecimal = parseFloat(latestEntry.stundenkonto || "0");
           } else {
               // Wenn History leer ist, nimm den Wert des letzten Markers oder den Initialwert
               if (sortedMarkers.length > 0) {
-                  latestCalculatedKontoSec = Math.round(parseFloat(sortedMarkers[sortedMarkers.length - 1].kontostand) * 3600);
+                  latestCalculatedKontoDecimal = parseFloat(sortedMarkers[sortedMarkers.length - 1].kontostand);
               } else {
-                  latestCalculatedKontoSec = Math.round(parseFloat(getFromLS("initialKontoValue", "0")) * 3600);
+                  latestCalculatedKontoDecimal = parseFloat(getFromLS("initialKontoValue", "0"));
               }
           }
-          const latestCalculatedKontoDecimal = truncateDecimals(secondsToDecimalHours(latestCalculatedKontoSec), 2);
           storeToLS("aktuellesStundenkonto", latestCalculatedKontoDecimal.toFixed(2));
 
           // 6. UI aktualisieren
@@ -1486,7 +1481,7 @@
         } else if (entry.urlaub || entry.krank || entry.schulung || entry.glaz || entry.isEzaTag) {
            const statusText = entry.urlaub ? "Urlaub" : entry.krank ? "Krank" : entry.schulung ? "Schulung" : entry.glaz ? "GLAZ" : "EZA-Tag";
            const tagLabelClass = entry.isEzaTag ? ezaTagIndicatorClass : "";
-           const diffDisplay = entry.glaz || entry.urlaub || entry.schulung ? `<span class="diff-badge ${diffClass} ${ezaIndicatorClass}">${entry.differenzTime}</span>` : "";
+           const diffDisplay = entry.glaz || entry.urlaub || entry.schulung ? `<span class="diff-badge ${diffClass} ${ezaIndicatorClass}">${entry.differenzTime} (${entry.differenz}h)</span>` : "";
            detailsHTML = `<p><strong>Status:</strong> <span class="${tagLabelClass}">${statusText}</span> ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p>${sollZeile}<p><strong>Differenz:</strong> ${diffDisplay}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal.toFixed(2)}h)</p>`;
            $("detail-edit-button").style.display = "block";
            $("detail-delete-button").style.display = "block";
@@ -1671,10 +1666,8 @@
         // Verwende die *aktuellen* Einstellungen für die Sollzeit dieser Bulk-Buchung
         const currentWochenAZ = settings.wochenarbeitszeit;
         const currentSollProTag = currentWochenAZ / 5;
-        const sollSec = Math.round(currentSollProTag * 3600);
         const currentEzaActive = settings.ezaActive;
         let currentEzaStandDecimal = settings.ezaKontoStand; // Temporärer Stand für Bulk
-        let currentEzaStandSec = Math.round(currentEzaStandDecimal * 3600);
 
         const typeLabel = { urlaub: "Urlaub", krank: "Krank", schulung: "Schulung", glaz: "GLAZ", ezaTag: "EZA-Tag", delete: "Löschen" }[specialType];
 
@@ -1693,7 +1686,7 @@
                 historyMap.delete(currentDateStr); modified = true; processedCount++;
               } else { skippedDays++; }
             } else {
-              let mainDifferenceSec = 0, ezaDifferenceSec = 0;
+              let mainDifferenceDecimal = 0, ezaDifferenceDecimal = 0;
               let isUrlaub = false, isKrank = false, isSchulung = false, isGlaz = false, isEzaTag = false;
               switch (specialType) {
                 case "urlaub": isUrlaub = true; break; case "krank": isKrank = true; break;
@@ -1703,30 +1696,29 @@
 
               // Berechne Differenzen (nutzt aktuellen Sollwert)
               if (currentEzaActive) {
-                if (isUrlaub || isSchulung) mainDifferenceSec = Math.round(-0.4 * 3600);
-                else if (isKrank) ezaDifferenceSec = Math.round(-0.4 * 3600);
-                else if (isGlaz) mainDifferenceSec = -sollSec;
+                if (isUrlaub || isSchulung) mainDifferenceDecimal = -0.4;
+                else if (isKrank) ezaDifferenceDecimal = -0.4;
+                else if (isGlaz) mainDifferenceDecimal = -currentSollProTag;
                 else if (isEzaTag) {
-                  const neededSec = sollSec;
-                  const availableEzaSec = currentEzaStandSec;
-                  if (availableEzaSec >= neededSec) ezaDifferenceSec = -neededSec;
-                  else if (availableEzaSec > 0) {
-                    ezaDifferenceSec = -availableEzaSec;
-                    mainDifferenceSec = -(neededSec - availableEzaSec);
-                  } else mainDifferenceSec = -neededSec;
+                  const neededHoursDecimal = currentSollProTag;
+                  const availableEzaDecimal = currentEzaStandDecimal;
+                  if (availableEzaDecimal >= neededHoursDecimal) ezaDifferenceDecimal = -neededHoursDecimal;
+                  else if (availableEzaDecimal > 0) {
+                    ezaDifferenceDecimal = -availableEzaDecimal;
+                    mainDifferenceDecimal = -(neededHoursDecimal - availableEzaDecimal);
+                  } else mainDifferenceDecimal = -neededHoursDecimal;
                 }
               } else {
-                if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifferenceSec = 0;
-                else if (isGlaz) mainDifferenceSec = -sollSec;
+                if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifferenceDecimal = 0;
+                else if (isGlaz) mainDifferenceDecimal = -currentSollProTag;
               }
-              currentEzaStandSec += ezaDifferenceSec; // Update temp EZA stand
+              currentEzaStandDecimal += ezaDifferenceDecimal; // Update temp EZA stand
 
               const existingEntry = historyMap.get(currentDateStr);
-              const differenzDecimal = truncateDecimals(secondsToDecimalHours(mainDifferenceSec), 2);
               const dayData = {
                 datum: currentDateStr,
-                differenz: differenzDecimal.toFixed(2),
-                differenzTime: formatDecimalToTime(differenzDecimal),
+                differenz: truncateDecimals(mainDifferenceDecimal, 2).toFixed(2),
+                differenzTime: formatDecimalToTime(mainDifferenceDecimal),
                 stundenkonto: "0.00", // Wird neu berechnet
                 kommen: null, gehen: null,
                 urlaub: isUrlaub, krank: isKrank, schulung: isSchulung, glaz: isGlaz, isEzaTag: isEzaTag,
@@ -1746,7 +1738,7 @@
         }
 
         if (modified) {
-          settings.ezaKontoStand = currentEzaStandSec / 3600; // Final EZA stand speichern
+          settings.ezaKontoStand = currentEzaStandDecimal; // Final EZA stand speichern
           storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
           updateEzaKontoDisplay();
 
