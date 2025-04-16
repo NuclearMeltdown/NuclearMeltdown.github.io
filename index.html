@@ -46,17 +46,20 @@
 
     <script>
       // Globale Variablen
-      let kommenZeit = null, // Originale Kommen-Zeit (Date Objekt, lokal)
-        gehenZeit = null; // Gehen-Zeit (Date Objekt, lokal)
-      let currentWeekYear = null,
-        currentWeekNo = null;
-      let currentMonthYear = null,
-        currentMonth = null;
-      let currentView = "main"; // main, history, month, stats, options
-      let balanceMarkers = []; // Array für { datum: "YYYY-MM-DD", kontostand: "12.34" }
-
+      const app = {
+        zeit: { kommen: null, gehen: null },
+        view: { current: "main" },
+        dates: { 
+          weekYear: null, 
+          weekNo: null, 
+          monthYear: null, 
+          month: null 
+        },
+        balanceMarkers: []
+      };
+      
       // Globale Einstellungen (werden aus LS geladen)
-      let settings = {
+      const settings = {
         wochenarbeitszeit: 38,
         bundesland: "NATIONAL",
         allowWochenende: false,
@@ -360,7 +363,7 @@
         // updateCalculations(); // Nur UI der Hauptseite aktualisieren
         // if (currentView === "history") loadHistory();
         // if (currentView === "month") loadMonthData();
-        if (currentView === "options") loadOptions(); // Optionen neu laden
+        if (app.view.current === "options") loadOptions(); // Optionen neu laden
         // saveAndReload(getHistory()); // Nicht hier, sonst bei jeder kleinen Änderung Neuberechnung
       }
 
@@ -397,12 +400,12 @@
       // *** GEÄNDERTE init() Funktion ***
       function init() {
         loadSettings();
-        balanceMarkers = getBalanceMarkers(); // Lade Marker beim Start
+        app.balanceMarkers = getBalanceMarkers(); // Lade Marker beim Start
         restoreInputsFromLocalStorage();
         const heute = new Date();
-        [currentWeekYear, currentWeekNo] = getWeekNumber(heute);
-        currentMonthYear = heute.getFullYear();
-        currentMonth = heute.getMonth();
+        [app.dates.weekYear, app.dates.weekNo] = getWeekNumber(heute);
+        app.dates.monthYear = heute.getFullYear();
+        app.dates.month = heute.getMonth();
 
         // Initialen Kontostand laden (wird von saveAndReload ggf. angepasst)
         let lastKontoValue = 0;
@@ -479,9 +482,9 @@
           settings.bundesland = e.target.value;
           saveSettings();
           // Neuberechnung nicht nötig, nur Feiertagsanzeige betroffen
-          if (currentView === 'history') loadHistory();
-          if (currentView === 'month') loadMonthData();
-          if (currentView === 'stats') calculateAndDisplayStats();
+          if (app.view.current === 'history') loadHistory();
+          if (app.view.current === 'month') loadMonthData();
+          if (app.view.current === 'stats') calculateAndDisplayStats();
         };
         $("wochenarbeitszeit-setting").onchange = (e) => {
           const val = parseFloat(e.target.value);
@@ -500,16 +503,16 @@
           settings.allowWochenende = e.target.checked;
           saveSettings();
           // Neuberechnung nicht nötig, nur Anzeige/Buchung betroffen
-          if (currentView === 'history') loadHistory();
-          if (currentView === 'month') loadMonthData();
+          if (app.view.current === 'history') loadHistory();
+          if (app.view.current === 'month') loadMonthData();
         };
         $("nachtarbeit-toggle").onchange = (e) => {
           settings.allowNachtarbeit = e.target.checked;
           saveSettings();
           // Neuberechnung nicht nötig, nur Anzeige/Warnungen betroffen
           updateCalculations(); // Aktualisiert Hauptseite (Warnungen)
-          if (currentView === 'history') loadHistory(); // Aktualisiert Verlauf (Symbole)
-          if (currentView === 'month') loadMonthData(); // Aktualisiert Monat (Symbole)
+          if (app.view.current === 'history') loadHistory(); // Aktualisiert Verlauf (Symbole)
+          if (app.view.current === 'month') loadMonthData(); // Aktualisiert Monat (Symbole)
         };
         $("export-button-options").addEventListener("click", exportHistoryToJson);
         $("import-button-options").addEventListener("click", importHistoryFromJson);
@@ -533,11 +536,11 @@
         const storedGehen = getFromLS("gehenZeitValue");
         if (storedKommen) {
           $("kommen-display").value = storedKommen;
-          kommenZeit = parseTime(storedKommen); // Parse original time
+          app.zeit.kommen = parseTime(storedKommen); // Parse original time
         }
         if (storedGehen) {
           $("gehen-display").value = storedGehen;
-          gehenZeit = parseTime(storedGehen);
+          app.zeit.gehen = parseTime(storedGehen);
         }
         $("pc-buchung").checked = getFromLS("pcBuchungChecked") === "true";
         $("buero-toggle").checked = getFromLS("bueroChecked") === "true";
@@ -562,19 +565,19 @@
       function setZeit(type) {
         const now = new Date();
         if (type === "kommen") {
-          kommenZeit = now; // Store original time
-          $("kommen-display").value = formatTime(kommenZeit);
+          app.zeit.kommen = now; // Store original time
+          $("kommen-display").value = formatTime(app.zeit.kommen);
         } else {
-          gehenZeit = now;
-          $("gehen-display").value = formatTime(gehenZeit);
+          app.zeit.gehen = now;
+          $("gehen-display").value = formatTime(app.zeit.gehen);
         }
         storeInputsToLocalStorage();
         updateCalculations();
       }
 
       function onInputChange() {
-        kommenZeit = parseTime($("kommen-display").value); // Parse original time
-        gehenZeit = parseTime($("gehen-display").value);
+        app.zeit.kommen = parseTime($("kommen-display").value); // Parse original time
+        app.zeit.gehen = parseTime($("gehen-display").value);
         storeInputsToLocalStorage();
         updateCalculations();
       }
@@ -653,7 +656,7 @@
       }
 
       function updateEndTimes() {
-        const start = kommenZeit;
+        const start = app.zeit.kommen;
         const isPc = $("pc-buchung").checked;
         const addPause = parsePauseInput("zusatzliche-pause");
         if (!start) {
@@ -675,8 +678,8 @@
 
       // Aktualisiert Berechnungen auf Hauptseite
       function updateCalculations() {
-        const start = kommenZeit;
-        const end = gehenZeit;
+        const start = app.zeit.kommen;
+        const end = app.zeit.gehen;
         const isPc = $("pc-buchung").checked;
         const additionalPauseDecimal = parsePauseInput("zusatzliche-pause");
 
@@ -794,8 +797,8 @@
           return;
         }
 
-        const originalKommenDate = kommenZeit;
-        const currentGehen = gehenZeit;
+        const originalKommenDate = app.zeit.kommen;
+        const currentGehen = app.zeit.gehen;
         const isPcBuchung = $("pc-buchung").checked;
         const additionalPauseValue = $("zusatzliche-pause").value || "";
         const isBuero = $("buero-toggle").checked;
@@ -891,7 +894,7 @@
       }
 
       function switchView(viewId) {
-        currentView = viewId;
+        app.view.current = viewId;
         ["main", "history", "month", "stats", "options"].forEach((id) => {
           const page = $(`${id}-page`);
           const navItem = $(`nav-${id}`);
@@ -926,14 +929,14 @@
       function renderBalanceMarkers() {
           const listElement = $("balance-marker-list");
           listElement.innerHTML = ""; // Leeren
-          balanceMarkers = getBalanceMarkers(); // Sicherstellen, dass aktuell und sortiert
+          app.balanceMarkers = getBalanceMarkers(); // Sicherstellen, dass aktuell und sortiert
 
-          if (balanceMarkers.length === 0) {
+          if (app.balanceMarkers.length === 0) {
               listElement.innerHTML = "<li>Keine Marker gesetzt.</li>";
               return;
           }
 
-          balanceMarkers.forEach(marker => {
+          app.balanceMarkers.forEach(marker => {
               const li = document.createElement("li");
               const displayDate = new Date(marker.datum + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
               const kontostandNum = parseFloat(marker.kontostand);
@@ -953,13 +956,13 @@
         const historyList = $("history-list");
         historyList.innerHTML = "";
         let history = getHistory(); // Already sorted
-        const weekStartDateUTC = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+        const weekStartDateUTC = getDateOfISOWeek(app.dates.weekNo, app.dates.weekYear);
         const daysToShow = settings.allowWochenende ? 6 : 4;
         const weekEndDate = new Date(weekStartDateUTC);
         weekEndDate.setUTCDate(weekStartDateUTC.getUTCDate() + daysToShow);
         const optionsDate = { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/Berlin" };
         const weekRange = `${weekStartDateUTC.toLocaleDateString("de-DE", optionsDate)} - ${weekEndDate.toLocaleDateString("de-DE", optionsDate)}`;
-        $("week-info").textContent = `KW ${currentWeekNo} / ${currentWeekYear}`;
+        $("week-info").textContent = `KW ${app.dates.weekNo} / ${app.dates.weekYear}`;
         $("week-range").textContent = weekRange;
         const optionsWeekday = { weekday: "long", timeZone: "Europe/Berlin" };
 
@@ -1096,17 +1099,17 @@
           return btn;
         };
         const prevWeekBtn = createButton("‹", () => {
-          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+          const d = getDateOfISOWeek(app.dates.weekNo, app.dates.weekYear);
           d.setUTCDate(d.getUTCDate() - 7);
-          [currentWeekYear, currentWeekNo] = getWeekNumber(d);
+          [app.dates.weekYear, app.dates.weekNo] = getWeekNumber(d);
           loadHistory();
         });
         const nextWeekBtn = createButton("›", () => {
-          const d = getDateOfISOWeek(currentWeekNo, currentWeekYear);
+          const d = getDateOfISOWeek(app.dates.weekNo, app.dates.weekYear);
           d.setUTCDate(d.getUTCDate() + 7);
           const [newYear, newWeek] = getWeekNumber(d);
-          currentWeekYear = newYear;
-          currentWeekNo = newWeek;
+          app.dates.weekYear = newYear;
+          app.dates.weekNo = newWeek;
           loadHistory();
         });
         pagination.appendChild(prevWeekBtn);
@@ -1405,10 +1408,10 @@
           closeDetailModal();
           closeBulkModal();
           closeAddMarkerModal();
-          if (currentView === "history") loadHistory();
-          if (currentView === "month") loadMonthData();
-          if (currentView === "stats") calculateAndDisplayStats();
-          if (currentView === "options") loadOptions(); // Lädt Optionen neu (zeigt Marker an)
+          if (app.view.current === "history") loadHistory();
+          if (app.view.current === "month") loadMonthData();
+          if (app.view.current === "stats") calculateAndDisplayStats();
+          if (app.view.current === "options") loadOptions(); // Lädt Optionen neu (zeigt Marker an)
       }
 
       function closeAddDayModal() {
@@ -1520,7 +1523,7 @@
         const history = getHistory();
         const monthData = history.filter((entry) => {
           const entryDate = new Date(entry.datum + "T12:00:00Z");
-          return entryDate.getUTCFullYear() === currentMonthYear && entryDate.getUTCMonth() === currentMonth;
+          return entryDate.getUTCFullYear() === app.dates.monthYear && entryDate.getUTCMonth() === app.dates.month;
         });
         renderCalendar(monthData);
         updateMonthNavigation();
@@ -1528,9 +1531,9 @@
       function renderCalendar(monthData) {
         const calendarGrid = $("calendar-grid");
         calendarGrid.innerHTML = "";
-        $("month-year-display").textContent = `${monthNames[currentMonth]} ${currentMonthYear}`;
-        const daysInMonth = getDaysInMonth(currentMonthYear, currentMonth);
-        let firstDayIndex = getFirstDayOfMonth(currentMonthYear, currentMonth);
+        $("month-year-display").textContent = `${monthNames[app.dates.month]} ${app.dates.monthYear}`;
+        const daysInMonth = getDaysInMonth(app.dates.monthYear, app.dates.month);
+        let firstDayIndex = getFirstDayOfMonth(app.dates.monthYear, app.dates.month);
         firstDayIndex = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
         const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
         calendarGrid.style.gridTemplateColumns = `repeat(7, 1fr)`;
@@ -1545,12 +1548,12 @@
         }
         let monthlyTotalDiffDecimal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
-          const currentDateObj = new Date(Date.UTC(currentMonthYear, currentMonth, day, 12, 0, 0));
+          const currentDateObj = new Date(Date.UTC(app.dates.monthYear, app.dates.month, day, 12, 0, 0));
           const dayOfWeek = currentDateObj.getUTCDay();
           const cell = document.createElement("div"); cell.classList.add("calendar-day");
           const cellContent = document.createElement("div"); cellContent.classList.add("calendar-day-content");
           cellContent.textContent = day; cell.appendChild(cellContent);
-          const currentDateStr = `${currentMonthYear}-${pad(currentMonth + 1)}-${pad(day)}`;
+          const currentDateStr = `${app.dates.monthYear}-${pad(app.dates.month + 1)}-${pad(day)}`;
           const entry = monthData.find((e) => e.datum === currentDateStr);
           const holidayName = getHolidayName(currentDateObj, settings.bundesland);
           const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -1612,10 +1615,10 @@
       }
       function updateMonthNavigation() {
         $("prev-month").onclick = () => {
-          currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentMonthYear--; } loadMonthData();
+          app.dates.month--; if (app.dates.month < 0) { app.dates.month = 11; app.dates.monthYear--; } loadMonthData();
         };
         $("next-month").onclick = () => {
-          currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentMonthYear++; } loadMonthData();
+          app.dates.month++; if (app.dates.month > 11) { app.dates.month = 0; app.dates.monthYear++; } loadMonthData();
         };
       }
 
@@ -1995,19 +1998,19 @@
           const newBalance = parseFloat(balanceStr);
           const displayDate = new Date(dateStr + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
 
-          balanceMarkers = getBalanceMarkers(); // Aktuelle Marker holen
-          const existingIndex = balanceMarkers.findIndex(m => m.datum === dateStr);
+          app.balanceMarkers = getBalanceMarkers(); // Aktuelle Marker holen
+          const existingIndex = app.balanceMarkers.findIndex(m => m.datum === dateStr);
 
           if (existingIndex !== -1) {
-              if (!confirm(`Für ${displayDate} existiert bereits ein Marker (${balanceMarkers[existingIndex].kontostand}h).\nSoll dieser überschrieben werden mit ${newBalance.toFixed(2)}h?`)) {
+              if (!confirm(`Für ${displayDate} existiert bereits ein Marker (${app.balanceMarkers[existingIndex].kontostand}h).\nSoll dieser überschrieben werden mit ${newBalance.toFixed(2)}h?`)) {
                   return;
               }
-              balanceMarkers[existingIndex].kontostand = newBalance.toFixed(2);
+              app.balanceMarkers[existingIndex].kontostand = newBalance.toFixed(2);
           } else {
-              balanceMarkers.push({ datum: dateStr, kontostand: newBalance.toFixed(2) });
+              app.balanceMarkers.push({ datum: dateStr, kontostand: newBalance.toFixed(2) });
           }
 
-          storeBalanceMarkers(balanceMarkers); // Speichern (wird sortiert)
+          storeBalanceMarkers(app.balanceMarkers); // Speichern (wird sortiert)
           renderBalanceMarkers(); // Liste in Optionen aktualisieren
           saveAndReload(getHistory()); // Verlauf neu berechnen mit neuem Marker
           alert(`Marker für ${displayDate} mit ${newBalance.toFixed(2)}h gespeichert.`);
@@ -2015,16 +2018,16 @@
       }
 
       function deleteBalanceMarker(dateStr) {
-          balanceMarkers = getBalanceMarkers(); // Aktuelle Marker holen
-          const markerIndex = balanceMarkers.findIndex(m => m.datum === dateStr);
+          app.balanceMarkers = getBalanceMarkers(); // Aktuelle Marker holen
+          const markerIndex = app.balanceMarkers.findIndex(m => m.datum === dateStr);
           if (markerIndex === -1) return; // Sollte nicht passieren
 
           const displayDate = new Date(dateStr + "T12:00:00Z").toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
-          const markerValue = balanceMarkers[markerIndex].kontostand;
+          const markerValue = app.balanceMarkers[markerIndex].kontostand;
 
           if (confirm(`Soll der Marker für ${displayDate} (${markerValue}h) wirklich gelöscht werden?`)) {
-              balanceMarkers.splice(markerIndex, 1);
-              storeBalanceMarkers(balanceMarkers);
+              app.balanceMarkers.splice(markerIndex, 1);
+              storeBalanceMarkers(app.balanceMarkers);
               renderBalanceMarkers();
               saveAndReload(getHistory()); // Verlauf neu berechnen ohne den Marker
               alert(`Marker für ${displayDate} gelöscht.`);
