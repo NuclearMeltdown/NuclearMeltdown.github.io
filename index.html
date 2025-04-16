@@ -79,14 +79,6 @@
         return Math.round(decimal * 3600);
       }
 
-      // NEU: Spezifisches Runden für Stundenkonto-Darstellung, das mit dem Arbeitssystem übereinstimmt
-      // Ohne diese Funktion kommt es zu Rundungsdifferenzen zwischen dem Rechner und dem Arbeitssystem
-      function roundToWorkSystem(decimal) {
-        // Round to 2 decimal places in a way that matches the work system
-        // Multiplying by 100, rounding, then dividing by 100 ensures consistent display
-        return Math.round(decimal * 100) / 100;
-      }
-
       // Parst hh:mm und gibt ein lokales Date-Objekt zurück
       function parseTime(str) {
         if (!str) return null;
@@ -1390,7 +1382,7 @@
       }
       */
 
-      // *** ÜBERARBEITETE saveAndReload() Funktion mit Marker-Logik und verbessertem Rounding ***
+      // *** ÜBERARBEITETE saveAndReload() Funktion mit Marker-Logik ***
       function saveAndReload(history) {
           // 1. Verlauf sortieren (nach Datum)
           history.forEach((entry) => {
@@ -1447,12 +1439,8 @@
               // Berechne neuen Kontostand basierend auf der gespeicherten Differenz
               // Die Differenz wurde bereits korrekt mit der damals gültigen Sollzeit berechnet
               const diffDecimal = parseFloat(entry.differenz || "0");
-              
-              // KRITISCHE ÄNDERUNG: Verwende konsistente Rundungsmethode für exakte Werte
               let newKontoDecimal = currentBaseKontoDecimal + diffDecimal;
-              newKontoDecimal = roundToWorkSystem(newKontoDecimal);
-              
-              entry.stundenkonto = newKontoDecimal.toFixed(2);
+              entry.stundenkonto = truncateDecimals(newKontoDecimal, 2).toFixed(2);
           }
 
           // 4. Aktualisierten Verlauf speichern
@@ -1464,18 +1452,12 @@
 
           if (latestEntry) {
               latestCalculatedKontoDecimal = parseFloat(latestEntry.stundenkonto || "0");
-              // Auch hier konsistente Rundung verwenden
-              latestCalculatedKontoDecimal = roundToWorkSystem(latestCalculatedKontoDecimal);
           } else {
               // Wenn History leer ist, nimm den Wert des letzten Markers oder den Initialwert
               if (sortedMarkers.length > 0) {
                   latestCalculatedKontoDecimal = parseFloat(sortedMarkers[sortedMarkers.length - 1].kontostand);
-                  // Auch hier konsistente Rundung verwenden
-                  latestCalculatedKontoDecimal = roundToWorkSystem(latestCalculatedKontoDecimal);
               } else {
                   latestCalculatedKontoDecimal = parseFloat(getFromLS("initialKontoValue", "0"));
-                  // Auch hier konsistente Rundung verwenden
-                  latestCalculatedKontoDecimal = roundToWorkSystem(latestCalculatedKontoDecimal);
               }
           }
           storeToLS("aktuellesStundenkonto", latestCalculatedKontoDecimal.toFixed(2));
@@ -1621,7 +1603,7 @@
         for (let i = 0; i < firstDayIndex; i++) {
           const emptyCell = document.createElement("div");
           emptyCell.classList.add("calendar-day", "empty"); calendarGrid.appendChild(emptyCell);
-        };
+        }
         let monthlyTotalDiffDecimal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
           const currentDateObj = new Date(Date.UTC(currentMonthYear, currentMonth, day, 12, 0, 0));
