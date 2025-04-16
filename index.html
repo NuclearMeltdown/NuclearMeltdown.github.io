@@ -82,11 +82,11 @@
       // NEU: Spezifisches Runden für Stundenkonto-Darstellung, das mit dem Arbeitssystem übereinstimmt
       // Ohne diese Funktion kommt es zu Rundungsdifferenzen zwischen dem Rechner und dem Arbeitssystem
       function roundToWorkSystem(decimal) {
-        // Konsequent AUFRUNDEN auf 2 Dezimalstellen, damit keine Zeit "verloren" geht
-        // Dies erklärt warum aus 24.84 + (-0.67) = 24.18 wird statt 24.17
-        return Math.ceil(decimal * 100) / 100;
+        // Round to 2 decimal places in a way that matches the work system
+        // Multiplying by 100, rounding, then dividing by 100 ensures consistent display
+        return Math.round(decimal * 100) / 100;
       }
-      
+
       // Parst hh:mm und gibt ein lokales Date-Objekt zurück
       function parseTime(str) {
         if (!str) return null;
