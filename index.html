@@ -87,6 +87,12 @@
         return Math.ceil(decimal * 100) / 100;
       }
       
+      // NEU: Spezielles Runden für Differenzwerte, standardmäßig ABRUNDEN
+      // Damit werden Differenzen wie -0,67h korrekt dargestellt
+      function roundDifferenceValue(decimal) {
+        return Math.floor(Math.abs(decimal) * 100) / 100 * Math.sign(decimal);
+      }
+      
       // Parst hh:mm und gibt ein lokales Date-Objekt zurück
       function parseTime(str) {
         if (!str) return null;
@@ -773,7 +779,7 @@
         $("pausenzeit").value = `${impliedBreakMin} Min (${secondsToDecimal(impliedBreakSeconds).toFixed(2)}h)`;
         $("arbeitszeit").value = `${formatDecimalToTime(secondsToDecimal(netArbeitsSeconds))} (${secondsToDecimal(netArbeitsSeconds).toFixed(2)}h)`;
         $("sollarbeitszeit-display").value = `${formatDecimalToTime(secondsToDecimal(sollProTagSeconds))} (${secondsToDecimal(sollProTagSeconds).toFixed(2)}h)`;
-        $("differenz").value = truncateDecimals(secondsToDecimal(diffSeconds), 2).toFixed(2);
+        $("differenz").value = roundDifferenceValue(secondsToDecimal(diffSeconds)).toFixed(2);
         $("differenz-time").value = formatDecimalToTime(secondsToDecimal(diffSeconds));
         $("neues-konto").value = truncateDecimals(newKtoDecimal, 2).toFixed(2);
         $("neues-konto-time").value = formatDecimalToTime(newKtoDecimal);
@@ -918,7 +924,7 @@
         const existingIndex = history.findIndex((e) => e.datum === datum);
         const dayData = {
           datum: datum,
-          differenz: truncateDecimals(secondsToDecimal(mainDifferenceSeconds), 2).toFixed(2),
+          differenz: roundDifferenceValue(secondsToDecimal(mainDifferenceSeconds)).toFixed(2),
           differenzTime: formatDecimalToTime(secondsToDecimal(mainDifferenceSeconds)),
           stundenkonto: "0.00", // Wird von saveAndReload berechnet
           kommen: kommenLocalISO,
@@ -1334,7 +1340,7 @@
 
         // --- Fall 1: Sondertag ---
         if (isUrlaub || isKrank || isSchulung || isGlaz || isEzaTag) {
-          dayData.differenz = truncateDecimals(secondsToDecimal(mainDifferenceSeconds), 2).toFixed(2);
+          dayData.differenz = roundDifferenceValue(secondsToDecimal(mainDifferenceSeconds)).toFixed(2);
           dayData.differenzTime = formatDecimalToTime(secondsToDecimal(mainDifferenceSeconds));
           let label = isUrlaub ? "Urlaub" : isKrank ? "Krank" : isSchulung ? "Schulung" : isGlaz ? "GLAZ" : "EZA-Tag";
           if (existingIndex !== -1) history[existingIndex] = dayData;
@@ -1367,7 +1373,7 @@
         // Berechne Differenz für normalen Arbeitstag (nutzt aktuellen Sollwert)
         mainDifferenceSeconds = netManualSeconds - currentSollProTagSeconds;
 
-        dayData.differenz = truncateDecimals(secondsToDecimal(mainDifferenceSeconds), 2).toFixed(2);
+        dayData.differenz = roundDifferenceValue(secondsToDecimal(mainDifferenceSeconds)).toFixed(2);
         dayData.differenzTime = formatDecimalToTime(secondsToDecimal(mainDifferenceSeconds));
         dayData.kommen = formatLocalDateTimeString(kommenDateManual);
         dayData.gehen = formatLocalDateTimeString(gehenDateManual);
@@ -1768,7 +1774,7 @@
               const existingEntry = historyMap.get(currentDateStr);
               const dayData = {
                 datum: currentDateStr,
-                differenz: truncateDecimals(secondsToDecimal(mainDifferenceSeconds), 2).toFixed(2),
+                differenz: roundDifferenceValue(secondsToDecimal(mainDifferenceSeconds)).toFixed(2),
                 differenzTime: formatSecondsToTime(mainDifferenceSeconds),
                 stundenkonto: "0.00", // Wird neu berechnet
                 kommen: null, gehen: null,
@@ -2124,7 +2130,7 @@
         --text-color-light: #000000;
         --secondary-text-color-light: rgba(60, 60, 67, 0.6);
         --readonly-text-color-light: rgba(0, 0, 0, 0.75);
-        --separator-color-light: rgba(60, 60, 67, 0.29);
+        --separator-color-light: rgba(60, 60,67, 0.29);
         --input-border-color-light: rgba(60, 60, 67, 0.2);
         --system-blue-light: #007aff; /* Positiv */
         --system-green-light: #34c759; /* Null Saldo */
@@ -2493,7 +2499,7 @@
                 <label for="aktuelles-konto">Aktuelles Konto (Std):</label>
                 <input type="text" id="aktuelles-konto" value="0.00" readonly />
               </div>
-              <div class="column">
+              <div class="column"></div>
                 <label>Konto (Zeit):</label>
                 <input type="text" id="aktuelles-konto-time" readonly />
               </div>
@@ -2747,7 +2753,7 @@
               <button id="export-button-options" class="button">Export</button>
               <button id="import-button-options" class="button">Import</button>
             </div>
-            <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px;">
+            <p style="font-size: 14px; color: var(--secondary-text-color); margin-top: 10px;"></p>
               Beim Import werden alle vorhandenen Daten überschrieben. Der Export enthält den Verlauf, Marker und die aktuellen Einstellungen.
             </p>
           </div>
@@ -2760,7 +2766,7 @@
           <button class="close-button">×</button>
           <h3 id="detail-modal-title">Details</h3>
           <div id="detail-content"></div>
-          <div id="detail-modal-actions" style="display: flex; gap: 10px; margin-top: 20px">
+          <div id="detail-modal-actions" style="display: flex; gap: 10px; margin-top: 20px"></div>
             <button id="detail-edit-button" class="button">Ändern</button>
             <button id="detail-delete-button" class="button delete-button">Löschen</button>
           </div>
