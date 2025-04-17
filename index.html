@@ -1296,7 +1296,11 @@
       // Anzeige wie auf der Hauptseite
       dayData.differenz = diffHDisplay.toFixed(2);
       dayData.differenzTime = msToTimeString(diffMs);
-      dayData.stundenkonto = "0.00";
+
+      const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
+      const newKontoH = aktKontoH + diffHDisplay;
+      dayData.fixedStundenkonto = newKontoH.toFixed(2);
+      dayData.stundenkonto = newKontoH.toFixed(2);
 
       dayData.kommen = formatLocalDateTimeString(kommenDateManual);
       dayData.gehen = formatLocalDateTimeString(gehenDateManual);
