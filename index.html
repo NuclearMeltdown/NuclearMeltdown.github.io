@@ -680,11 +680,10 @@
       const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
       const diffHDisplay = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
 
-      // Aktuelles Konto in ms und neues Konto in ms
+      // Aktuelles Konto und neues Konto in Stunden (gerundet wie Differenz)
       const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
-      const aktKontoMs = aktKontoH * 3600_000;
-      const newKontoMs = aktKontoMs + diffMs;
-      const newKontoH = msToDecimalH(newKontoMs);
+      const newKontoH = aktKontoH + diffHDisplay;
+      const newKontoMs = newKontoH * 3600_000;
 
       // Update Anzeige mit hh:mm und Dezimal
       $("anwesend-zeit").value = `${msToTimeString(presenceMs)} (${presenceH.toFixed(2)}h)`;
@@ -693,7 +692,7 @@
       $("differenz").value = diffHDisplay.toFixed(2);
       $("differenz-time").value = msToTimeString(diffMs);
       $("aktuelles-konto").value = aktKontoH.toFixed(2);
-      $("aktuelles-konto-time").value = msToTimeString(aktKontoMs);
+      $("aktuelles-konto-time").value = msToTimeString(aktKontoH * 3600_000);
       $("neues-konto").value = newKontoH.toFixed(2);
       $("neues-konto-time").value = msToTimeString(newKontoMs);
 
