@@ -1289,23 +1289,21 @@
       // Berechne Differenz in ms (soll * 3600_000 = ms)
       const sollMs = currentSollProTag * 3600_000;
       const diffMs = netManualMs - sollMs;
-
-      // EXAKT WIE IN updateCalculations():
-      // Decimal difference for display: round minutes up to match hh:mm
+      
+      // EXAKT WIE IN updateCalculations() - kopiert von dort:
       const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
       const diffHDisplay = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
-
-      // Runde Differenz gleich wie in updateCalculations
+      
+      // EXAKT dieselbe Berechnung wie in updateCalculations
+      const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
+      const newKontoH = aktKontoH + diffHDisplay;
+      
+      // Für das Display identisch formatieren wie in updateCalculations
       dayData.differenz = diffHDisplay.toFixed(2);
       dayData.differenzTime = msToTimeString(diffMs);
-
-      // WICHTIG: Berechne das neue Stundenkonto basierend auf der gerundeten Differenz
-      // (identisch zur updateCalculations Logik)
-      const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
-      const newKontoH = aktKontoH + diffHDisplay; // Nutze gerundeten Wert mit gleichem Variablennamen
-
-      // Das Stundenkonto wird später durch saveAndReload neu berechnet, aber wir
-      // stellen sicher, dass wir die gleiche Logik wie in updateCalculations nutzen
+      
+      // WICHTIG: Hier explizit das neue Konto setzen statt es saveAndReload überlassen
+      dayData.stundenkonto = newKontoH.toFixed(2); 
 
       dayData.kommen = formatLocalDateTimeString(kommenDateManual);
       dayData.gehen = formatLocalDateTimeString(gehenDateManual);
