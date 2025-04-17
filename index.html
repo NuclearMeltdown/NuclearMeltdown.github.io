@@ -658,54 +658,95 @@
 
     // Aktualisiert Berechnungen auf Hauptseite
     function updateCalculations() {
-      const kommenDate = app.zeit.kommen;
-      const gehenDate = app.zeit.gehen;
-      const zusatzPauseInput = $("zusatzliche-pause");
-      const pcBuchungCheckbox = $("pc-buchung");
-      const anwesenheitDisplay = $("anwesend-zeit");
-      const pauseDisplay = $("pausenzeit");
-      const nettoArbeitDisplay = $("arbeitszeit");
-      const differenzDisplay = $("differenz");
-      const stundenkontoDisplay = $("neues-konto");
+      const start = app.zeit.kommen;
+      const end = app.zeit.gehen;
+      const isPc = $("pc-buchung").checked;
+      const additionalPauseDecimal = parsePauseInput("zusatzliche-pause");
 
-      if (!kommenDate || !gehenDate) {
-        anwesenheitDisplay.textContent = "--";
-        pauseDisplay.textContent = "--";
-        nettoArbeitDisplay.textContent = "--";
-        differenzDisplay.textContent = "--";
-        stundenkontoDisplay.textContent = "--";
-        return;
-      }
+      // ms-basiert
+      const presenceMs = calculatePresenceMs(start, end);
+      const netWorkMs = calculateWorkMs(start, end, additionalPauseDecimal, isPc);
+      const presenceH = truncateDecimals(msToDecimalH(presenceMs), 2);
+      const netH = truncateDecimals(msToDecimalH(netWorkMs), 2);
+      // Anzeige der totalen Pause (auto + manuell)
+      const mandatoryPauseMsDisp = presenceMs > 6 * 3600_000 ? 30 * 60000 : 0;
+      const totalPauseMs = mandatoryPauseMsDisp + additionalPauseDecimal * 3600_000;
+      $("pausenzeit").value = `${msToTimeString(totalPauseMs)} (${msToDecimalH(totalPauseMs).toFixed(2)}h)`;
 
-      const kommenMs = kommenDate.getTime();
-      const gehenMs = gehenDate.getTime();
-      const anwesenheitszeitMs = gehenMs - kommenMs;
-
-      const pauseMs = anwesenheitszeitMs > 6 * 3600_000 ? 30 * 60000 : 0;
-      const zusatzPauseMs = parsePauseInput("zusatzliche-pause") * 3600_000;
-      const totalPauseMs = pauseMs + zusatzPauseMs;
-
-      const nettoArbeitszeitMs = anwesenheitszeitMs - totalPauseMs;
+      // Soll in ms und Differenz
       const sollMs = (settings.wochenarbeitszeit / 5) * 3600_000;
-      const differenzMs = nettoArbeitszeitMs - sollMs;
+      const diffMs = netWorkMs - sollMs;
+      // Decimal difference for display: round minutes up to match hh:mm
+      const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
+      const diffHDisplay = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
 
-      const roundedDiffMin = Math.ceil(Math.abs(differenzMs) / 60000);
-      const diffHDisplay = (differenzMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
-      const diffTime = msToTimeString(differenzMs);
-
-      const nettoArbeitszeitHDisplay = nettoArbeitszeitMs / 3600_000;
-      const nettoArbeitszeitTime = msToTimeString(nettoArbeitszeitMs);
-      const anwesenheitszeitHDisplay = anwesenheitszeitMs / 3600_000;
-      const anwesenheitszeitTime = msToTimeString(anwesenheitszeitMs);
-
+      // Aktuelles Konto und neues Konto in Stunden (gerundet wie Differenz)
       const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
       const newKontoH = aktKontoH + diffHDisplay;
+      const newKontoMs = newKontoH * 3600_000;
 
-      anwesenheitDisplay.textContent = `${anwesenheitszeitHDisplay.toFixed(2)} / ${anwesenheitszeitTime}`;
-      pauseDisplay.textContent = `${(totalPauseMs / 60000).toFixed(0)} min / ${msToTimeString(totalPauseMs)}`;
-      nettoArbeitDisplay.textContent = `${nettoArbeitszeitHDisplay.toFixed(2)} / ${nettoArbeitszeitTime}`;
-      differenzDisplay.textContent = `${diffHDisplay.toFixed(2)} / ${diffTime}`;
-      stundenkontoDisplay.textContent = newKontoH.toFixed(2);
+      // Update Anzeige mit hh:mm und Dezimal
+      $("anwesend-zeit").value = `${msToTimeString(presenceMs)} (${presenceH.toFixed(2)}h)`;
+      $("arbeitszeit").value = `${msToTimeString(netWorkMs)} (${netH.toFixed(2)}h)`;
+      $("sollarbeitszeit-display").value = `${msToTimeString(sollMs)} (${(settings.wochenarbeitszeit / 5).toFixed(2)}h)`;
+      $("differenz").value = diffHDisplay.toFixed(2);
+      $("differenz-time").value = msToTimeString(diffMs);
+      $("aktuelles-konto").value = aktKontoH.toFixed(2);
+      $("aktuelles-konto-time").value = msToTimeString(aktKontoH * 3600_000);
+      $("neues-konto").value = newKontoH.toFixed(2);
+      $("neues-konto-time").value = msToTimeString(newKontoMs);
+
+      // Color coding
+      const fieldsToColor = [
+        { id: "differenz", value: diffHDisplay }, { id: "differenz-time", value: diffHDisplay },
+        { id: "neues-konto", value: newKontoH }, { id: "neues-konto-time", value: newKontoH },
+        { id: "aktuelles-konto", value: aktKontoH }, { id: "aktuelles-konto-time", value: aktKontoH },
+      ];
+      fieldsToColor.forEach((item) => {
+        const el = $(item.id);
+        if (!el) return;
+        el.classList.remove("positive-value", "negative-value", "zero-value");
+        if (item.value > 0.001) el.classList.add("positive-value");
+        else if (item.value < -0.001) el.classList.add("negative-value");
+        else el.classList.add("zero-value");
+      });
+
+      // Violation checks
+      let hinweisText = "";
+      let showKommenMoon = false, showGehenMoon = false, showArbeitszeitMoon = false;
+      const kommenField = $("kommen-display");
+      const gehenField = $("gehen-display");
+      kommenField.classList.remove("invalid-time");
+      gehenField.classList.remove("invalid-time");
+      $("kommen-moon").style.display = "none";
+      $("gehen-moon").style.display = "none";
+      $("arbeitszeit-moon").style.display = "none";
+
+      const violations = checkViolations(start, end, netH);
+      if (violations.arbeitszeit && netH > 0) {
+        if (settings.allowNachtarbeit) showArbeitszeitMoon = true;
+        else hinweisText += "Achtung: Arbeitszeit außerhalb 4-10h!<br>";
+      }
+      if (violations.kommen) {
+        if (settings.allowNachtarbeit) showKommenMoon = true;
+        else {
+          hinweisText += "Achtung: Kommen außerhalb 06:00-16:00!<br>";
+          kommenField.classList.add("invalid-time");
+        }
+      }
+      if (violations.gehen) {
+        if (settings.allowNachtarbeit) showGehenMoon = true;
+        else {
+          hinweisText += "Achtung: Gehen nach 20:00!<br>";
+          gehenField.classList.add("invalid-time");
+        }
+      }
+      const hinweis = $("hinweis");
+      hinweis.innerHTML = hinweisText;
+      hinweis.style.display = hinweisText ? "block" : "none";
+      if (showKommenMoon) $("kommen-moon").style.display = "inline";
+      if (showGehenMoon) $("gehen-moon").style.display = "inline";
+      if (showArbeitszeitMoon) $("arbeitszeit-moon").style.display = "inline";
 
       updateEndTimes();
     }
@@ -1140,62 +1181,141 @@
 
     // *** GEÄNDERTE addManualDay() Funktion ***
     function addManualDay() {
-      // ... existing code for getting inputs ...
+      const dateValStr = $("add-day-modal").getAttribute("data-date"); // YYYY-MM-DD
+      if (!dateValStr) { alert("Kein gültiges Datum!"); return; }
+      const realDateLocal = new Date(dateValStr + "T00:00:00");
+      const realDateUTC = new Date(dateValStr + "T12:00:00Z");
 
-      // --- Millisekunden-basierte Berechnung (Spiegel von updateCalculations) --- 
-      const kommenMs = kommenDateManual.getTime();
-      const gehenMs = gehenDateManual.getTime();
-      const anwesenheitManualMs = gehenMs - kommenMs;
+      const holidayName = getHolidayName(realDateUTC, settings.bundesland);
+      if (holidayName) { alert(`Speichern am Feiertag (${holidayName}) nicht möglich.`); closeAddDayModal(); return; }
+      const dayOfWeek = realDateUTC.getUTCDay();
+      if (!settings.allowWochenende && (dayOfWeek === 0 || dayOfWeek === 6)) { alert("Speichern am Wochenende deaktiviert."); closeAddDayModal(); return; }
 
-      // WICHTIG: Verwende die *gleiche* Pausenberechnung wie in updateCalculations
-      const pauseManualMs = calculatePauseMs(anwesenheitManualMs, kommenDateManual, gehenDateManual);
-      const zusatzPauseManualMs = parseTimeToMilliseconds(zusatzPauseManualInput.value);
-      const totalPauseManualMs = pauseManualMs + zusatzPauseManualMs;
+      const isUrlaub = $("urlaub-toggle").checked, isKrank = $("krank-toggle").checked,
+        isSchulung = $("schulung-toggle").checked, isGlaz = $("glaz-toggle").checked,
+        isEzaTag = $("eza-tag-toggle").checked;
+      const isBueroAddDay = $("buero-add-day").checked,
+        isPcBuchungAddDay = $("pc-buchung-add-day").checked;
+      const additionalPauseManualValue = $("add-day-zusatzliche-pause").value;
+      let history = getHistory();
+      const existingIndex = history.findIndex((e) => e.datum === dateValStr);
+      const displayDate = realDateLocal.toLocaleDateString("de-DE");
 
-      const netManualMs = anwesenheitManualMs - totalPauseManualMs;
-      const sollMs = currentSollProTag * 3600_000; // Soll vom Haupt-Interface verwenden
+      // Verwende die *aktuellen* Einstellungen für die Sollzeit dieses Eintrags
+      const currentWochenAZ = settings.wochenarbeitszeit;
+      const currentSollProTag = currentWochenAZ / 5;
+      const currentEzaActive = settings.ezaActive;
+      let currentEzaStandDecimal = settings.ezaKontoStand; // Temporärer Stand für Bulk
+
+      let mainDifferenceDecimal = 0;
+      let ezaDifferenceDecimal = 0;
+
+      // Berechne Differenzen für Sondertage (nutzt aktuellen Sollwert)
+      if (currentEzaActive) {
+        if (isUrlaub || isSchulung) mainDifferenceDecimal = -0.4;
+        else if (isKrank) ezaDifferenceDecimal = -0.4;
+        else if (isGlaz) mainDifferenceDecimal = -currentSollProTag;
+        else if (isEzaTag) {
+          const neededHoursDecimal = currentSollProTag;
+          const availableEzaDecimal = settings.ezaKontoStand;
+          if (availableEzaDecimal >= neededHoursDecimal) ezaDifferenceDecimal = -neededHoursDecimal;
+          else if (availableEzaDecimal > 0) {
+            ezaDifferenceDecimal = -availableEzaDecimal;
+            mainDifferenceDecimal = -(neededHoursDecimal - availableEzaDecimal);
+          } else mainDifferenceDecimal = -neededHoursDecimal;
+        }
+      } else {
+        if (isUrlaub || isKrank || isSchulung || isEzaTag) mainDifferenceDecimal = 0;
+        else if (isGlaz) mainDifferenceDecimal = -currentSollProTag;
+      }
+
+      // Update EZA balance immediately if affected
+      if (currentEzaActive && ezaDifferenceDecimal !== 0) {
+        settings.ezaKontoStand += ezaDifferenceDecimal;
+        storeToLS("ezaKontoStand", settings.ezaKontoStand.toString());
+        updateEzaKontoDisplay();
+      }
+
+      // Basisdaten für Eintrag
+      let dayData = {
+        datum: dateValStr,
+        differenz: "0.00", // Wird gesetzt
+        differenzTime: "0:00", // Wird gesetzt
+        stundenkonto: "0.00", // Wird neu berechnet
+        kommen: null, gehen: null,
+        urlaub: isUrlaub, krank: isKrank, schulung: isSchulung, glaz: isGlaz, isEzaTag: isEzaTag,
+        ezaActiveDuringBooking: currentEzaActive,
+        pcBuchung: false, // Wird gesetzt
+        buero: isBueroAddDay,
+        zusatzPause: "", // Wird gesetzt
+        // NEU: Speichere die zum Zeitpunkt der Buchung gültigen Werte
+        usedWochenarbeitszeit: currentWochenAZ,
+        usedSollProTag: currentSollProTag,
+      };
+
+      // --- Fall 1: Sondertag ---
+      if (isUrlaub || isKrank || isSchulung || isGlaz || isEzaTag) {
+        dayData.differenz = truncateDecimals(mainDifferenceDecimal, 2).toFixed(2);
+        dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimal);
+        let label = isUrlaub ? "Urlaub" : isKrank ? "Krank" : isSchulung ? "Schulung" : isGlaz ? "GLAZ" : "EZA-Tag";
+        if (existingIndex !== -1) history[existingIndex] = dayData;
+        else history.push(dayData);
+        saveAndReload(history);
+        alert(`${label} für ${displayDate} gespeichert.`);
+        closeAddDayModal();
+        return;
+      }
+
+      // --- Fall 2: Normaler Arbeitstag ---
+      const kommenVal = $("add-day-kommen").value, gehenVal = $("add-day-gehen").value;
+      if (!kommenVal || !gehenVal) { alert("Bitte Kommen- und Gehen-Zeit angeben!"); return; }
+      const kommenDateManual = parseTimeForDate(kommenVal, realDateLocal);
+      const gehenDateManual = parseTimeForDate(gehenVal, realDateLocal);
+      if (!kommenDateManual || !gehenDateManual) { alert("Ungültige Zeitformate!"); return; }
+      if (gehenDateManual < kommenDateManual) gehenDateManual.setDate(gehenDateManual.getDate() + 1);
+
+      const additionalPauseManualHoursDecimal = parsePauseInputFromString(additionalPauseManualValue);
+      const netManualMs = calculateWorkMs(
+        kommenDateManual, gehenDateManual,
+        additionalPauseManualHoursDecimal, isPcBuchungAddDay
+      );
+      const netManualDecimal = msToDecimalH(netManualMs);
+
+      const violations = checkViolations(kommenDateManual, gehenDateManual, netManualDecimal);
+      if (violations.any && !settings.allowNachtarbeit) {
+        if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
+      }
+
+      // Berechne Differenz in ms (soll * 3600_000 = ms)
+      const sollMs = currentSollProTag * 3600_000;
       const diffMs = netManualMs - sollMs;
 
-      // --- Konsistente Rundung und Konvertierung (Dezimal H & HH:mm) --- 
-      // Runden auf die nächste Minute für Differenz (EXAKT WIE IN updateCalculations)
+      // EXAKT WIE IN updateCalculations() - kopiert von dort:
       const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
       const diffHDisplay = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
-      const diffTime = msToTimeString(diffMs); // msToTimeString formatiert nur
 
-      // Direkte Umrechnung für Netto und Anwesenheit (EXAKT WIE IN updateCalculations)
-      const netManualHDisplay = netManualMs / 3600_000;
-      const netManualTime = msToTimeString(netManualMs);
-      const anwesenheitManualHDisplay = anwesenheitManualMs / 3600_000;
-      const anwesenheitManualTime = msToTimeString(anwesenheitManualMs);
-
-      // --- Stundenkonto (EXAKT WIE IN updateCalculations) --- 
+      // EXAKT dieselbe Berechnung wie in updateCalculations
       const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
       const newKontoH = aktKontoH + diffHDisplay;
 
-      // --- DayData Objekt befüllen (EXAKT WIE IN updateCalculations) --- 
-      const dayData = {
-        datum: datumManualInput.value, // Datum vom manuellen Input
-        kommen: formatLocalDateTimeString(kommenDateManual),
-        gehen: formatLocalDateTimeString(gehenDateManual),
-        anwesenheitszeit: anwesenheitManualHDisplay.toFixed(2),
-        anwesenheitszeitTime: anwesenheitManualTime,
-        pause: (totalPauseManualMs / 60000).toFixed(0), // Pause in Minuten
-        pauseTime: msToTimeString(totalPauseManualMs),
-        zusatzpause: zusatzPauseManualInput.value,
-        nettoArbeitszeit: netManualHDisplay.toFixed(2),
-        nettoArbeitszeitTime: netManualTime,
-        soll: currentSollProTag.toFixed(2),
-        differenz: diffHDisplay.toFixed(2),
-        differenzTime: diffTime,
-        stundenkonto: newKontoH.toFixed(2), // Direkt berechnetes Konto
-        bemerkung: bemerkungManualInput.value,
-        pcbuchung: pcBuchungManualCheckbox.checked
-      };
+      // Für das Display identisch formatieren wie in updateCalculations
+      dayData.differenz = diffHDisplay.toFixed(2);
+      dayData.differenzTime = msToTimeString(diffMs);
 
-      // --- Speichern und UI schließen --- 
-      saveAndReload(dayData); // Übergibt das vollständig berechnete Objekt
-      closeModal();
-      // KEINE weitere Berechnung hier!
+      // WICHTIG: Hier explizit das neue Konto setzen statt es saveAndReload überlassen
+      dayData.stundenkonto = newKontoH.toFixed(2);
+
+      dayData.kommen = formatLocalDateTimeString(kommenDateManual);
+      dayData.gehen = formatLocalDateTimeString(gehenDateManual);
+      dayData.pcBuchung = isPcBuchungAddDay;
+      dayData.zusatzPause = additionalPauseManualValue;
+
+      if (existingIndex !== -1) history[existingIndex] = dayData;
+      else history.push(dayData);
+
+      saveAndReload(history);
+      alert(`Arbeitstag für ${displayDate} gespeichert.`);
+      closeAddDayModal();
     }
 
     // *** VERALTETE Funktion (kann entfernt oder auskommentiert werden) ***
@@ -1206,7 +1326,7 @@
     }
     */
 
-    // *** ÜBERARBEITETE saveAndReload() Funktion mit Marker-Logik ***
+    // *** KOMPLETT ÜBERARBEITETE saveAndReload() Funktion ***
     function saveAndReload(history) {
       // 1. Verlauf sortieren (nach Datum)
       history.forEach((entry) => {
@@ -1241,8 +1361,20 @@
         }
       }
 
+      // Speichere den letzten berechneten Kontostand
+      let lastKontoDecimal = baseKontoDecimal;
+
       for (let i = 0; i < history.length; i++) {
         const entry = history[i];
+
+        // WICHTIG: Wenn ein manuell gesetzter Kontostand existiert, diesen respektieren!
+        // Manuell gesetzter Kontostand wurde mit exakt derselben Logik wie in Hauptansicht berechnet
+        if (entry.fixedStundenkonto !== undefined && entry.fixedStundenkonto !== null) {
+          entry.stundenkonto = entry.fixedStundenkonto;
+          lastKontoDecimal = parseFloat(entry.stundenkonto);
+          continue; // Wichtig: Überspringe die normale Berechnung!
+        }
+
         let currentBaseKontoDecimal;
 
         // Prüfen, ob ein NEUER Marker ab DIESEM Datum gilt
@@ -1252,9 +1384,10 @@
           currentMarkerIndex++;
           // Der Marker setzt den Startkontostand für DIESEN Tag
           currentBaseKontoDecimal = parseFloat(sortedMarkers[currentMarkerIndex].kontostand);
+          lastKontoDecimal = currentBaseKontoDecimal; // Update last known balance
         } else if (i > 0) {
           // Kein neuer Marker, nimm den Endkontostand des Vortages als Startwert
-          currentBaseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
+          currentBaseKontoDecimal = lastKontoDecimal;
         } else {
           // Erster Eintrag in der History, und kein früherer Marker hat gegriffen
           currentBaseKontoDecimal = baseKontoDecimal; // Nutze den ermittelten Startwert
@@ -1265,6 +1398,7 @@
         const diffDecimal = parseFloat(entry.differenz || "0");
         let newKontoDecimal = currentBaseKontoDecimal + diffDecimal;
         entry.stundenkonto = truncateDecimals(newKontoDecimal, 2).toFixed(2);
+        lastKontoDecimal = newKontoDecimal;
       }
 
       // 4. Aktualisierten Verlauf speichern
