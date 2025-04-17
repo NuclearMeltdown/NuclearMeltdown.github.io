@@ -627,10 +627,12 @@
 
       // Utility: Millisekunden in hh:mm Anzeige
       function msToTimeString(ms) {
-        const totalMin = Math.round(ms / 60000);
+        const sign = ms < 0 ? '-' : '';
+        const absMs = Math.abs(ms);
+        const totalMin = Math.round(absMs / 60000);
         const hh = Math.floor(totalMin / 60);
         const mm = totalMin % 60;
-        return `${pad(hh)}:${pad(mm)}`;
+        return `${sign}${pad(hh)}:${pad(mm)}`;
       }
 
       // Berechnet Endzeit (nutzt neue Logik)
@@ -643,15 +645,15 @@
         if (!start) return "--:--";
         let requiredPresenceDecimal = desiredNetDecimal;
         let calculatedNet = 0;
-        let tempEndDate = new Date(start.getTime());
+        let tempEndDate;
         for (let i = 0; i < 15; i++) {
           tempEndDate = new Date(start.getTime());
           tempEndDate.setMinutes(tempEndDate.getMinutes() + Math.round(requiredPresenceDecimal * 60));
-          calculatedNet = calculateArbeitszeit(start, tempEndDate, additionalPauseMainDecimal, isPcBuchung);
+          // use calculateWorkMs + msToDecimalH for decimal net
+          calculatedNet = msToDecimalH(calculateWorkMs(start, tempEndDate, additionalPauseMainDecimal, isPcBuchung));
           const diff = desiredNetDecimal - calculatedNet;
           if (Math.abs(diff) < 0.002) break;
-          requiredPresenceDecimal += diff;
-          requiredPresenceDecimal = Math.max(0, requiredPresenceDecimal);
+          requiredPresenceDecimal = Math.max(0, requiredPresenceDecimal + diff);
         }
         const finalEndTime = new Date(start.getTime());
         finalEndTime.setMinutes(finalEndTime.getMinutes() + Math.round(requiredPresenceDecimal * 60));
@@ -1462,7 +1464,7 @@
         } else if (entry.urlaub || entry.krank || entry.schulung || entry.glaz || entry.isEzaTag) {
            const statusText = entry.urlaub ? "Urlaub" : entry.krank ? "Krank" : entry.schulung ? "Schulung" : entry.glaz ? "GLAZ" : "EZA-Tag";
            const tagLabelClass = entry.isEzaTag ? ezaTagIndicatorClass : "";
-           const diffDisplay = entry.glaz || entry.urlaub || entry.schulung ? `<span class="diff-badge ${diffClass} ${ezaIndicatorClass}">${entry.differenzTime} (${entry.differenz}h)</span>` : "";
+           const diffDisplay = entry.glaz || entry.urlaub || entry.schulung ? `<span class="diff-badge ${diffClass} ${ezaIndicatorClass}">${entry.differenzTime}</span>` : "";
            detailsHTML = `<p><strong>Status:</strong> <span class="${tagLabelClass}">${statusText}</span> ${bueroEmoji}</p><p><strong>Kommen:</strong> --:--</p><p><strong>Gehen:</strong> --:--</p>${sollZeile}<p><strong>Differenz:</strong> ${diffDisplay}</p><p><strong>Stundenkonto danach:</strong> ${kontoFormatted} (${kontoDecimal.toFixed(2)}h)</p>`;
            $("detail-edit-button").style.display = "block";
            $("detail-delete-button").style.display = "block";
@@ -1552,7 +1554,7 @@
         for (let i = 0; i < firstDayIndex; i++) {
           const emptyCell = document.createElement("div");
           emptyCell.classList.add("calendar-day", "empty"); calendarGrid.appendChild(emptyCell);
-        }
+        };
         let monthlyTotalDiffDecimal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
           const currentDateObj = new Date(Date.UTC(app.dates.monthYear, app.dates.month, day, 12, 0, 0, 0));
