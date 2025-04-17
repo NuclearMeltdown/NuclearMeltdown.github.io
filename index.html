@@ -697,25 +697,27 @@
         const pauseMs = additionalPauseDecimal * 3600_000;
         $("pausenzeit").value = `${msToTimeString(pauseMs)} (${additionalPauseDecimal.toFixed(2)}h)`;
 
-        // Soll in ms
+        // Soll in ms und Differenz
         const sollMs = (settings.wochenarbeitszeit / 5) * 3600_000;
         const diffMs = netWorkMs - sollMs;
-        const diffH = truncateDecimals(msToDecimalH(diffMs), 2);
-
-        // Konto ms laden & berechnen ... (ähnlich umrechnen)
+        const diffH = msToDecimalH(diffMs);
+        
+        // Aktuelles Konto in ms und neues Konto in ms
         const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
-        const newKontoH = aktKontoH + diffH;
+        const aktKontoMs = aktKontoH * 3600_000;
+        const newKontoMs = aktKontoMs + diffMs;
+        const newKontoH = msToDecimalH(newKontoMs);
 
         // Update Anzeige mit hh:mm und Dezimal
         $("anwesend-zeit").value = `${msToTimeString(presenceMs)} (${presenceH.toFixed(2)}h)`;
         $("arbeitszeit").value = `${msToTimeString(netWorkMs)} (${netH.toFixed(2)}h)`;
-        $("sollarbeitszeit-display").value = `${msToTimeString(sollMs)} (${(sollMs/3600_000).toFixed(2)}h)`;
+        $("sollarbeitszeit-display").value = `${msToTimeString(sollMs)} (${(settings.wochenarbeitszeit/5).toFixed(2)}h)`;
         $("differenz").value = diffH.toFixed(2);
         $("differenz-time").value = msToTimeString(diffMs);
         $("aktuelles-konto").value = aktKontoH.toFixed(2);
-        $("aktuelles-konto-time").value = msToTimeString(aktKontoH * 3600_000);
+        $("aktuelles-konto-time").value = msToTimeString(aktKontoMs);
         $("neues-konto").value = newKontoH.toFixed(2);
-        $("neues-konto-time").value = msToTimeString(newKontoH * 3600_000);
+        $("neues-konto-time").value = msToTimeString(newKontoMs);
 
         // Color coding
         const fieldsToColor = [
@@ -1225,10 +1227,11 @@
         // Verwende die *aktuellen* Einstellungen für die Sollzeit dieses Eintrags
         const currentWochenAZ = settings.wochenarbeitszeit;
         const currentSollProTag = currentWochenAZ / 5;
+        const currentEzaActive = settings.ezaActive;
+        let currentEzaStandDecimal = settings.ezaKontoStand; // Temporärer Stand für Bulk
 
         let mainDifferenceDecimal = 0;
         let ezaDifferenceDecimal = 0;
-        const currentEzaActive = settings.ezaActive;
 
         // Berechne Differenzen für Sondertage (nutzt aktuellen Sollwert)
         if (currentEzaActive) {
