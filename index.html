@@ -1288,11 +1288,17 @@
         if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
       }
 
-      // Berechne Differenz für normalen Arbeitstag (nutzt aktuellen Sollwert)
-      mainDifferenceDecimal = netManualDecimal - currentSollProTag;
+      // Berechne Differenz mit ms-Rundung wie Hauptansicht
+      const rawManualMs = calculateWorkMs(
+        kommenDateManual, gehenDateManual,
+        additionalPauseManualHoursDecimal, isPcBuchungAddDay
+      );
+      const diffMs = rawManualMs - currentSollProTag * 3600_000;
+      const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
+      const diffHManual = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
+      dayData.differenz = diffHManual.toFixed(2);
+      dayData.differenzTime = msToTimeString(diffMs);
 
-      dayData.differenz = truncateDecimals(mainDifferenceDecimal, 2).toFixed(2);
-      dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimal);
       dayData.kommen = formatLocalDateTimeString(kommenDateManual);
       dayData.gehen = formatLocalDateTimeString(gehenDateManual);
       dayData.pcBuchung = isPcBuchungAddDay;
