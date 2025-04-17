@@ -1286,21 +1286,10 @@
         if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
       }
 
-      // Berechne Differenz in ms (soll * 3600_000 = ms)
-      const sollMs = currentSollProTag * 3600_000;
-      const diffMs = netManualMs - sollMs;
-      // Rundung wie auf der Hauptseite: Minuten aufrunden, Vorzeichen erhalten
-      const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
-      const diffHDisplay = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
-
-      // Anzeige wie auf der Hauptseite
-      dayData.differenz = diffHDisplay.toFixed(2);
-      dayData.differenzTime = msToTimeString(diffMs);
-
-      const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
-      const newKontoH = aktKontoH + diffHDisplay;
-      dayData.fixedStundenkonto = newKontoH.toFixed(2);
-      dayData.stundenkonto = newKontoH.toFixed(2);
+      // Berechne Differenz wie in saveDay
+      const mainDifferenceDecimalManual = netManualDecimal - currentSollProTag;
+      dayData.differenz = truncateDecimals(mainDifferenceDecimalManual, 2).toFixed(2);
+      dayData.differenzTime = formatDecimalToTime(mainDifferenceDecimalManual);
 
       dayData.kommen = formatLocalDateTimeString(kommenDateManual);
       dayData.gehen = formatLocalDateTimeString(gehenDateManual);
@@ -3261,6 +3250,12 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- History Page -->
+    <div id="history-page" class="page">
+      <div class="container">
       </div>
     </div>
 
