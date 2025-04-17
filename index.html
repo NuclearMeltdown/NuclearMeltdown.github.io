@@ -703,8 +703,10 @@
         // Soll in ms und Differenz
         const sollMs = (settings.wochenarbeitszeit / 5) * 3600_000;
         const diffMs = netWorkMs - sollMs;
-        const diffH = msToDecimalH(diffMs);
-        
+        // Decimal difference for display: round minutes up to match hh:mm
+        const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
+        const diffHDisplay = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
+
         // Aktuelles Konto in ms und neues Konto in ms
         const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
         const aktKontoMs = aktKontoH * 3600_000;
@@ -715,7 +717,7 @@
         $("anwesend-zeit").value = `${msToTimeString(presenceMs)} (${presenceH.toFixed(2)}h)`;
         $("arbeitszeit").value = `${msToTimeString(netWorkMs)} (${netH.toFixed(2)}h)`;
         $("sollarbeitszeit-display").value = `${msToTimeString(sollMs)} (${(settings.wochenarbeitszeit/5).toFixed(2)}h)`;
-        $("differenz").value = diffH.toFixed(2);
+        $("differenz").value = diffHDisplay.toFixed(2);
         $("differenz-time").value = msToTimeString(diffMs);
         $("aktuelles-konto").value = aktKontoH.toFixed(2);
         $("aktuelles-konto-time").value = msToTimeString(aktKontoMs);
@@ -724,7 +726,7 @@
 
         // Color coding
         const fieldsToColor = [
-          { id: "differenz", value: diffH }, { id: "differenz-time", value: diffH },
+          { id: "differenz", value: diffHDisplay }, { id: "differenz-time", value: diffHDisplay },
           { id: "neues-konto", value: newKontoH }, { id: "neues-konto-time", value: newKontoH },
           { id: "aktuelles-konto", value: aktKontoH }, { id: "aktuelles-konto-time", value: aktKontoH },
         ];
