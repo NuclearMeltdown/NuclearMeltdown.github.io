@@ -612,9 +612,11 @@
       function calculateWorkMs(start, end, additionalPauseH, isPcBuchung) {
         const rawMs = calculatePresenceMs(start, end);
         if (rawMs <= 0) return 0;
-        // wandle Pause-Stunden in ms
-        const pauseMs = additionalPauseH * 3600_000;
-        let netMs = rawMs - pauseMs;
+        // automatische Pause: 30 Min nach 6h Anwesenheit
+        const mandatoryPauseMs = rawMs > 6 * 3600_000 ? 30 * 60000 : 0;
+        // manuelle Pause
+        const manualPauseMs = additionalPauseH * 3600_000;
+        let netMs = rawMs - mandatoryPauseMs - manualPauseMs;
         // PC-Buchung +0.13h
         if (isPcBuchung) netMs += 0.13 * 3600_000;
         return Math.max(0, netMs);
@@ -693,9 +695,10 @@
         const netWorkMs = calculateWorkMs(start, end, additionalPauseDecimal, isPc);
         const presenceH = truncateDecimals(msToDecimalH(presenceMs), 2);
         const netH = truncateDecimals(msToDecimalH(netWorkMs), 2);
-        // Anzeige der manuellen Pause
-        const pauseMs = additionalPauseDecimal * 3600_000;
-        $("pausenzeit").value = `${msToTimeString(pauseMs)} (${additionalPauseDecimal.toFixed(2)}h)`;
+        // Anzeige der totalen Pause (auto + manuell)
+        const mandatoryPauseMsDisp = presenceMs > 6 * 3600_000 ? 30 * 60000 : 0;
+        const totalPauseMs = mandatoryPauseMsDisp + additionalPauseDecimal * 3600_000;
+        $("pausenzeit").value = `${msToTimeString(totalPauseMs)} (${msToDecimalH(totalPauseMs).toFixed(2)}h)`;
 
         // Soll in ms und Differenz
         const sollMs = (settings.wochenarbeitszeit / 5) * 3600_000;
