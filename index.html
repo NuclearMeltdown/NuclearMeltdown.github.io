@@ -693,6 +693,9 @@
         const netWorkMs = calculateWorkMs(start, end, additionalPauseDecimal, isPc);
         const presenceH = truncateDecimals(msToDecimalH(presenceMs), 2);
         const netH = truncateDecimals(msToDecimalH(netWorkMs), 2);
+        // Anzeige der manuellen Pause
+        const pauseMs = additionalPauseDecimal * 3600_000;
+        $("pausenzeit").value = `${msToTimeString(pauseMs)} (${additionalPauseDecimal.toFixed(2)}h)`;
 
         // Soll in ms
         const sollMs = (settings.wochenarbeitszeit / 5) * 3600_000;
