@@ -598,36 +598,39 @@
         }
       }
 
-      // Berechnet die reine Anwesenheitszeit (Dezimalstunden)
-      function calculatePresenceTime(start, end) {
+      // Berechnet die reine Anwesenheitszeit (Millisekunden)
+      function calculatePresenceMs(start, end) {
         if (!start || !end) return 0;
         let endAdjusted = new Date(end.getTime());
         if (endAdjusted < start)
           endAdjusted.setDate(endAdjusted.getDate() + 1);
         const diffMs = endAdjusted - start;
-        if (diffMs < 0) return 0;
-        return diffMs / (1000 * 60 * 60); // Dezimalstunden
+        return diffMs > 0 ? diffMs : 0;
       }
 
-      // Berechnet Netto-Arbeitszeit (nutzt Trunkierung)
-      function calculateArbeitszeit(
-        start, // Originale Startzeit (Date)
-        end, // Endzeit (Date)
-        additionalPauseDecimal, // Zusätzliche Pause (Dezimal)
-        isPcBuchung // Boolean
-      ) {
-        const rawPresenceHoursDecimal = calculatePresenceTime(start, end);
-        if (rawPresenceHoursDecimal <= 0) return 0;
-        const presenceHoursDecimal = truncateDecimals(rawPresenceHoursDecimal, 2);
-        let countablePresenceDecimal;
-        if (presenceHoursDecimal <= 6.0) countablePresenceDecimal = presenceHoursDecimal;
-        else if (presenceHoursDecimal <= 6.5) countablePresenceDecimal = 6.0;
-        else if (presenceHoursDecimal <= 9.0) countablePresenceDecimal = presenceHoursDecimal - 0.5;
-        else if (presenceHoursDecimal <= 9.75) countablePresenceDecimal = 9.0;
-        else countablePresenceDecimal = presenceHoursDecimal - 0.75;
-        let netArbeitszeitDecimal = Math.max(0, countablePresenceDecimal - additionalPauseDecimal);
-        if (isPcBuchung) netArbeitszeitDecimal += 0.13;
-        return Math.max(0, netArbeitszeitDecimal);
+      // Berechnet Netto-Arbeitszeit in Millisekunden
+      function calculateWorkMs(start, end, additionalPauseH, isPcBuchung) {
+        const rawMs = calculatePresenceMs(start, end);
+        if (rawMs <= 0) return 0;
+        // wandle Pause-Stunden in ms
+        const pauseMs = additionalPauseH * 3600_000;
+        let netMs = rawMs - pauseMs;
+        // PC-Buchung +0.13h
+        if (isPcBuchung) netMs += 0.13 * 3600_000;
+        return Math.max(0, netMs);
+      }
+
+      // Utility: Millisekunden in Dezimalstunden
+      function msToDecimalH(ms) {
+        return ms / 3600_000;
+      }
+
+      // Utility: Millisekunden in hh:mm Anzeige
+      function msToTimeString(ms) {
+        const totalMin = Math.round(ms / 60000);
+        const hh = Math.floor(totalMin / 60);
+        const mm = totalMin % 60;
+        return `${pad(hh)}:${pad(mm)}`;
       }
 
       // Berechnet Endzeit (nutzt neue Logik)
@@ -683,38 +686,37 @@
         const isPc = $("pc-buchung").checked;
         const additionalPauseDecimal = parsePauseInput("zusatzliche-pause");
 
-        const rawPresenceHoursDecimal = calculatePresenceTime(start, end);
-        const presenceHoursDecimal = truncateDecimals(rawPresenceHoursDecimal, 2);
-        const netArbeitszeitDecimal = calculateArbeitszeit(start, end, additionalPauseDecimal, isPc);
-        const impliedBreakDecimal = Math.max(0, presenceHoursDecimal - (netArbeitszeitDecimal - (isPc ? 0.13 : 0)));
-        const impliedBreakMin = Math.round(impliedBreakDecimal * 60);
+        // ms-basiert
+        const presenceMs = calculatePresenceMs(start, end);
+        const netWorkMs = calculateWorkMs(start, end, additionalPauseDecimal, isPc);
+        const presenceH = truncateDecimals(msToDecimalH(presenceMs), 2);
+        const netH = truncateDecimals(msToDecimalH(netWorkMs), 2);
 
-        // Verwende aktuelle Wochenarbeitszeit für die *aktuelle* Berechnung
-        const sollProTagDecimal = settings.wochenarbeitszeit / 5;
-        let diffDecimal = netArbeitszeitDecimal > 0 ? netArbeitszeitDecimal - sollProTagDecimal : 0;
+        // Soll in ms
+        const sollMs = (settings.wochenarbeitszeit / 5) * 3600_000;
+        const diffMs = netWorkMs - sollMs;
+        const diffH = truncateDecimals(msToDecimalH(diffMs), 2);
 
-        // Hole den zuletzt berechneten Kontostand
-        const aktKontoValDecimal = parseFloat(getFromLS("aktuellesStundenkonto", "0")) || 0;
-        // Berechne den *prognostizierten* neuen Kontostand für die Anzeige
-        let newKtoDecimal = aktKontoValDecimal + diffDecimal;
+        // Konto ms laden & berechnen ... (ähnlich umrechnen)
+        const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
+        const newKontoH = aktKontoH + diffH;
 
-        // Update display fields
-        $("aktuelles-konto").value = aktKontoValDecimal.toFixed(2);
-        $("aktuelles-konto-time").value = formatDecimalToTime(aktKontoValDecimal);
-        $("anwesend-zeit").value = `${formatDecimalToTime(presenceHoursDecimal)} (${presenceHoursDecimal.toFixed(2)}h)`;
-        $("pausenzeit").value = `${impliedBreakMin} Min (${impliedBreakDecimal.toFixed(2)}h)`;
-        $("arbeitszeit").value = `${formatDecimalToTime(netArbeitszeitDecimal)} (${netArbeitszeitDecimal.toFixed(2)}h)`;
-        $("sollarbeitszeit-display").value = `${formatDecimalToTime(sollProTagDecimal)} (${sollProTagDecimal.toFixed(2)}h)`;
-        $("differenz").value = truncateDecimals(diffDecimal, 2).toFixed(2);
-        $("differenz-time").value = formatDecimalToTime(diffDecimal);
-        $("neues-konto").value = truncateDecimals(newKtoDecimal, 2).toFixed(2);
-        $("neues-konto-time").value = formatDecimalToTime(newKtoDecimal);
+        // Update Anzeige mit hh:mm und Dezimal
+        $("anwesend-zeit").value = `${msToTimeString(presenceMs)} (${presenceH.toFixed(2)}h)`;
+        $("arbeitszeit").value = `${msToTimeString(netWorkMs)} (${netH.toFixed(2)}h)`;
+        $("sollarbeitszeit-display").value = `${msToTimeString(sollMs)} (${(sollMs/3600_000).toFixed(2)}h)`;
+        $("differenz").value = diffH.toFixed(2);
+        $("differenz-time").value = msToTimeString(diffMs);
+        $("aktuelles-konto").value = aktKontoH.toFixed(2);
+        $("aktuelles-konto-time").value = msToTimeString(aktKontoH * 3600_000);
+        $("neues-konto").value = newKontoH.toFixed(2);
+        $("neues-konto-time").value = msToTimeString(newKontoH * 3600_000);
 
         // Color coding
         const fieldsToColor = [
-          { id: "differenz", value: diffDecimal }, { id: "differenz-time", value: diffDecimal },
-          { id: "neues-konto", value: newKtoDecimal }, { id: "neues-konto-time", value: newKtoDecimal },
-          { id: "aktuelles-konto", value: aktKontoValDecimal }, { id: "aktuelles-konto-time", value: aktKontoValDecimal },
+          { id: "differenz", value: diffH }, { id: "differenz-time", value: diffH },
+          { id: "neues-konto", value: newKontoH }, { id: "neues-konto-time", value: newKontoH },
+          { id: "aktuelles-konto", value: aktKontoH }, { id: "aktuelles-konto-time", value: aktKontoH },
         ];
         fieldsToColor.forEach((item) => {
           const el = $(item.id);
@@ -736,8 +738,8 @@
         $("gehen-moon").style.display = "none";
         $("arbeitszeit-moon").style.display = "none";
 
-        const violations = checkViolations(start, end, netArbeitszeitDecimal);
-        if (violations.arbeitszeit && netArbeitszeitDecimal > 0) {
+        const violations = checkViolations(start, end, netH);
+        if (violations.arbeitszeit && netH > 0) {
           if (settings.allowNachtarbeit) showArbeitszeitMoon = true;
           else hinweisText += "Achtung: Arbeitszeit außerhalb 4-10h!<br>";
         }
@@ -808,11 +810,13 @@
           return;
         }
 
-        const netArbeitszeitDecimal = calculateArbeitszeit(
-          originalKommenDate,
-          currentGehen,
-          parsePauseInput("zusatzliche-pause"),
-          isPcBuchung
+        const netArbeitszeitDecimal = msToDecimalH(
+          calculateWorkMs(
+            originalKommenDate,
+            currentGehen,
+            parsePauseInput("zusatzliche-pause"),
+            isPcBuchung
+          )
         );
 
         let gehenCheck = new Date(currentGehen.getTime());
@@ -1073,7 +1077,7 @@
         const gehenLokal = new Date(entry.gehen);
         const additionalPauseDecimal = parsePauseInputFromString(entry.zusatzPause || "");
         const isPcBuchung = entry.pcBuchung;
-        return calculateArbeitszeit(kommenLokal, gehenLokal, additionalPauseDecimal, isPcBuchung);
+        return msToDecimalH(calculateWorkMs(kommenLokal, gehenLokal, additionalPauseDecimal, isPcBuchung));
       }
 
       function deleteEntryByDate(dateStr) {
@@ -1286,9 +1290,11 @@
         if (gehenDateManual < kommenDateManual) gehenDateManual.setDate(gehenDateManual.getDate() + 1);
 
         const additionalPauseManualHoursDecimal = parsePauseInputFromString(additionalPauseManualValue);
-        const netManualDecimal = calculateArbeitszeit(
-          kommenDateManual, gehenDateManual,
-          additionalPauseManualHoursDecimal, isPcBuchungAddDay
+        const netManualDecimal = msToDecimalH(
+          calculateWorkMs(
+            kommenDateManual, gehenDateManual,
+            additionalPauseManualHoursDecimal, isPcBuchungAddDay
+          )
         );
 
         const violations = checkViolations(kommenDateManual, gehenDateManual, netManualDecimal);
@@ -1469,12 +1475,13 @@
           const pcBuchungHinweis = isPcBuchung ? " (PC-Buchung aktiv)" : "";
           const additionalPauseSavedDecimal = parsePauseInputFromString(entry.zusatzPause || "");
 
-          const rawPresenceDecimal = calculatePresenceTime(kommenLokal, gehenLokal);
-          const presenceDecimal = truncateDecimals(rawPresenceDecimal, 2);
-          anwesenheitLabel = `${formatDecimalToTime(presenceDecimal)} (${presenceDecimal.toFixed(2)}h)`;
+          const rawPresenceMs = calculatePresenceMs(kommenLokal, gehenLokal);
+          const presenceDecimal = truncateDecimals(msToDecimalH(rawPresenceMs), 2);
+          anwesenheitLabel = `${msToTimeString(rawPresenceMs)} (${presenceDecimal.toFixed(2)}h)`;
 
-          const netCalculatedDecimal = calculateNetArbeitszeitFromEntryData(entry);
-          nettoLabel = `${formatDecimalToTime(netCalculatedDecimal)} (${netCalculatedDecimal.toFixed(2)}h)`;
+          const netCalculatedMs = calculateWorkMs(kommenLokal, gehenLokal, additionalPauseSavedDecimal, isPcBuchung);
+          const netCalculatedDecimal = truncateDecimals(msToDecimalH(netCalculatedMs), 2);
+          nettoLabel = `${msToTimeString(netCalculatedMs)} (${netCalculatedDecimal.toFixed(2)}h)`;
 
           const impliedBreakDecimal = Math.max(0, presenceDecimal - (netCalculatedDecimal - (isPcBuchung ? 0.13 : 0)));
           pausenLabel = impliedBreakDecimal > 0.001 ? `${Math.round(impliedBreakDecimal * 60)} Min (${impliedBreakDecimal.toFixed(2)}h)` : "0 Min";
@@ -1548,7 +1555,7 @@
         }
         let monthlyTotalDiffDecimal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
-          const currentDateObj = new Date(Date.UTC(app.dates.monthYear, app.dates.month, day, 12, 0, 0));
+          const currentDateObj = new Date(Date.UTC(app.dates.monthYear, app.dates.month, day, 12, 0, 0, 0));
           const dayOfWeek = currentDateObj.getUTCDay();
           const cell = document.createElement("div"); cell.classList.add("calendar-day");
           const cellContent = document.createElement("div"); cellContent.classList.add("calendar-day-content");
