@@ -1289,21 +1289,21 @@
       // Berechne Differenz in ms (soll * 3600_000 = ms)
       const sollMs = currentSollProTag * 3600_000;
       const diffMs = netManualMs - sollMs;
-      
+
       // EXAKT WIE IN updateCalculations() - kopiert von dort:
       const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
       const diffHDisplay = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
-      
+
       // EXAKT dieselbe Berechnung wie in updateCalculations
       const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
       const newKontoH = aktKontoH + diffHDisplay;
-      
+
       // Für das Display identisch formatieren wie in updateCalculations
       dayData.differenz = diffHDisplay.toFixed(2);
       dayData.differenzTime = msToTimeString(diffMs);
-      
+
       // WICHTIG: Hier explizit das neue Konto setzen statt es saveAndReload überlassen
-      dayData.stundenkonto = newKontoH.toFixed(2); 
+      dayData.stundenkonto = newKontoH.toFixed(2);
 
       dayData.kommen = formatLocalDateTimeString(kommenDateManual);
       dayData.gehen = formatLocalDateTimeString(gehenDateManual);
@@ -1326,7 +1326,7 @@
     }
     */
 
-    // *** ÜBERARBEITETE saveAndReload() Funktion mit Marker-Logik ***
+    // *** KOMPLETT ÜBERARBEITETE saveAndReload() Funktion ***
     function saveAndReload(history) {
       // 1. Verlauf sortieren (nach Datum)
       history.forEach((entry) => {
@@ -1361,8 +1361,20 @@
         }
       }
 
+      // Speichere den letzten berechneten Kontostand
+      let lastKontoDecimal = baseKontoDecimal;
+
       for (let i = 0; i < history.length; i++) {
         const entry = history[i];
+
+        // WICHTIG: Wenn ein manuell gesetzter Kontostand existiert, diesen respektieren!
+        // Manuell gesetzter Kontostand wurde mit exakt derselben Logik wie in Hauptansicht berechnet
+        if (entry.fixedStundenkonto !== undefined && entry.fixedStundenkonto !== null) {
+          entry.stundenkonto = entry.fixedStundenkonto;
+          lastKontoDecimal = parseFloat(entry.stundenkonto);
+          continue; // Wichtig: Überspringe die normale Berechnung!
+        }
+
         let currentBaseKontoDecimal;
 
         // Prüfen, ob ein NEUER Marker ab DIESEM Datum gilt
@@ -1372,9 +1384,10 @@
           currentMarkerIndex++;
           // Der Marker setzt den Startkontostand für DIESEN Tag
           currentBaseKontoDecimal = parseFloat(sortedMarkers[currentMarkerIndex].kontostand);
+          lastKontoDecimal = currentBaseKontoDecimal; // Update last known balance
         } else if (i > 0) {
           // Kein neuer Marker, nimm den Endkontostand des Vortages als Startwert
-          currentBaseKontoDecimal = parseFloat(history[i - 1].stundenkonto || "0");
+          currentBaseKontoDecimal = lastKontoDecimal;
         } else {
           // Erster Eintrag in der History, und kein früherer Marker hat gegriffen
           currentBaseKontoDecimal = baseKontoDecimal; // Nutze den ermittelten Startwert
@@ -1385,6 +1398,7 @@
         const diffDecimal = parseFloat(entry.differenz || "0");
         let newKontoDecimal = currentBaseKontoDecimal + diffDecimal;
         entry.stundenkonto = truncateDecimals(newKontoDecimal, 2).toFixed(2);
+        lastKontoDecimal = newKontoDecimal;
       }
 
       // 4. Aktualisierten Verlauf speichern
