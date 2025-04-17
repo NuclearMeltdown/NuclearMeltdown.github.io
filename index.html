@@ -1295,8 +1295,18 @@
       const diffMs = rawManualMs - currentSollProTag * 3600_000;
       const roundedDiffMin = Math.ceil(Math.abs(diffMs) / 60000);
       const diffHManual = (diffMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
+
+      // Runde Differenz gleich wie in updateCalculations
       dayData.differenz = diffHManual.toFixed(2);
       dayData.differenzTime = msToTimeString(diffMs);
+
+      // WICHTIG: Berechne das neue Stundenkonto basierend auf der gerundeten Differenz
+      // (identisch zur updateCalculations Logik)
+      const aktKontoH = parseFloat(getFromLS("aktuellesStundenkonto", "0"));
+      const newKontoH = aktKontoH + diffHManual; // Nutze gerundeten Wert, nicht rohes ms
+
+      // Das Stundenkonto wird später durch saveAndReload neu berechnet, aber wir
+      // stellen sicher, dass wir die gleiche Logik wie in updateCalculations nutzen
 
       dayData.kommen = formatLocalDateTimeString(kommenDateManual);
       dayData.gehen = formatLocalDateTimeString(gehenDateManual);
