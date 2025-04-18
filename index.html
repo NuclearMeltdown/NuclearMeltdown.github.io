@@ -414,11 +414,15 @@
       updateCalculations();
       switchView("main");
       setupEventListeners();
+      // Disable save on main page if today is holiday
+      const todayHoliday = getHolidayName(new Date(), settings.bundesland);
+      const saveBtn = $("save-day-button");
+      if (saveBtn) saveBtn.disabled = !!todayHoliday;
       closeAddDayModal();
       closeDetailModal();
       closeBulkModal();
       closeLegendModal();
-      closeAddMarkerModal(); // Sicherstellen, dass es geschlossen ist
+      closeAddMarkerModal();
     }
 
     // *** GEÄNDERTE setupEventListeners() Funktion ***
@@ -459,6 +463,9 @@
         if (app.view.current === 'history') loadHistory();
         if (app.view.current === 'month') loadMonthData();
         if (app.view.current === 'stats') calculateAndDisplayStats();
+        // Update main save button state for holiday
+        const saveBtn2 = $("save-day-button");
+        if (saveBtn2) saveBtn2.disabled = !!getHolidayName(new Date(), settings.bundesland);
       };
       $("wochenarbeitszeit-setting").onchange = (e) => {
         const val = parseFloat(e.target.value);
@@ -606,6 +613,15 @@
       const sign = ms < 0 ? '-' : '';
       const absMs = Math.abs(ms);
       const totalMin = Math.round(absMs / 60000);
+      const hh = Math.floor(totalMin / 60);
+      const mm = totalMin % 60;
+      return `${sign}${pad(hh)}:${pad(mm)}`;
+    }
+
+    function msToTimeStringCeil(ms) {
+      const sign = ms < 0 ? '-' : '';
+      const absMs = Math.abs(ms);
+      const totalMin = Math.ceil(absMs / 60000);
       const hh = Math.floor(totalMin / 60);
       const mm = totalMin % 60;
       return `${sign}${pad(hh)}:${pad(mm)}`;
@@ -1034,7 +1050,9 @@
       }
 
       const diffClassSummary = weeklyTotalDiffDecimal > 0.001 ? "positive-value" : weeklyTotalDiffDecimal < -0.001 ? "negative-value" : "zero-value";
-      $("weekly-summary-content").innerHTML = `Gesamtdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(weeklyTotalDiffDecimal)} (${weeklyTotalDiffDecimal.toFixed(2)}h)</span>`;
+      const summaryMsWeek = weeklyTotalDiffDecimal * 3600000;
+      const summaryRoundedWeek = (summaryMsWeek < 0 ? -1 : 1) * (Math.ceil(Math.abs(summaryMsWeek) / 60000) / 60);
+      $("weekly-summary-content").innerHTML = `Gesamtdifferenz: <span class="diff-badge ${diffClassSummary}">${msToTimeStringCeil(summaryMsWeek)} (${summaryRoundedWeek.toFixed(2)}h)</span>`;
       updateWeekNavigation();
     }
 
@@ -1625,7 +1643,9 @@
         calendarGrid.appendChild(cell);
       }
       const diffClassSummary = monthlyTotalDiffDecimal > 0.001 ? "positive-value" : monthlyTotalDiffDecimal < -0.001 ? "negative-value" : "zero-value";
-      $("month-summary-content").innerHTML = `Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${formatDecimalToTime(monthlyTotalDiffDecimal)} (${monthlyTotalDiffDecimal.toFixed(2)}h)</span>`;
+      const summaryMsMonth = monthlyTotalDiffDecimal * 3600000;
+      const summaryRoundedMonth = (summaryMsMonth < 0 ? -1 : 1) * (Math.ceil(Math.abs(summaryMsMonth) / 60000) / 60);
+      $("month-summary-content").innerHTML = `Monatsdifferenz: <span class="diff-badge ${diffClassSummary}">${msToTimeStringCeil(summaryMsMonth)} (${summaryRoundedMonth.toFixed(2)}h)</span>`;
     }
     function updateMonthNavigation() {
       $("prev-month").onclick = () => {
@@ -1664,7 +1684,7 @@
         return;
       }
 
-      while (currentDate <= endDate) {
+      while (currentDate.getTime() <= endDate.getTime()) {
         const dayOfWeek = currentDate.getUTCDay();
         const holidayName = getHolidayName(currentDate, settings.bundesland);
         const currentDateStr = `${currentDate.getUTCFullYear()}-${pad(currentDate.getUTCMonth() + 1)}-${pad(currentDate.getUTCDate())}`;
@@ -1819,10 +1839,12 @@
       if (filteredHistory.length === 0 && holidayCount === 0) {
         statsContent.innerHTML = `<li>Keine Daten für ausgewählten Zeitraum.</li>`; return;
       }
+      const summaryMsTotal = totalDiffDecimal * 3600000;
+      const summaryRoundedTotal = (summaryMsTotal < 0 ? -1 : 1) * (Math.ceil(Math.abs(summaryMsTotal) / 60000) / 60);
       statsContent.innerHTML = `
           <li>Gesamt Netto: <span>${formatDecimalToTime(totalNetHoursDecimal)} (${totalNetHoursDecimal.toFixed(2)}h)</span></li>
           <li>Ø Netto / Tag: <span>${formatDecimalToTime(avgDailyHoursDecimal)} (${avgDailyHoursDecimal.toFixed(2)}h)</span></li>
-          <li>Gesamt Diff: <span class="diff-badge ${totalDiffDecimal > 0.001 ? "positive-value" : totalDiffDecimal < -0.001 ? "negative-value" : "zero-value"}">${formatDecimalToTime(totalDiffDecimal)} (${totalDiffDecimal.toFixed(2)}h)</span></li>
+          <li>Gesamt Diff: <span class="diff-badge ${totalDiffDecimal > 0.001 ? "positive-value" : totalDiffDecimal < -0.001 ? "negative-value" : "zero-value"}">${msToTimeStringCeil(summaryMsTotal)} (${summaryRoundedTotal.toFixed(2)}h)</span></li>
           <li>Arbeitstage: <span>${workDays}</span></li>
           <li>&nbsp;&nbsp;&nbsp;Büro: <span>${officeDays}</span></li>
           <li>&nbsp;&nbsp;&nbsp;Home: <span>${homeDays}</span></li>
@@ -2120,7 +2142,6 @@
       --system-gray2-dark: #3a3a3c;
 
       /* Semantic Colors */
-      --background-color: var(--system-background-light);
       --card-background-color: var(--system-secondary-background-light);
       --input-background-color: var(--system-tertiary-background-light);
       --text-color: var(--text-color-light);
@@ -2391,730 +2412,720 @@
       background-color: var(--card-background-color);
       color: var(--readonly-text-color);
       cursor: default;
-      border: 1px solid var(--input-border-color);
-    }
 
-    input:disabled {
-      background-color: var(--system-tertiary-background-light);
-      color: var(--secondary-text-color);
-      opacity: 0.7;
-      cursor: not-allowed;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      input:disabled {
-        background-color: var(--system-tertiary-background-dark);
+      input[type="time"]::-webkit-calendar-picker-indicator,
+      input[type="date"]::-webkit-calendar-picker-indicator {
+        display: none;
       }
-    }
-
-    input[type="time"]::-webkit-calendar-picker-indicator,
-    input[type="date"]::-webkit-calendar-picker-indicator {
-      display: none;
-    }
-
-    .row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 10px;
-      align-items: flex-end;
-    }
-
-    .column {
-      flex: 1;
-    }
-
-    .column-auto {
-      flex: 0 0 auto;
-      margin-bottom: 10px;
-    }
-
-    .time-button-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 10px;
-      align-items: center;
-      position: relative;
-    }
-
-    .time-button-row input[type="time"],
-    .time-button-row .button {
-      flex: 1;
-      margin-bottom: 0;
-    }
-
-    .time-button-row input[type="time"] {
-      text-align: center;
-    }
-
-    .time-button-row .button {
-      padding: 12px 15px;
-    }
-
-    .moon-indicator {
-      position: absolute;
-      right: 5px;
-      top: 50%;
-      transform: translateY(-50%);
-      font-size: 18px;
-      display: none;
-      pointer-events: none;
-    }
-
-    .moon-mark {
-      font-size: 1em;
-      vertical-align: baseline;
-    }
-
-    .moon-mark-calendar {
-      font-size: 0.7em;
-      vertical-align: super;
-      margin-left: 1px;
-    }
-
-    .switch-container {
-      display: flex;
-      align-items: center;
-      margin-bottom: 15px;
-      min-height: 44px;
-    }
-
-    .switch-container span {
-      margin-left: 10px;
-      font-size: 17px;
-    }
-
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 65px;
-      height: 31px;
-      flex-shrink: 0;
-    }
-
-    /* iOS Standard Size */
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--slider-bg-color);
-      transition: .4s;
-      border-radius: 15.5px;
-    }
-
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 27px;
-      width: 27px;
-      left: 2px;
-      bottom: 2px;
-      background-color: white;
-      transition: .4s;
-      border-radius: 50%;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    }
-
-    input:checked+.slider {
-      background-color: var(--slider-checked-bg-color);
-    }
-
-    input:checked+.slider:before {
-      transform: translateX(24px);
-    }
-
-    /* 51 - 27 - 2*2 = 20 */
-    .diff-badge {
-      padding: 3px 6px;
-      border-radius: 5px;
-      font-size: 15px;
-      font-weight: 500;
-      display: inline-block;
-      vertical-align: middle;
-    }
-
-    input[readonly].positive-value,
-    input[readonly].negative-value,
-    input[readonly].zero-value {
-      font-size: 17px;
-    }
-
-    .positive-value {
-      background-color: var(--positive-value-bg) !important;
-      color: var(--button-text-color) !important;
-    }
-
-    .negative-value {
-      background-color: var(--negative-value-bg) !important;
-      color: #000000 !important;
-    }
-
-    .zero-value {
-      background-color: var(--zero-value-bg) !important;
-      color: #000000 !important;
-    }
-
-    #hinweis {
-      color: var(--hint-color);
-      font-weight: 500;
-      font-size: 15px;
-      display: none;
-      margin-top: 10px;
-      padding: 10px;
-      background-color: rgba(255, 59, 48, 0.1);
-      border-radius: 8px;
-    }
-
-    .invalid-time {
-      border-color: var(--hint-color) !important;
-      background-color: rgba(255, 59, 48, 0.1) !important;
-    }
-
-    #history-list {
-      list-style-type: none;
-      padding: 0;
-      margin: 0;
-      background-color: var(--card-background-color);
-      border-radius: 10px;
-      overflow: hidden;
-    }
-
-    .history-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 15px;
-      min-height: 60px;
-      border-bottom: 1px solid var(--separator-color);
-      gap: 10px;
-    }
-
-    .history-item:last-child {
-      border-bottom: none;
-    }
-
-    .history-entry-content {
-      flex-grow: 1;
-      padding: 5px;
-      border-radius: 6px;
-      background-color: transparent;
-      border-left: 3px solid transparent;
-      transition: background-color 0.2s ease;
-    }
-
-    .history-entry-content.holiday-day {
-      background-color: var(--holiday-bg);
-      color: var(--holiday-text);
-    }
-
-    .history-entry-content.special-day.special-day-urlaub-bg {
-      background-color: var(--special-day-urlaub-bg);
-    }
-
-    .history-entry-content.special-day.special-day-krank-bg {
-      background-color: var(--special-day-krank-bg);
-    }
-
-    .history-entry-content.special-day.special-day-schulung-bg {
-      background-color: var(--special-day-schulung-bg);
-    }
-
-    .history-entry-content.special-day.special-day-eza-bg {
-      background-color: var(--special-day-eza-bg);
-    }
-
-    .history-entry-content.special-day.special-day-glaz-bg {
-      background-color: var(--special-day-glaz-bg);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-text"] {
-      color: var(--special-day-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-krank-text"] {
-      color: var(--special-day-krank-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-glaz-text"] {
-      color: var(--special-day-glaz-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-schulung-text"] {
-      color: var(--special-day-schulung-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-eza-text"] {
-      color: var(--special-day-eza-text);
-    }
-
-    .history-entry-content.holiday-day div:last-child {
-      color: var(--holiday-text);
-    }
-
-    .history-entry-content.violation-day {
-      border-left: 3px solid var(--hint-color);
-      background-color: rgba(255, 59, 48, 0.05);
-    }
-
-    .history-entry-content.no-data {
-      color: var(--secondary-text-color);
-    }
-
-    .history-entry-content div:first-child {
-      font-weight: 500;
-    }
-
-    .history-entry-content div:last-child {
-      font-size: 15px;
-      color: var(--secondary-text-color);
-      margin-top: 4px;
-    }
-
-    .history-entry-content.special-day[style*="--special-day-text"] div:last-child {
-      color: var(--special-day-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-krank-text"] div:last-child {
-      color: var(--special-day-krank-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-glaz-text"] div:last-child {
-      color: var(--special-day-glaz-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-schulung-text"] div:last-child {
-      color: var(--special-day-schulung-text);
-    }
-
-    .history-entry-content.special-day[style*="--special-day-eza-text"] div:last-child {
-      color: var(--special-day-eza-text);
-    }
-
-    .history-entry-content.holiday-day div:last-child {
-      color: var(--holiday-text);
-    }
-
-    .violation-mark {
-      color: var(--hint-color);
-      font-weight: bold;
-    }
-
-    .history-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-    }
-
-    .history-actions .inline-button,
-    .history-actions .delete-button {
-      font-size: 20px;
-      padding: 5px 8px;
-    }
-
-    .eza-related-diff.inactive,
-    .eza-tag-label.inactive {
-      opacity: 0.6;
-      font-style: italic;
-    }
-
-    .eza-tag-label.inactive::after {
-      content: " (i)";
-      font-size: 0.8em;
-      vertical-align: super;
-      opacity: 0.8;
-    }
-
-    .eza-hint-inline {
-      font-size: 0.9em;
-      color: var(--secondary-text-color);
-      cursor: help;
-    }
-
-    .history-entry-content.eza-booked-outline-history {
-      outline: 1px solid var(--outline-color);
-      outline-offset: -2px;
-    }
-
-    #weekly-summary,
-    #month-summary {
-      padding: 15px;
-      background-color: var(--card-background-color);
-      border-radius: 10px;
-      margin-top: 20px;
-      text-align: center;
-      font-size: 17px;
-      font-weight: 500;
-    }
-
-    #pagination,
-    #month-pagination {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin: 20px 0;
-    }
-
-    .modal {
-      display: none;
-      position: fixed;
-      z-index: 9999;
-      left: 0;
-      top: 0;
-      width: 100%;
-      height: 100%;
-      overflow: auto;
-      background-color: rgba(0, 0, 0, 0.4);
-      justify-content: center;
-      align-items: center;
-      padding: 20px;
-      box-sizing: border-box;
-    }
-
-    .modal-content {
-      background-color: var(--card-background-color);
-      border-radius: 14px;
-      padding: 20px;
-      max-width: 400px;
-      width: 90%;
-      margin: auto;
-      color: var(--text-color);
-      box-sizing: border-box;
-      position: relative;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    }
-
-    .modal-content h3 {
-      margin-top: 0;
-      margin-bottom: 15px;
-    }
-
-    .close-button {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: var(--system-gray2-light);
-      border: none;
-      color: var(--secondary-text-color);
-      font-size: 14px;
-      font-weight: bold;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      cursor: pointer;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      line-height: 1;
-      padding: 0;
-    }
-
-    @media (prefers-color-scheme: dark) {
+
+      .row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+        align-items: flex-end;
+      }
+
+      .column {
+        flex: 1;
+      }
+
+      .column-auto {
+        flex: 0 0 auto;
+        margin-bottom: 10px;
+      }
+
+      .time-button-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px;
+        align-items: center;
+        position: relative;
+      }
+
+      .time-button-row input[type="time"],
+      .time-button-row .button {
+        flex: 1;
+        margin-bottom: 0;
+      }
+
+      .time-button-row input[type="time"] {
+        text-align: center;
+      }
+
+      .time-button-row .button {
+        padding: 12px 15px;
+      }
+
+      .moon-indicator {
+        position: absolute;
+        right: 5px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 18px;
+        display: none;
+        pointer-events: none;
+      }
+
+      .moon-mark {
+        font-size: 1em;
+        vertical-align: baseline;
+      }
+
+      .moon-mark-calendar {
+        font-size: 0.7em;
+        vertical-align: super;
+        margin-left: 1px;
+      }
+
+      .switch-container {
+        display: flex;
+        align-items: center;
+        margin-bottom: 15px;
+        min-height: 44px;
+      }
+
+      .switch-container span {
+        margin-left: 10px;
+        font-size: 17px;
+      }
+
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 65px;
+        height: 31px;
+        flex-shrink: 0;
+      }
+
+      /* iOS Standard Size */
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--slider-bg-color);
+        transition: .4s;
+        border-radius: 15.5px;
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 27px;
+        width: 27px;
+        left: 2px;
+        bottom: 2px;
+        background-color: white;
+        transition: .4s;
+        border-radius: 50%;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
+
+      input:checked+.slider {
+        background-color: var(--slider-checked-bg-color);
+      }
+
+      input:checked+.slider:before {
+        transform: translateX(24px);
+      }
+
+      /* 51 - 27 - 2*2 = 20 */
+      .diff-badge {
+        padding: 3px 6px;
+        border-radius: 5px;
+        font-size: 15px;
+        font-weight: 500;
+        display: inline-block;
+        vertical-align: middle;
+      }
+
+      input[readonly].positive-value,
+      input[readonly].negative-value,
+      input[readonly].zero-value {
+        font-size: 17px;
+      }
+
+      .positive-value {
+        background-color: var(--positive-value-bg) !important;
+        color: var(--button-text-color) !important;
+      }
+
+      .negative-value {
+        background-color: var(--negative-value-bg) !important;
+        color: #000000 !important;
+      }
+
+      .zero-value {
+        background-color: var(--zero-value-bg) !important;
+        color: #000000 !important;
+      }
+
+      #hinweis {
+        color: var(--hint-color);
+        font-weight: 500;
+        font-size: 15px;
+        display: none;
+        margin-top: 10px;
+        padding: 10px;
+        background-color: rgba(255, 59, 48, 0.1);
+        border-radius: 8px;
+      }
+
+      .invalid-time {
+        border-color: var(--hint-color) !important;
+        background-color: rgba(255, 59, 48, 0.1) !important;
+      }
+
+      #history-list {
+        list-style-type: none;
+        padding: 0;
+        margin: 0;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+
+      .history-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 15px;
+        min-height: 60px;
+        border-bottom: 1px solid var(--separator-color);
+        gap: 10px;
+      }
+
+      .history-item:last-child {
+        border-bottom: none;
+      }
+
+      .history-entry-content {
+        flex-grow: 1;
+        padding: 5px;
+        border-radius: 6px;
+        background-color: transparent;
+        border-left: 3px solid transparent;
+        transition: background-color 0.2s ease;
+      }
+
+      .history-entry-content.holiday-day {
+        background-color: var(--holiday-bg);
+        color: var(--holiday-text);
+      }
+
+      .history-entry-content.special-day.special-day-urlaub-bg {
+        background-color: var(--special-day-urlaub-bg);
+      }
+
+      .history-entry-content.special-day.special-day-krank-bg {
+        background-color: var(--special-day-krank-bg);
+      }
+
+      .history-entry-content.special-day.special-day-schulung-bg {
+        background-color: var(--special-day-schulung-bg);
+      }
+
+      .history-entry-content.special-day.special-day-eza-bg {
+        background-color: var(--special-day-eza-bg);
+      }
+
+      .history-entry-content.special-day.special-day-glaz-bg {
+        background-color: var(--special-day-glaz-bg);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-text"] {
+        color: var(--special-day-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-krank-text"] {
+        color: var(--special-day-krank-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-glaz-text"] {
+        color: var(--special-day-glaz-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-schulung-text"] {
+        color: var(--special-day-schulung-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-eza-text"] {
+        color: var(--special-day-eza-text);
+      }
+
+      .history-entry-content.holiday-day div:last-child {
+        color: var(--holiday-text);
+      }
+
+      .history-entry-content.violation-day {
+        border-left: 3px solid var(--hint-color);
+        background-color: rgba(255, 59, 48, 0.05);
+      }
+
+      .history-entry-content.no-data {
+        color: var(--secondary-text-color);
+      }
+
+      .history-entry-content div:first-child {
+        font-weight: 500;
+      }
+
+      .history-entry-content div:last-child {
+        font-size: 15px;
+        color: var(--secondary-text-color);
+        margin-top: 4px;
+      }
+
+      .history-entry-content.special-day[style*="--special-day-text"] div:last-child {
+        color: var(--special-day-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-krank-text"] div:last-child {
+        color: var(--special-day-krank-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-glaz-text"] div:last-child {
+        color: var(--special-day-glaz-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-schulung-text"] div:last-child {
+        color: var(--special-day-schulung-text);
+      }
+
+      .history-entry-content.special-day[style*="--special-day-eza-text"] div:last-child {
+        color: var(--special-day-eza-text);
+      }
+
+      .history-entry-content.holiday-day div:last-child {
+        color: var(--holiday-text);
+      }
+
+      .violation-mark {
+        color: var(--hint-color);
+        font-weight: bold;
+      }
+
+      .history-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+
+      .history-actions .inline-button,
+      .history-actions .delete-button {
+        font-size: 20px;
+        padding: 5px 8px;
+      }
+
+      .eza-related-diff.inactive,
+      .eza-tag-label.inactive {
+        opacity: 0.6;
+        font-style: italic;
+      }
+
+      .eza-tag-label.inactive {
+        opacity: 0.6;
+        font-style: italic;
+      }
+
+      .eza-tag-label.inactive::after {
+        content: " (i)";
+        font-size: 0.8em;
+        vertical-align: super;
+        opacity: 0.8;
+      }
+
+      .eza-hint-inline {
+        font-size: 0.9em;
+        color: var(--secondary-text-color);
+        cursor: help;
+      }
+
+      .history-entry-content.eza-booked-outline-history {
+        outline: 1px solid var(--outline-color);
+        outline-offset: -2px;
+      }
+
+      #weekly-summary,
+      #month-summary {
+        padding: 15px;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        margin-top: 20px;
+        text-align: center;
+        font-size: 17px;
+        font-weight: 500;
+      }
+
+      #pagination,
+      #month-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 20px 0;
+      }
+
+      .modal {
+        display: none;
+        position: fixed;
+        z-index: 9999;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+        background-color: rgba(0, 0, 0, 0.4);
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+
+      .modal-content {
+        background-color: var(--card-background-color);
+        border-radius: 14px;
+        padding: 20px;
+        max-width: 400px;
+        width: 90%;
+        margin: auto;
+        color: var(--text-color);
+        box-sizing: border-box;
+        position: relative;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      }
+
+      .modal-content h3 {
+        margin-top: 0;
+        margin-bottom: 15px;
+      }
+
       .close-button {
-        background: var(--system-gray2-dark);
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: var(--system-gray2-light);
+        border: none;
+        color: var(--secondary-text-color);
+        font-size: 14px;
+        font-weight: bold;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        line-height: 1;
+        padding: 0;
       }
-    }
 
-    .close-button:active {
-      filter: brightness(0.85);
-    }
+      @media (prefers-color-scheme: dark) {
+        .close-button {
+          background: var(--system-gray2-dark);
+        }
+      }
 
-    #detail-modal-actions .button {
-      font-size: 17px;
-    }
+      .close-button:active {
+        filter: brightness(0.85);
+      }
 
-    #calendar-grid {
-      display: grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap: 5px;
-      margin-top: 15px;
-    }
+      #detail-modal-actions .button {
+        font-size: 17px;
+      }
 
-    .calendar-header {
-      text-align: center;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--secondary-text-color);
-      padding-bottom: 10px;
-    }
+      #calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 5px;
+        margin-top: 15px;
+      }
 
-    .calendar-day {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      aspect-ratio: 1 / 1;
-      font-size: 16px;
-      position: relative;
-      cursor: default;
-    }
+      .calendar-header {
+        text-align: center;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--secondary-text-color);
+        padding-bottom: 10px;
+      }
 
-    .calendar-day.empty {
-      visibility: hidden;
-    }
+      .calendar-day {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        aspect-ratio: 1 / 1;
+        font-size: 16px;
+        position: relative;
+        cursor: default;
+      }
 
-    .calendar-day.weekend .calendar-day-content {
-      color: var(--secondary-text-color);
-    }
+      .calendar-day.empty {
+        visibility: hidden;
+      }
 
-    .calendar-day.no-entry {
-      cursor: pointer;
-    }
+      .calendar-day.weekend .calendar-day-content {
+        color: var(--secondary-text-color);
+      }
 
-    .calendar-day.has-entry {
-      cursor: pointer;
-    }
+      .calendar-day.no-entry {
+        cursor: pointer;
+      }
 
-    .calendar-day.holiday {
-      cursor: help;
-    }
+      .calendar-day.has-entry {
+        cursor: pointer;
+      }
 
-    .calendar-day-content {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      width: 85%;
-      height: 85%;
-      border-radius: 50%;
-      transition: transform 0.1s ease;
-      position: relative;
-      box-sizing: border-box;
-    }
+      .calendar-day.holiday {
+        cursor: help;
+      }
 
-    .calendar-day-content.positive-value {
-      color: var(--button-text-color);
-    }
+      .calendar-day-content {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 85%;
+        height: 85%;
+        border-radius: 50%;
+        transition: transform 0.1s ease;
+        position: relative;
+        box-sizing: border-box;
+      }
 
-    .calendar-day-content.negative-value {
-      color: #000000;
-    }
+      .calendar-day-content.positive-value {
+        color: var(--button-text-color);
+      }
 
-    .calendar-day-content.zero-value {
-      color: #000000;
-    }
+      .calendar-day-content.negative-value {
+        color: #000000;
+      }
 
-    .calendar-day-content.special-day-urlaub-bg {
-      background-color: var(--special-day-urlaub-bg);
-      color: var(--special-day-text) !important;
-    }
+      .calendar-day-content.zero-value {
+        color: #000000;
+      }
 
-    .calendar-day-content.special-day-krank-bg {
-      background-color: var(--special-day-krank-bg);
-      color: var(--special-day-krank-text) !important;
-    }
+      .calendar-day-content.special-day-urlaub-bg {
+        background-color: var(--special-day-urlaub-bg);
+        color: var(--special-day-text) !important;
+      }
 
-    .calendar-day-content.special-day-schulung-bg {
-      background-color: var(--special-day-schulung-bg);
-      color: var(--special-day-schulung-text) !important;
-    }
+      .calendar-day-content.special-day-krank-bg {
+        background-color: var(--special-day-krank-bg);
+        color: var(--special-day-krank-text) !important;
+      }
 
-    .calendar-day-content.special-day-eza-bg {
-      background-color: var(--special-day-eza-bg);
-      color: var(--special-day-eza-text) !important;
-    }
+      .calendar-day-content.special-day-schulung-bg {
+        background-color: var(--special-day-schulung-bg);
+        color: var(--special-day-schulung-text) !important;
+      }
 
-    .calendar-day-content.special-day-glaz-bg {
-      background-color: var(--special-day-glaz-bg);
-      color: var(--special-day-glaz-text) !important;
-    }
+      .calendar-day-content.special-day-eza-bg {
+        background-color: var(--special-day-eza-bg);
+        color: var(--special-day-eza-text) !important;
+      }
 
-    .calendar-day-content.holiday-day {
-      background-color: var(--holiday-bg);
-      color: var(--holiday-text) !important;
-    }
+      .calendar-day-content.special-day-glaz-bg {
+        background-color: var(--special-day-glaz-bg);
+        color: var(--special-day-glaz-text) !important;
+      }
 
-    .calendar-day-content.today {
-      font-weight: bold;
-      border: 2px solid var(--button-background-color);
-    }
+      .calendar-day-content.holiday-day {
+        background-color: var(--holiday-bg);
+        color: var(--holiday-text) !important;
+      }
 
-    .calendar-day.has-entry .calendar-day-content.today {
-      border: 2px solid var(--text-color);
-    }
+      .calendar-day-content.today {
+        font-weight: bold;
+        border: 2px solid var(--button-background-color);
+      }
 
-    .calendar-day:active .calendar-day-content {
-      transform: scale(0.95);
-    }
+      .calendar-day.has-entry .calendar-day-content.today {
+        border: 2px solid var(--text-color);
+      }
 
-    .calendar-day-content.eza-booked-outline {
-      box-shadow: inset 0 0 0 3px var(--outline-color);
-    }
+      .calendar-day:active .calendar-day-content {
+        transform: scale(0.95);
+      }
 
-    #stats-content {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      background-color: var(--card-background-color);
-      border-radius: 10px;
-      overflow: hidden;
-    }
+      .calendar-day-content.eza-booked-outline {
+        box-shadow: inset 0 0 0 3px var(--outline-color);
+      }
 
-    #stats-content li {
-      display: flex;
-      justify-content: space-between;
-      padding: 12px 15px;
-      font-size: 17px;
-      border-bottom: 1px solid var(--separator-color);
-    }
+      #stats-content {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        background-color: var(--card-background-color);
+        border-radius: 10px;
+        overflow: hidden;
+      }
 
-    #stats-content li:last-child {
-      border-bottom: none;
-    }
+      #stats-content li {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px 15px;
+        font-size: 17px;
+        border-bottom: 1px solid var(--separator-color);
+      }
 
-    #stats-content li span:last-child {
-      font-weight: 500;
-      color: var(--secondary-text-color);
-    }
+      #stats-content li:last-child {
+        border-bottom: none;
+      }
 
-    .import-export-buttons {
-      display: flex;
-      gap: 10px;
-      margin-top: 20px;
-    }
+      #stats-content li span:last-child {
+        font-weight: 500;
+        color: var(--secondary-text-color);
+      }
 
-    .import-export-buttons .button {
-      margin-bottom: 0;
-    }
+      .import-export-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+      }
 
-    #legend-modal .modal-content {
-      max-width: 450px;
-    }
+      .import-export-buttons .button {
+        margin-bottom: 0;
+      }
 
-    .legend-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
+      #legend-modal .modal-content {
+        max-width: 450px;
+      }
 
-    .legend-item {
-      display: flex;
-      align-items: center;
-      margin-bottom: 10px;
-      font-size: 15px;
-    }
+      .legend-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
 
-    .legend-color-dot {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      margin-right: 10px;
-      flex-shrink: 0;
-      border: 1px solid rgba(0, 0, 0, 0.1);
-    }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+        font-size: 15px;
+      }
 
-    .legend-outline-indicator {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      margin-right: 10px;
-      flex-shrink: 0;
-      border: 3px solid var(--outline-color);
-      box-sizing: border-box;
-      background-color: var(--card-background-color);
-    }
+      .legend-color-dot {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        margin-right: 10px;
+        flex-shrink: 0;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+      }
 
-    .legend-text {
-      flex-grow: 1;
-    }
+      .legend-outline-indicator {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        margin-right: 10px;
+        flex-shrink: 0;
+        border: 3px solid var(--outline-color);
+        box-sizing: border-box;
+        background-color: var(--card-background-color);
+      }
 
-    #bottom-nav {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 40px;
-      background-color: var(--nav-background);
-      border-top: 0.5px solid var(--separator-color);
-      display: flex;
-      justify-content: space-around;
-      align-items: flex-start;
-      padding-top: 5px;
-      padding-bottom: var(--safe-area-bottom);
-      z-index: 1000;
-    }
+      .legend-text {
+        flex-grow: 1;
+      }
 
-    .nav-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      flex: 1;
-      color: var(--nav-icon-color);
-      text-decoration: none;
-      font-size: 10px;
-      cursor: pointer;
-      padding: 0 2px;
-      text-align: center;
-      height: 45px;
-      box-sizing: border-box;
-    }
+      #bottom-nav {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 40px;
+        background-color: var(--nav-background);
+        border-top: 0.5px solid var(--separator-color);
+        display: flex;
+        justify-content: space-around;
+        align-items: flex-start;
+        padding-top: 5px;
+        padding-bottom: var(--safe-area-bottom);
+        z-index: 1000;
+      }
 
-    .nav-item svg {
-      width: 24px;
-      height: 24px;
-      margin-bottom: 2px;
-      fill: currentColor;
-    }
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
+        color: var(--nav-icon-color);
+        text-decoration: none;
+        font-size: 10px;
+        cursor: pointer;
+        padding: 0 2px;
+        text-align: center;
+        height: 45px;
+        box-sizing: border-box;
+      }
 
-    .nav-item.active {
-      color: var(--nav-icon-active-color);
-    }
+      .nav-item svg {
+        width: 24px;
+        height: 24px;
+        margin-bottom: 2px;
+        fill: currentColor;
+      }
 
-    /* NEU: Styling für die Marker-Liste in den Optionen */
-    .marker-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      background-color: var(--marker-list-bg);
-      /* Etwas abgesetzt */
-      border-radius: 8px;
-      padding: 10px;
-    }
+      .nav-item.active {
+        color: var(--nav-icon-active-color);
+      }
 
-    .marker-list li {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 5px;
-      font-size: 15px;
-      border-bottom: 1px solid var(--separator-color);
-    }
+      /* NEU: Styling für die Marker-Liste in den Optionen */
+      .marker-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        background-color: var(--marker-list-bg);
+        /* Etwas abgesetzt */
+        border-radius: 8px;
+        padding: 10px;
+      }
 
-    .marker-list li:last-child {
-      border-bottom: none;
-    }
+      .marker-list li {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 5px;
+        font-size: 15px;
+        border-bottom: 1px solid var(--separator-color);
+      }
 
-    .marker-list li span {
-      flex-grow: 1;
-      margin-right: 10px;
-    }
+      .marker-list li:last-child {
+        border-bottom: none;
+      }
 
-    .marker-list li span .diff-badge {
-      /* Style für Badge in der Liste */
-      margin-left: 5px;
-    }
+      .marker-list li span {
+        flex-grow: 1;
+        margin-right: 10px;
+      }
 
-    .marker-list .delete-button {
-      flex-shrink: 0;
-      /* Verhindert Schrumpfen */
-      padding: 4px 8px;
-      /* Kleinere Buttons */
-      font-size: 14px;
-      min-height: auto;
-    }
+      .marker-list li span .diff-badge {
+        /* Style für Badge in der Liste */
+        margin-left: 5px;
+      }
 
-    /* NEU: Styling für das Marker-Modal (nutzt bestehende Modal-Styles) */
-    #add-marker-modal .modal-content {
-      max-width: 350px;
-      /* Etwas schmaler als Detail-Modal */
-    }
+      .marker-list .delete-button {
+        flex-shrink: 0;
+        /* Verhindert Schrumpfen */
+        padding: 4px 8px;
+        /* Kleinere Buttons */
+        font-size: 14px;
+        min-height: auto;
+      }
+
+      /* NEU: Styling für das Marker-Modal (nutzt bestehende Modal-Styles) */
+      #add-marker-modal .modal-content {
+        max-width: 350px;
+        /* Etwas schmaler als Detail-Modal */
+      }
   </style>
 </head>
 
@@ -3221,7 +3232,7 @@
               <input type="text" id="neues-konto-time" readonly />
             </div>
           </div>
-          <button class="button" onclick="saveDay()">Tag speichern</button>
+          <button class="button" id="save-day-button" onclick="saveDay()">Tag speichern</button>
         </div>
 
         <div class="section">
