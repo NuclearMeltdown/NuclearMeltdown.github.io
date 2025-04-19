@@ -1203,7 +1203,7 @@
       const existingIndex = history.findIndex((e) => e.datum === dateValStr);
       const displayDate = realDateLocal.toLocaleDateString("de-DE");
 
-      // Verwende die *aktuellen* Einstellungen für die Sollzeit dieser Eintrags
+      // Verwende die *aktuellen* Einstellungen für die Sollzeit dieses Eintrags
       const currentWochenAZMs = settings.wochenarbeitszeitMs;
       const currentSollProTagMs = currentWochenAZMs / 5;
       const currentEzaActive = settings.ezaActive;
@@ -1212,7 +1212,7 @@
       let mainDifferenceMs = 0;
       let ezaDifferenceMs = 0;
 
-      // Berechne Differenzen für Sondertage (nutzt aktuellen Sollwert)
+      // Berechne Differenzen für Sondertage
       if (currentEzaActive) {
         if (isUrlaub || isSchulung) mainDifferenceMs = -0.4 * 3600 * 1000;
         else if (isKrank) ezaDifferenceMs = -0.4 * 3600 * 1000;
@@ -1252,7 +1252,6 @@
         pcBuchung: false, // Wird gesetzt
         buero: isBueroAddDay,
         zusatzPause: "", // Wird gesetzt
-        // NEU: Speichere die zum Zeitpunkt der Buchung gültigen Werte
         usedWochenarbeitszeitMs: currentWochenAZMs,
         usedSollProTagMs: currentSollProTagMs,
       };
@@ -1274,11 +1273,15 @@
       const kommenDateManual = parseTimeForDate(kommenVal, realDateLocal);
       const gehenDateManual = parseTimeForDate(gehenVal, realDateLocal);
       if (!kommenDateManual || !gehenDateManual) { alert("Ungültige Zeitformate!"); return; }
-      if (gehenDateManual < kommenDateManual) gehenDateManual.setDate(gehenDateManual.getDate() + 1);
+
+      // Stelle sicher, dass gehenDate nach kommenDate liegt (ggf. nächster Tag)
+      if (gehenDateManual <= kommenDateManual) {
+        gehenDateManual.setDate(gehenDateManual.getDate() + 1);
+      }
 
       const additionalPauseManualMs = parsePauseInputFromString(additionalPauseManualValue);
 
-      // Berechne Netto-Arbeitszeit
+      // Berechne Netto-Arbeitszeit mit eigener Funktion
       const netManualMs = calculateWorkMs(
         kommenDateManual, gehenDateManual,
         additionalPauseManualMs, isPcBuchungAddDay
@@ -1289,7 +1292,7 @@
         if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
       }
 
-      // Berechne Differenz: Netto - Soll = Differenz 
+      // Berechne Differenz: Netto - Soll = Differenz
       // Positiv wenn mehr gearbeitet als Soll, negativ wenn weniger
       dayData.differenzMs = netManualMs - currentSollProTagMs;
       dayData.differenz = truncateDecimals(dayData.differenzMs / (3600 * 1000), 2).toFixed(2);
