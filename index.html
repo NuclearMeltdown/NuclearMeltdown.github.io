@@ -1277,6 +1277,8 @@
       if (gehenDateManual < kommenDateManual) gehenDateManual.setDate(gehenDateManual.getDate() + 1);
 
       const additionalPauseManualMs = parsePauseInputFromString(additionalPauseManualValue);
+
+      // Berechne Netto-Arbeitszeit
       const netManualMs = calculateWorkMs(
         kommenDateManual, gehenDateManual,
         additionalPauseManualMs, isPcBuchungAddDay
@@ -1287,21 +1289,19 @@
         if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
       }
 
-      // BUGFIX: Berechne Differenz wie in saveDay - das Vorzeichen muss korrekt sein
-      // Netto - Soll = Differenz (positiv wenn mehr gearbeitet als Soll, negativ wenn weniger)
-      const mainDifferenceMsManual = netManualMs - currentSollProTagMs;
+      // Berechne Differenz: Netto - Soll = Differenz 
+      // Positiv wenn mehr gearbeitet als Soll, negativ wenn weniger
+      dayData.differenzMs = netManualMs - currentSollProTagMs;
+      dayData.differenz = truncateDecimals(dayData.differenzMs / (3600 * 1000), 2).toFixed(2);
+      dayData.differenzTime = formatDecimalToTime(dayData.differenzMs / (3600 * 1000));
 
-      // Korrekte Anzeige für die Differenz 
-      // (anstatt eigene Runden vornehmen, wir übernehmen den korrekten Wert von netManualMs - currentSollProTagMs)
-      dayData.differenzMs = mainDifferenceMsManual;
-      dayData.differenz = truncateDecimals(mainDifferenceMsManual / (3600 * 1000), 2).toFixed(2);
-      dayData.differenzTime = formatDecimalToTime(mainDifferenceMsManual / (3600 * 1000));
-
+      // Füge weitere benötigte Daten hinzu
       dayData.kommen = formatLocalDateTimeString(kommenDateManual);
       dayData.gehen = formatLocalDateTimeString(gehenDateManual);
       dayData.pcBuchung = isPcBuchungAddDay;
       dayData.zusatzPause = additionalPauseManualValue;
 
+      // Speichern und Aktualisieren
       if (existingIndex !== -1) history[existingIndex] = dayData;
       else history.push(dayData);
 
