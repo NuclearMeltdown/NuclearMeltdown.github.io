@@ -1181,7 +1181,7 @@
       return resultDate;
     }
 
-    // *** GEÄNDERTE addManualDay() Funktion ***
+    // *** GEÄNDERTE addManualDay() Funktion mit BUGFIX ***
     function addManualDay() {
       const dateValStr = $("add-day-modal").getAttribute("data-date"); // YYYY-MM-DD
       if (!dateValStr) { alert("Kein gültiges Datum!"); return; }
@@ -1287,8 +1287,12 @@
         if (!confirm("Zeiten verstoßen gegen Regeln. Trotzdem speichern?")) return;
       }
 
-      // Berechne Differenz wie in saveDay
+      // BUGFIX: Berechne Differenz wie in saveDay - das Vorzeichen muss korrekt sein
+      // Netto - Soll = Differenz (positiv wenn mehr gearbeitet als Soll, negativ wenn weniger)
       const mainDifferenceMsManual = netManualMs - currentSollProTagMs;
+
+      // Korrekte Anzeige für die Differenz 
+      // (anstatt eigene Runden vornehmen, wir übernehmen den korrekten Wert von netManualMs - currentSollProTagMs)
       dayData.differenzMs = mainDifferenceMsManual;
       dayData.differenz = truncateDecimals(mainDifferenceMsManual / (3600 * 1000), 2).toFixed(2);
       dayData.differenzTime = formatDecimalToTime(mainDifferenceMsManual / (3600 * 1000));
