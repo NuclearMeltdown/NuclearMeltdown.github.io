@@ -1295,6 +1295,13 @@
       // Berechne Differenz: Netto - Soll = Differenz
       // Positiv wenn mehr gearbeitet als Soll, negativ wenn weniger
       dayData.differenzMs = netManualMs - currentSollProTagMs;
+
+      // Apply the same rounding as in updateCalculations()
+      // Round minutes up to match hh:mm display format
+      const roundedDiffMin = Math.ceil(Math.abs(dayData.differenzMs) / 60000);
+      const diffHDisplay = (dayData.differenzMs < 0 ? -1 : 1) * (roundedDiffMin / 60);
+      dayData.differenzMs = diffHDisplay * 3600000; // Convert rounded hours back to ms
+
       dayData.differenz = truncateDecimals(dayData.differenzMs / (3600 * 1000), 2).toFixed(2);
       dayData.differenzTime = formatDecimalToTime(dayData.differenzMs / (3600 * 1000));
 
